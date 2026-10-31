@@ -1,14 +1,10 @@
-import { PreviewableImage } from "@/components/ImagePreview";
 import { useParams, Link, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -22,8 +18,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { ObjectUploader } from "@/components/ObjectUploader";
-import { ArrowLeft, Calendar, MapPin, User, CheckCircle, Plus, Upload, Sparkles, Camera, Trash2, Pencil, Loader2 } from "lucide-react";
+import { ArrowLeft, Calendar, MapPin, User, CheckCircle, Sparkles, Trash2, Pencil, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -46,6 +41,12 @@ import {
   useInspectionCompletionChecklist,
 } from "@/components/CompletionChecklistPanel";
 import { COMPLETION_CHECKLIST_INSPECTION_UI_VISIBLE } from "@shared/completionChecklist";
+import {
+  formatRequiredIncompleteMessage,
+  listRequiredIncompleteFields,
+  repeatableCountsFromEntries,
+} from "@shared/inspectionProgress";
+import { repeatableCountsFromPropertyLayout } from "@shared/propertyLayout";
 
 export default function InspectionDetail() {
   const { id } = useParams<{ id: string }>();
@@ -58,7 +59,6 @@ export default function InspectionDetail() {
     ? (completionChecklist?.progress?.requiredIncomplete ?? 0)
     : 0;
 
-  const [showAddForm, setShowAddForm] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [showCompleteDialog, setShowCompleteDialog] = useState(false);
@@ -69,13 +69,6 @@ export default function InspectionDetail() {
   const [isOnline, setIsOnline] = useState(
     typeof navigator !== "undefined" ? navigator.onLine : true,
   );
-  const [newItem, setNewItem] = useState({
-    category: "",
-    itemName: "",
-    photoUrl: "",
-    conditionRating: 5,
-    notes: "",
-  });
 
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
@@ -90,6 +83,11 @@ export default function InspectionDetail() {
 
   const { data: inspection, isLoading } = useQuery<any>({
     queryKey: ["/api/inspections", id],
+    enabled: !!id,
+  });
+
+  const { data: detailEntries = [] } = useQuery<any[]>({
+    queryKey: [`/api/inspections/${id}/entries`],
     enabled: !!id,
   });
 
@@ -148,7 +146,54 @@ export default function InspectionDetail() {
     (inspection?.type === "check_in" || inspection?.type === "check_out") &&
     !!inspection?.propertyId;
 
+  const getRequiredIncompleteForDetail = () => {
+    const snapshot = inspection?.templateSnapshotJson || {};
+    const sections = Array.isArray(snapshot.sections) ? snapshot.sections : [];
+    const fromEntries = repeatableCountsFromEntries(detailEntries);
+    const layoutCounts = inspection?.propertyRoomCountsSnapshot ?? null;
+    const fromLayout = layoutCounts
+      ? repeatableCountsFromPropertyLayout(snapshot, layoutCounts)
+      : {};
+    return listRequiredIncompleteFields({
+      sections,
+      entries: detailEntries,
+      repeatableCounts: { ...fromEntries, ...fromLayout },
+      propertyRoomInstances: Array.isArray(snapshot.propertyRoomInstances)
+        ? snapshot.propertyRoomInstances
+        : [],
+      templateStructure: snapshot,
+      excludeTenantSignatures: !tenanciesEnabled,
+    });
+  };
+
+  const requestMarkComplete = () => {
+    const missing = getRequiredIncompleteForDetail();
+    if (missing.length > 0) {
+      toast({
+        variant: "destructive",
+        title: "Required fields missing",
+        description: formatRequiredIncompleteMessage(missing),
+      });
+      if (id) setLocation(`/inspections/${id}/capture`);
+      return;
+    }
+    setShowCompleteDialog(true);
+  };
+
   const finalizeComplete = async (opts: { withAI: boolean; sendToTenant: boolean }) => {
+    const missing = getRequiredIncompleteForDetail();
+    if (missing.length > 0) {
+      setShowCompleteDialog(false);
+      setShowSendToTenantDialog(false);
+      toast({
+        variant: "destructive",
+        title: "Required fields missing",
+        description: formatRequiredIncompleteMessage(missing),
+      });
+      if (id) setLocation(`/inspections/${id}/capture`);
+      return;
+    }
+
     setCompletingAction(opts.withAI ? "with-ai" : "without-ai");
     if (opts.sendToTenant) {
       setSendingToTenantAction("yes");
@@ -227,67 +272,6 @@ export default function InspectionDetail() {
     }
     void finalizeComplete({ withAI: true, sendToTenant: false });
   };
-
-  const addItemMutation = useMutation({
-    mutationFn: async (itemData: any) => {
-      const response = await apiRequest("POST", "/api/inspection-items", {
-        inspectionId: id,
-        ...itemData,
-      });
-      return await response.json();
-    },
-    onSuccess: async (newItem) => {
-      console.log('[InspectionDetail] Item created:', newItem);
-      
-      // Optimistically update the cache
-      queryClient.setQueryData(["/api/inspections", id], (oldData: any) => {
-        if (!oldData) return oldData;
-        return {
-          ...oldData,
-          items: [...(oldData.items || []), newItem],
-        };
-      });
-      
-      // Invalidate and refetch to ensure we have the latest data
-      await queryClient.invalidateQueries({ queryKey: ["/api/inspections", id] });
-      await queryClient.refetchQueries({ queryKey: ["/api/inspections", id] });
-      
-      setShowAddForm(false);
-      setNewItem({ category: "", itemName: "", photoUrl: "", conditionRating: 5, notes: "" });
-      toast({
-        title: "Success",
-        description: "Inspection item added successfully",
-      });
-    },
-    onError: (error: any) => {
-      console.error('[InspectionDetail] Error adding item:', error);
-      toast({
-        title: "Error",
-        description: error.message || "Failed to add inspection item",
-        variant: "destructive",
-      });
-    },
-  });
-
-  const analyzePhotoMutation = useMutation({
-    mutationFn: async (itemId: string) => {
-      return await apiRequest("POST", "/api/ai/analyze-photo", { itemId });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/inspections", id] });
-      toast({
-        title: "Success",
-        description: "AI analysis completed",
-      });
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to analyze photo",
-        variant: "destructive",
-      });
-    },
-  });
 
   const deleteInspectionMutation = useMutation({
     mutationFn: async () => {
@@ -376,18 +360,6 @@ export default function InspectionDetail() {
     deleteInspectionMutation.mutate();
   };
 
-  const handleAddItem = () => {
-    if (!newItem.category || !newItem.itemName) {
-      toast({
-        title: "Validation Error",
-        description: "Category and item name are required",
-        variant: "destructive",
-      });
-      return;
-    }
-    addItemMutation.mutate(newItem);
-  };
-
   if (isLoading) {
     return (
       <div className={cn("container mx-auto min-w-0", pagePad)}>
@@ -426,17 +398,6 @@ export default function InspectionDetail() {
     <Badge variant="outline">{formatInspectionType(type)}</Badge>
   );
 
-  const items = inspection?.items || [];
-  
-  // Debug logging
-  if (inspection) {
-    console.log('[InspectionDetail] Inspection data:', {
-      id: inspection.id,
-      itemsCount: items.length,
-      items: items,
-    });
-  }
-
   return (
     <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
       <div className="flex flex-col sm:flex-row sm:items-start gap-3 md:gap-4">
@@ -456,7 +417,7 @@ export default function InspectionDetail() {
         <div className="flex items-center gap-2 flex-wrap shrink-0">
           {inspection.status !== "completed" && (
             <Button
-              onClick={() => setShowCompleteDialog(true)}
+              onClick={requestMarkComplete}
               disabled={completeInspection.isPending || completingAction !== null || sendingToTenantAction !== null}
               data-testid="button-complete"
               className="w-full sm:w-auto"
@@ -549,271 +510,6 @@ export default function InspectionDetail() {
           </CardContent>
         </Card>
       )}
-
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-4">
-          <div>
-            <CardTitle>Inspection Items</CardTitle>
-            <CardDescription>
-              Photos and condition assessments for this inspection
-            </CardDescription>
-          </div>
-          {inspection.status !== "completed" && (
-            <Button
-              onClick={() => setShowAddForm(!showAddForm)}
-              size="sm"
-              data-testid="button-add-item"
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              Add Item
-            </Button>
-          )}
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {showAddForm && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Add New Inspection Item</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="category">Category / Room</Label>
-                  <Select
-                    value={newItem.category}
-                    onValueChange={(value) => setNewItem({ ...newItem, category: value })}
-                  >
-                    <SelectTrigger id="category" data-testid="select-category">
-                      <SelectValue placeholder="Select category" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Kitchen">Kitchen</SelectItem>
-                      <SelectItem value="Bathroom">Bathroom</SelectItem>
-                      <SelectItem value="Living Room">Living Room</SelectItem>
-                      <SelectItem value="Bedroom">Bedroom</SelectItem>
-                      <SelectItem value="Hallway">Hallway</SelectItem>
-                      <SelectItem value="Exterior">Exterior</SelectItem>
-                      <SelectItem value="Other">Other</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="itemName">Item / Feature</Label>
-                  <Input
-                    id="itemName"
-                    placeholder="e.g., Walls, Floors, Countertops, Appliances"
-                    value={newItem.itemName}
-                    onChange={(e) => setNewItem({ ...newItem, itemName: e.target.value })}
-                    data-testid="input-item-name"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Photo (Optional)</Label>
-                  <ObjectUploader
-                    onGetUploadParameters={async () => {
-                      const response = await fetch('/api/objects/upload', {
-                        method: 'POST',
-                        credentials: 'include',
-                      });
-                      const { uploadURL } = await response.json();
-                      return {
-                        method: 'PUT',
-                        url: uploadURL,
-                      };
-                    }}
-                    onComplete={async (result) => {
-                      if (result.successful && result.successful[0]) {
-                        let uploadURL = result.successful[0].uploadURL;
-                        
-                        // Normalize URL: if absolute, extract pathname; if relative, use as is
-                        if (uploadURL && (uploadURL.startsWith('http://') || uploadURL.startsWith('https://'))) {
-                          try {
-                            const urlObj = new URL(uploadURL);
-                            uploadURL = urlObj.pathname;
-                          } catch (e) {
-                            console.error('[InspectionDetail] Invalid upload URL:', uploadURL);
-                          }
-                        }
-                        
-                        // Ensure it's a relative path starting with /objects/
-                        if (!uploadURL || !uploadURL.startsWith('/objects/')) {
-                          toast({
-                            title: "Upload Error",
-                            description: "Invalid file URL format. Please try again.",
-                            variant: "destructive",
-                          });
-                          return;
-                        }
-                        
-                        // Convert to absolute URL for ACL call
-                        const absoluteUrl = `${window.location.origin}${uploadURL}`;
-                        const response = await fetch('/api/objects/set-acl', {
-                          method: 'PUT',
-                          headers: { 'Content-Type': 'application/json' },
-                          credentials: 'include',
-                          body: JSON.stringify({ photoUrl: absoluteUrl }),
-                        });
-                        const { objectPath } = await response.json();
-                        setNewItem({ ...newItem, photoUrl: objectPath });
-                        toast({
-                          title: "Photo uploaded",
-                          description: "Photo uploaded successfully",
-                        });
-                      }
-                    }}
-                  >
-                    <Upload className="w-4 h-4 mr-2" />
-                    {newItem.photoUrl ? "Change Photo" : "Upload Photo"}
-                  </ObjectUploader>
-                  {newItem.photoUrl && (
-                    <div className="space-y-2">
-                      <div className="relative aspect-video rounded-md overflow-hidden bg-muted border">
-                        <PreviewableImage
-                          src={newItem.photoUrl.startsWith('/objects/') ? newItem.photoUrl : `/objects/${newItem.photoUrl}`}
-                          alt="Inspection item photo"
-                          title="Inspection item photo"
-                          className="object-cover w-full h-full"
-                        />
-                      </div>
-                      <p className="text-sm text-muted-foreground">Photo uploaded</p>
-                    </div>
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Condition Rating: {newItem.conditionRating}/10</Label>
-                  <Slider
-                    value={[newItem.conditionRating]}
-                    onValueChange={(value) => setNewItem({ ...newItem, conditionRating: value[0] })}
-                    min={0}
-                    max={10}
-                    step={1}
-                    className="w-full"
-                    data-testid="slider-condition"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    0 = Poor condition, 10 = Excellent condition
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="notes">Notes (Optional)</Label>
-                  <Textarea
-                    id="notes"
-                    placeholder="Add any additional observations or details..."
-                    value={newItem.notes}
-                    onChange={(e) => setNewItem({ ...newItem, notes: e.target.value })}
-                    rows={3}
-                    data-testid="textarea-notes"
-                  />
-                </div>
-
-                <div className="flex gap-2">
-                  <Button
-                    onClick={handleAddItem}
-                    disabled={addItemMutation.isPending}
-                    data-testid="button-save-item"
-                  >
-                    {addItemMutation.isPending ? "Saving..." : "Save Item"}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      setShowAddForm(false);
-                      setNewItem({ category: "", itemName: "", photoUrl: "", conditionRating: 5, notes: "" });
-                    }}
-                    data-testid="button-cancel"
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {!showAddForm && items.length === 0 && (
-            <div className="text-center py-8">
-              <Camera className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-              <p className="text-muted-foreground mb-2">No inspection items yet</p>
-              <p className="text-sm text-muted-foreground">
-                Add inspection items to document the condition of this property
-              </p>
-            </div>
-          )}
-
-          {items.length > 0 && (
-            <div className="grid gap-4 md:grid-cols-2">
-              {items.map((item: any) => {
-                console.log('[InspectionDetail] Rendering item:', item);
-                return (
-                <Card key={item.id} data-testid={`card-item-${item.id}`}>
-                  <CardHeader>
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <CardTitle className="text-base">{item.itemName}</CardTitle>
-                        <CardDescription>{item.category}</CardDescription>
-                      </div>
-                      <Badge variant="secondary" data-testid={`badge-rating-${item.id}`}>
-                        {item.conditionRating != null ? `${item.conditionRating}/10` : 'N/A'}
-                      </Badge>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    {item.photoUrl && (
-                      <div className="relative aspect-video rounded-md overflow-hidden bg-muted">
-                        <PreviewableImage
-                          src={item.photoUrl.startsWith('/objects/') ? item.photoUrl : `/objects/${item.photoUrl}`}
-                          alt={item.itemName}
-                          title={item.itemName}
-                          caption={item.category}
-                          className="object-cover w-full h-full"
-                          data-testid={`img-item-${item.id}`}
-                        />
-                      </div>
-                    )}
-                    
-                    {item.notes && (
-                      <div className="p-3 bg-muted/50 rounded-md">
-                        <p className="text-sm" data-testid={`text-notes-${item.id}`}>
-                          {item.notes}
-                        </p>
-                      </div>
-                    )}
-                    
-                    {item.aiAnalysis && (
-                      <div className="p-3 bg-muted rounded-md">
-                        <div className="flex items-center gap-2 mb-2">
-                          <Sparkles className="w-4 h-4 text-primary" />
-                          <span className="text-sm font-medium">AI Analysis</span>
-                        </div>
-                        <p className="text-sm text-muted-foreground" data-testid={`text-ai-${item.id}`}>
-                          {item.aiAnalysis}
-                        </p>
-                      </div>
-                    )}
-                    
-                    {!item.aiAnalysis && item.photoUrl && inspection.status !== "completed" && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => analyzePhotoMutation.mutate(item.id)}
-                        disabled={analyzePhotoMutation.isPending}
-                        data-testid={`button-analyze-${item.id}`}
-                        className="w-full"
-                      >
-                        <Sparkles className="w-4 h-4 mr-2" />
-                        {analyzePhotoMutation.isPending ? "Analyzing..." : "Analyze with AI"}
-                      </Button>
-                    )}
-                  </CardContent>
-                </Card>
-                );
-              })}
-            </div>
-          )}
-        </CardContent>
-      </Card>
 
       {id && (
         <div

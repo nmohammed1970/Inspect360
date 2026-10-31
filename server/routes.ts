@@ -7994,7 +7994,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await storage.getUser(req.user.id);
       if (!user) return res.status(403).json({ message: "User not found" });
       const { listGallery } = await import("./inspectionGalleryService");
-      const images = await listGallery(req.params.inspectionId, user);
+      const sectionRef =
+        typeof req.query.sectionRef === "string" ? req.query.sectionRef.trim() : "";
+      const images = await listGallery(
+        req.params.inspectionId,
+        user,
+        sectionRef ? { sectionRef } : undefined,
+      );
       res.json({ images });
     } catch (error: any) {
       console.error("Error listing gallery:", error);
@@ -8611,6 +8617,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         updates.submittedAt = new Date(updates.submittedAt);
       }
 
+      // Block complete when template-required fields are still blank
+      if (validation.data.status === "completed" && inspection.status !== "completed") {
+        try {
+          const { assertInspectionReadyToComplete } = await import(
+            "./inspectionRequiredFieldsGate"
+          );
+          await assertInspectionReadyToComplete(storage, inspection, ownerOrgId);
+        } catch (requiredError: any) {
+          return res.status(requiredError?.status || 400).json({
+            message: requiredError?.message || "Required fields are incomplete",
+            error: "required_fields_incomplete",
+          });
+        }
+      }
+
       // Handle credit consumption when inspection is completed
       // Note: "submitted" is not a valid status in the enum, only "completed" triggers credit consumption
       if (validation.data.status === "completed" &&
@@ -8801,6 +8822,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
+      // Block complete when template-required fields are still blank
+      if (req.body.status === "completed" && inspection.status !== "completed") {
+        try {
+          const { assertInspectionReadyToComplete } = await import(
+            "./inspectionRequiredFieldsGate"
+          );
+          await assertInspectionReadyToComplete(storage, inspection, ownerOrgId);
+        } catch (requiredError: any) {
+          return res.status(requiredError?.status || 400).json({
+            message: requiredError?.message || "Required fields are incomplete",
+            error: "required_fields_incomplete",
+          });
+        }
+      }
+
       // Handle credit consumption when inspection is completed
       const updates: any = {};
       if (req.body.status === "completed" &&
@@ -8955,6 +8991,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else if (inspection.blockId) {
         const block = await storage.getBlock(inspection.blockId);
         ownerOrgId = block?.organizationId || null;
+      }
+
+      // Block complete when template-required fields are still blank
+      if (status === "completed" && inspection.status !== "completed") {
+        try {
+          const { assertInspectionReadyToComplete } = await import(
+            "./inspectionRequiredFieldsGate"
+          );
+          await assertInspectionReadyToComplete(storage, inspection, ownerOrgId);
+        } catch (requiredError: any) {
+          return res.status(requiredError?.status || 400).json({
+            message: requiredError?.message || "Required fields are incomplete",
+            error: "required_fields_incomplete",
+          });
+        }
       }
 
       // Note: "submitted" is not a valid status in the enum, only "completed" triggers credit consumption

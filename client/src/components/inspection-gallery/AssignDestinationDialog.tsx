@@ -99,27 +99,33 @@ export function AssignDestinationDialog({
               Select at most {GALLERY_FIELD_PHOTO_MAX} photos to assign to one inspection point.
             </p>
           )}
-          <div className="space-y-2">
-            <Label>Section</Label>
-            <Select
-              value={sectionRef}
-              onValueChange={(v) => {
-                setSectionRef(v);
-                setFieldKey("");
-              }}
-            >
-              <SelectTrigger data-testid="gallery-assign-section">
-                <SelectValue placeholder="Select section" />
-              </SelectTrigger>
-              <SelectContent>
-                {sectionOptions.map((s) => (
-                  <SelectItem key={s.sectionRef} value={s.sectionRef}>
-                    {s.sectionLabel}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {sectionOptions.length > 1 ? (
+            <div className="space-y-2">
+              <Label>Section</Label>
+              <Select
+                value={sectionRef}
+                onValueChange={(v) => {
+                  setSectionRef(v);
+                  setFieldKey("");
+                }}
+              >
+                <SelectTrigger data-testid="gallery-assign-section">
+                  <SelectValue placeholder="Select section" />
+                </SelectTrigger>
+                <SelectContent>
+                  {sectionOptions.map((s) => (
+                    <SelectItem key={s.sectionRef} value={s.sectionRef}>
+                      {s.sectionLabel}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ) : sectionOptions[0] ? (
+            <p className="text-sm text-muted-foreground" data-testid="gallery-assign-section-locked">
+              Section: <span className="font-medium text-foreground">{sectionOptions[0].sectionLabel}</span>
+            </p>
+          ) : null}
           <div className="space-y-2">
             <Label>Inspection Point</Label>
             <Select value={effectiveFieldKey} onValueChange={setFieldKey}>

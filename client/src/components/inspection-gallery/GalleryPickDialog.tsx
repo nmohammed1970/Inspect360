@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Dialog,
@@ -14,6 +14,7 @@ import { PreviewableImage } from "@/components/ImagePreview";
 import { Loader2 } from "lucide-react";
 import type { GalleryImage } from "./types";
 import { cn } from "@/lib/utils";
+import { matchesSectionScope } from "@shared/inspectionGallery";
 
 type Props = {
   open: boolean;
@@ -25,6 +26,10 @@ type Props = {
   destinationLabel?: string;
   onConfirm: (images: GalleryImage[]) => void | Promise<void>;
   busy?: boolean;
+  /** Default list to this section instance; toggle can show all. */
+  scopeSectionRef?: string;
+  scopeAliasRefs?: string[];
+  scopeLabel?: string;
 };
 
 export function GalleryPickDialog({
@@ -36,8 +41,20 @@ export function GalleryPickDialog({
   destinationLabel,
   onConfirm,
   busy,
+  scopeSectionRef,
+  scopeAliasRefs = [],
+  scopeLabel,
 }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const hasScope = Boolean(String(scopeSectionRef || "").trim());
+  const [showAll, setShowAll] = useState(!hasScope);
+
+  useEffect(() => {
+    if (open) {
+      setSelected(new Set());
+      setShowAll(!hasScope);
+    }
+  }, [open, hasScope]);
 
   const { data, isLoading, isError, refetch } = useQuery<{ images: GalleryImage[] }>({
     queryKey: ["/api/inspections", inspectionId, "gallery"],
@@ -51,7 +68,14 @@ export function GalleryPickDialog({
     enabled: open && !!inspectionId,
   });
 
-  const images = data?.images || [];
+  const allImages = data?.images || [];
+  const scopeRef = String(scopeSectionRef || "").trim();
+
+  const images = useMemo(() => {
+    if (!hasScope || showAll) return allImages;
+    return allImages.filter((img) => matchesSectionScope(img, scopeRef, scopeAliasRefs));
+  }, [allImages, hasScope, showAll, scopeRef, scopeAliasRefs]);
+
   const already = useMemo(() => new Set(alreadyUrls), [alreadyUrls]);
 
   const remainingSlots = Math.max(0, maxSelectable - alreadyUrls.length);
@@ -82,6 +106,26 @@ export function GalleryPickDialog({
           {destinationLabel && (
             <p className="text-sm text-muted-foreground">Current location: {destinationLabel}</p>
           )}
+          {hasScope && (
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <Button
+                type="button"
+                size="sm"
+                variant={showAll ? "outline" : "default"}
+                onClick={() => setShowAll(false)}
+              >
+                {scopeLabel || "This section"}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={showAll ? "default" : "outline"}
+                onClick={() => setShowAll(true)}
+              >
+                Show all inspection photos
+              </Button>
+            </div>
+          )}
         </DialogHeader>
 
         <div className="flex-1 min-h-0 overflow-y-auto">
@@ -101,7 +145,9 @@ export function GalleryPickDialog({
           )}
           {!isLoading && !isError && images.length === 0 && (
             <p className="text-sm text-muted-foreground text-center py-10">
-              No photos in this inspection gallery yet. Upload photos from the Gallery tab first.
+              {hasScope && !showAll
+                ? `No photos in ${scopeLabel || "this section"} yet. Upload from Section Gallery, or show all inspection photos.`
+                : "No photos in this inspection gallery yet. Upload photos from the Gallery tab first."}
             </p>
           )}
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">

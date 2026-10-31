@@ -27,6 +27,8 @@ import {
   GALLERY_FIELD_PHOTO_MAX,
   GALLERY_REGISTER_BATCH_MAX,
   GALLERY_UPLOAD_SELECT_MAX,
+  SECTION_GALLERY_FIELD_KEY,
+  matchesSectionScope,
 } from "@shared/inspectionGallery";
 import { captureDeviceGps } from "./captureDeviceGps";
 
@@ -36,12 +38,22 @@ type Props = {
   inspectionId: string;
   canEdit?: boolean;
   onEntriesChanged?: () => void;
+  /** When set, panel shows only images for this section instance (Section Gallery). */
+  scopeSectionRef?: string;
+  scopeAliasRefs?: string[];
+  scopeLabel?: string;
+  /** Tighter chrome when embedded in a dialog. */
+  embedded?: boolean;
 };
 
 export function InspectionGalleryPanel({
   inspectionId,
   canEdit = true,
   onEntriesChanged,
+  scopeSectionRef,
+  scopeAliasRefs = [],
+  scopeLabel,
+  embedded = false,
 }: Props) {
   const { toast } = useToast();
   const locale = useLocale();
@@ -88,8 +100,29 @@ export function InspectionGalleryPanel({
     },
   });
 
-  const images = galleryQuery.data?.images || [];
-  const destinations = destinationsQuery.data?.destinations || [];
+  const allImages = galleryQuery.data?.images || [];
+  const isScoped = Boolean(scopeSectionRef?.trim());
+  const scopeRef = String(scopeSectionRef || "").trim();
+
+  const images = useMemo(() => {
+    if (!isScoped) return allImages;
+    return allImages.filter((img) => matchesSectionScope(img, scopeRef, scopeAliasRefs));
+  }, [allImages, isScoped, scopeRef, scopeAliasRefs]);
+
+  // Section Gallery: Assign/Move only offers points under this section instance.
+  const destinations = useMemo(() => {
+    const all = destinationsQuery.data?.destinations || [];
+    if (!isScoped) return all;
+    const refs = new Set(
+      [scopeRef, ...scopeAliasRefs].map((r) => String(r || "").trim()).filter(Boolean),
+    );
+    return all.filter((d) => refs.has(d.sectionRef));
+  }, [destinationsQuery.data?.destinations, isScoped, scopeRef, scopeAliasRefs]);
+
+  const assignInitialSectionRef = useMemo(() => {
+    if (!isScoped) return undefined;
+    return destinations[0]?.sectionRef || scopeRef;
+  }, [isScoped, destinations, scopeRef]);
 
   const filtered = useMemo(() => {
     if (filter === "unassigned") return images.filter((i) => i.assignments.length === 0);
@@ -194,6 +227,10 @@ export function InspectionGalleryPanel({
   ) => {
     if (!successful.length) return;
     const gps = await captureDeviceGps();
+    const assign =
+      isScoped && scopeRef
+        ? { sectionRef: scopeRef, fieldKey: SECTION_GALLERY_FIELD_KEY }
+        : null;
     // Server accepts at most GALLERY_REGISTER_BATCH_MAX images per request.
     for (let i = 0; i < successful.length; i += GALLERY_REGISTER_BATCH_MAX) {
       const chunk = successful.slice(i, i + GALLERY_REGISTER_BATCH_MAX);
@@ -206,6 +243,7 @@ export function InspectionGalleryPanel({
           captureLatitude: gps?.latitude ?? null,
           captureLongitude: gps?.longitude ?? null,
         })),
+        assign,
         capture: gps
           ? { latitude: gps.latitude, longitude: gps.longitude }
           : null,
@@ -308,14 +346,31 @@ export function InspectionGalleryPanel({
     );
   }
 
+  const title = isScoped
+    ? `Section Gallery${scopeLabel ? ` — ${scopeLabel}` : ""}`
+    : "Inspection Gallery";
+
   return (
-    <div className="space-y-4 min-w-0" data-testid="inspection-gallery-panel">
+    <div
+      className={cn("space-y-4 min-w-0", embedded && "space-y-3")}
+      data-testid={isScoped ? "section-gallery-panel" : "inspection-gallery-panel"}
+    >
       <div className="flex flex-wrap items-center gap-2 justify-between">
         <div className="min-w-0 space-y-0.5">
-          <h2 className="text-lg font-semibold tracking-tight font-heading">Inspection Gallery</h2>
+          <h2
+            className={cn(
+              "font-semibold tracking-tight font-heading",
+              embedded ? "text-base" : "text-lg",
+            )}
+          >
+            {title}
+          </h2>
           <p className="text-sm text-muted-foreground">
             {images.length} photo{images.length === 1 ? "" : "s"}
             {filter !== "all" ? ` · showing ${filtered.length}` : ""}
+            {isScoped && allImages.length > images.length
+              ? ` · ${allImages.length} in inspection`
+              : ""}
           </p>
         </div>
         {canEdit && (
@@ -475,7 +530,9 @@ export function InspectionGalleryPanel({
           <ImagePlus className="h-10 w-10 mx-auto text-muted-foreground" />
           <p className="font-medium">No photos yet</p>
           <p className="text-sm text-muted-foreground max-w-sm mx-auto">
-            Upload photos, take a photo, or add images while completing inspection sections.
+            {isScoped
+              ? `Upload photos for ${scopeLabel || "this section"}. They appear here and in the Inspection Gallery until assigned to a point.`
+              : "Upload photos, take a photo, or add images while completing inspection sections."}
           </p>
           {canEdit && (
             <Button type="button" onClick={() => fileInputRef.current?.click()}>
@@ -561,6 +618,7 @@ export function InspectionGalleryPanel({
         destinations={destinations}
         selectedCount={selected.size}
         busy={assignMutation.isPending}
+        initialSectionRef={assignInitialSectionRef}
         onConfirm={(sectionRef, fieldKey) =>
           assignMutation.mutate({ imageIds: Array.from(selected), sectionRef, fieldKey })
         }
@@ -575,6 +633,7 @@ export function InspectionGalleryPanel({
           title="Move Photos"
           confirmLabel="Move Photos"
           busy={moveMutation.isPending}
+          initialSectionRef={assignInitialSectionRef}
           onConfirm={(sectionRef, fieldKey) =>
             moveMutation.mutate({
               imageIds: Array.from(selected),

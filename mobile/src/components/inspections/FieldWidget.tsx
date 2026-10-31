@@ -44,7 +44,7 @@ import { uploadLocalFile } from '../../services/objectUpload';
 import { triggerSync } from '../../services/offline/backgroundSync';
 import { MultiPhotoCameraModal } from '../camera/MultiPhotoCameraModal';
 import { remainingFieldPhotoSlots } from '../camera/multiPhotoSession';
-import { GALLERY_FIELD_PHOTO_MAX } from '../../../../shared/inspectionGallery';
+import { GALLERY_FIELD_PHOTO_MAX, matchesSectionScope } from '../../../../shared/inspectionGallery';
 import { formatDisplayHeading } from '../../../../shared/propertyRooms';
 import {
   normalizeFieldOptions,
@@ -100,6 +100,8 @@ interface FieldWidgetProps {
   entryId?: string;
   /** Template sectionRef for gallery assignment (e.g. section_bedrooms/Bedrooms 1). */
   sectionRef?: string;
+  /** Alias section refs for section-scoped gallery pick. */
+  galleryAliasRefs?: string[];
   sectionName?: string;
   isCheckOut?: boolean;
   markedForReview?: boolean;
@@ -115,6 +117,9 @@ interface FieldWidgetProps {
   onChange: (value: any, note?: string, photos?: string[]) => void;
   onMarkedForReviewChange?: (marked: boolean) => void;
   onLogMaintenance?: (fieldLabel: string, photos: string[]) => void;
+  /** Highlight when this required field was blank at Complete. */
+  validationError?: boolean;
+  validationMessage?: string;
 }
 
 // On iOS, HIGH_QUALITY produces large M4A files that can exceed the 25MB transcription limit.
@@ -150,12 +155,22 @@ function GalleryPickBody({
   selected,
   onToggle,
   enabled,
+  scopeSectionRef,
+  scopeAliasRefs = [],
+  scopeLabel,
+  showAll,
+  onShowAllChange,
 }: {
   inspectionId: string;
   alreadyUrls: string[];
   selected: Set<string>;
   onToggle: (id: string, objectUrl: string) => void;
   enabled: boolean;
+  scopeSectionRef?: string;
+  scopeAliasRefs?: string[];
+  scopeLabel?: string;
+  showAll?: boolean;
+  onShowAllChange?: (showAll: boolean) => void;
 }) {
   const theme = useTheme();
   const themeColors = theme?.colors || colors;
@@ -165,7 +180,13 @@ function GalleryPickBody({
     queryFn: () => inspectionGalleryService.list(inspectionId),
     enabled: enabled && !!inspectionId && isOnline,
   });
-  const images: GalleryImage[] = data?.images || [];
+  const allImages: GalleryImage[] = data?.images || [];
+  const hasScope = Boolean(String(scopeSectionRef || '').trim());
+  const scopeRef = String(scopeSectionRef || '').trim();
+  const images =
+    hasScope && !showAll
+      ? allImages.filter((img) => matchesSectionScope(img, scopeRef, scopeAliasRefs))
+      : allImages;
   const already = new Set(alreadyUrls);
 
   if (!isOnline) {
@@ -186,41 +207,88 @@ function GalleryPickBody({
       </View>
     );
   }
-  if (!images.length) {
-    return (
-      <Text style={{ color: themeColors.text.secondary, marginBottom: 12 }}>
-        No photos in this inspection gallery yet. Upload from the Gallery tab first.
-      </Text>
-    );
-  }
 
   return (
-    <ScrollView style={{ maxHeight: 280, marginBottom: 12 }}>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-        {images.map((image) => {
-          const used = already.has(image.objectUrl);
-          const isSelected = selected.has(image.id);
-          return (
-            <TouchableOpacity
-              key={image.id}
-              disabled={used}
-              onPress={() => onToggle(image.id, image.objectUrl)}
+    <View style={{ marginBottom: 12 }}>
+      {hasScope && onShowAllChange ? (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+          <TouchableOpacity
+            onPress={() => onShowAllChange(false)}
+            style={{
+              paddingHorizontal: 10,
+              paddingVertical: 6,
+              borderRadius: 8,
+              backgroundColor: !showAll ? themeColors.primary.DEFAULT : themeColors.card.DEFAULT,
+              borderWidth: 1,
+              borderColor: themeColors.border.DEFAULT,
+            }}
+          >
+            <Text
               style={{
-                width: '30%',
-                aspectRatio: 1,
-                borderRadius: 8,
-                overflow: 'hidden',
-                borderWidth: isSelected ? 2 : 1,
-                borderColor: isSelected ? themeColors.primary.DEFAULT : themeColors.border.DEFAULT,
-                opacity: used ? 0.5 : 1,
+                fontSize: 12,
+                color: !showAll ? themeColors.primary.foreground || '#fff' : themeColors.text.primary,
               }}
             >
-              <RemoteImage uri={image.objectUrl} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-    </ScrollView>
+              {scopeLabel || 'This section'}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => onShowAllChange(true)}
+            style={{
+              paddingHorizontal: 10,
+              paddingVertical: 6,
+              borderRadius: 8,
+              backgroundColor: showAll ? themeColors.primary.DEFAULT : themeColors.card.DEFAULT,
+              borderWidth: 1,
+              borderColor: themeColors.border.DEFAULT,
+            }}
+          >
+            <Text
+              style={{
+                fontSize: 12,
+                color: showAll ? themeColors.primary.foreground || '#fff' : themeColors.text.primary,
+              }}
+            >
+              Show all inspection photos
+            </Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
+      {!images.length ? (
+        <Text style={{ color: themeColors.text.secondary, marginBottom: 12 }}>
+          {hasScope && !showAll
+            ? `No photos in ${scopeLabel || 'this section'} yet. Upload from Section Gallery, or show all inspection photos.`
+            : 'No photos in this inspection gallery yet. Upload from the Gallery tab first.'}
+        </Text>
+      ) : (
+        <ScrollView style={{ maxHeight: 280 }}>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            {images.map((image) => {
+              const used = already.has(image.objectUrl);
+              const isSelected = selected.has(image.id);
+              return (
+                <TouchableOpacity
+                  key={image.id}
+                  disabled={used}
+                  onPress={() => onToggle(image.id, image.objectUrl)}
+                  style={{
+                    width: '30%',
+                    aspectRatio: 1,
+                    borderRadius: 8,
+                    overflow: 'hidden',
+                    borderWidth: isSelected ? 2 : 1,
+                    borderColor: isSelected ? themeColors.primary.DEFAULT : themeColors.border.DEFAULT,
+                    opacity: used ? 0.5 : 1,
+                  }}
+                >
+                  <RemoteImage uri={image.objectUrl} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </ScrollView>
+      )}
+    </View>
   );
 }
 
@@ -233,6 +301,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
     inspectionId,
     entryId,
     sectionRef,
+    galleryAliasRefs = [],
     sectionName,
     isCheckOut = false,
     markedForReview = false,
@@ -241,6 +310,8 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
     onChange,
     onMarkedForReviewChange,
     onLogMaintenance,
+    validationError = false,
+    validationMessage,
   } = props;
   const queryClient = useQueryClient();
   const isOnline = useOnlineStatus();
@@ -323,6 +394,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
   const [showMultiCamera, setShowMultiCamera] = useState(false);
   const [showGalleryPicker, setShowGalleryPicker] = useState(false);
   const [galleryPickSelected, setGalleryPickSelected] = useState<Set<string>>(new Set());
+  const [galleryPickShowAll, setGalleryPickShowAll] = useState(false);
   const [galleryBusy, setGalleryBusy] = useState(false);
   const [showPhotoViewer, setShowPhotoViewer] = useState(false);
   const [showSignature, setShowSignature] = useState(false);
@@ -1095,30 +1167,30 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
                 const hex = resolveOptionColor(safeField.options, option.value);
                 const pill = selected ? optionPillStyle(hex) : null;
                 return (
-                  <TouchableOpacity
+                <TouchableOpacity
                     key={option.value}
-                    style={[
-                      styles.optionButton,
+                  style={[
+                    styles.optionButton,
                       selected && styles.optionButtonSelected,
                       pill && {
                         backgroundColor: pill.backgroundColor,
                         borderColor: pill.borderColor,
                       },
-                      disabled && styles.optionButtonDisabled,
-                    ]}
+                    disabled && styles.optionButtonDisabled,
+                  ]}
                     onPress={() => handleValueChange(option.value)}
-                    disabled={disabled}
-                  >
-                    <Text
-                      style={[
-                        styles.optionText,
+                  disabled={disabled}
+                >
+                  <Text
+                    style={[
+                      styles.optionText,
                         selected && styles.optionTextSelected,
                         pill && { color: pill.color, fontWeight: '500' as const },
-                      ]}
-                    >
+                    ]}
+                  >
                       {option.label}
-                    </Text>
-                  </TouchableOpacity>
+                  </Text>
+                </TouchableOpacity>
                 );
               })}
             </View>
@@ -1398,40 +1470,40 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
   };
 
   const renderPhotoGrid = (headerLabel: string, showRequiredMark: boolean) => (
-    <View style={styles.photoFieldContainer}>
-      {!!isCheckOut && checkInPhotos.length > 0 && (
-        <Card style={styles.checkInReferenceCard}>
-          <View style={styles.checkInReferenceHeader}>
-            <Eye size={16} color={themeColors.primary.DEFAULT} />
-            <Text style={[styles.checkInReferenceTitle, { color: themeColors.text.primary }]}>Check-In Reference Photos</Text>
-          </View>
-          <Text style={[styles.checkInReferenceText, { color: themeColors.text.secondary }]}>
-            Match these angles when taking your Check-Out photos for accurate comparison
-          </Text>
+      <View style={styles.photoFieldContainer}>
+        {!!isCheckOut && checkInPhotos.length > 0 && (
+          <Card style={styles.checkInReferenceCard}>
+            <View style={styles.checkInReferenceHeader}>
+              <Eye size={16} color={themeColors.primary.DEFAULT} />
+              <Text style={[styles.checkInReferenceTitle, { color: themeColors.text.primary }]}>Check-In Reference Photos</Text>
+            </View>
+            <Text style={[styles.checkInReferenceText, { color: themeColors.text.secondary }]}>
+              Match these angles when taking your Check-Out photos for accurate comparison
+            </Text>
           <View style={styles.photosGrid}>
-            {checkInPhotos.map((photoUrl: string, index: number) => (
+              {checkInPhotos.map((photoUrl: string, index: number) => (
               <RemoteImage
-                key={index}
+                  key={index}
                 uri={photoUrl}
                 style={[
                   styles.checkInPhoto,
                   { width: ms(80), height: ms(80) },
                 ] as ImageStyle}
                 resizeMode="cover"
-              />
-            ))}
+                />
+              ))}
           </View>
-        </Card>
-      )}
+          </Card>
+        )}
 
-      <View style={[styles.photoSection, { backgroundColor: themeColors.card.DEFAULT, borderColor: themeColors.border.DEFAULT }]}>
+        <View style={[styles.photoSection, { backgroundColor: themeColors.card.DEFAULT, borderColor: themeColors.border.DEFAULT }]}>
         <View style={[styles.photoHeader, { borderBottomColor: themeColors.border.DEFAULT, flexDirection: actionStack, alignItems: actionStack === 'column' ? 'stretch' : 'center', gap: padSm }]}>
           <Text style={[styles.photoLabel, { color: themeColors.text.primary, flex: actionStack === 'row' ? 1 : undefined }]}>
             {headerLabel}
             {!!showRequiredMark && !!safeField.required && (
               <Text style={[styles.required, { color: themeColors.destructive.DEFAULT }]}> *</Text>
             )}
-          </Text>
+            </Text>
           {!disabled && (
             <TouchableOpacity
               style={[styles.photoButton, { backgroundColor: themeColors.primary.DEFAULT }]}
@@ -1443,7 +1515,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
               <Text style={[styles.photoButtonText, { color: themeColors.primary.foreground || '#ffffff' }]}>Add Photo</Text>
             </TouchableOpacity>
           )}
-        </View>
+          </View>
 
         {!!photoUploadProgress && (
           <View
@@ -1463,21 +1535,21 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
           </View>
         )}
 
-        {localPhotos.length > 0 && (
+          {localPhotos.length > 0 && (
           <View style={styles.photosGrid}>
-            {localPhotos.map((photo, index) => {
+              {localPhotos.map((photo, index) => {
               if (!photo || photo.trim() === '') return null;
               const isUploading = !!uploadingPhotos[photo];
-              return (
-                <View key={`photo-${index}-${photo}`} style={[styles.photoItem, { backgroundColor: themeColors.card.DEFAULT, borderColor: themeColors.border.DEFAULT }]}>
-                  <TouchableOpacity
-                    onPress={() => {
+                return (
+                  <View key={`photo-${index}-${photo}`} style={[styles.photoItem, { backgroundColor: themeColors.card.DEFAULT, borderColor: themeColors.border.DEFAULT }]}>
+                    <TouchableOpacity
+                      onPress={() => {
                       setSelectedPhoto(photo);
-                      setShowPhotoViewer(true);
-                    }}
-                    activeOpacity={0.8}
-                    style={{ flex: 1 }}
-                  >
+                        setShowPhotoViewer(true);
+                      }}
+                      activeOpacity={0.8}
+                      style={{ flex: 1 }}
+                    >
                     <RemoteImage
                       uri={photo}
                       style={[
@@ -1489,7 +1561,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
                           backgroundColor: themeColors.muted?.DEFAULT || themeColors.card.DEFAULT,
                         },
                       ] as ImageStyle}
-                      resizeMode="cover"
+                        resizeMode="cover"
                     />
                     {isUploading ? (
                       <View
@@ -1503,24 +1575,24 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
                         <ActivityIndicator color="#fff" />
                       </View>
                     ) : null}
-                  </TouchableOpacity>
-                  <View style={[styles.photoActions, { backgroundColor: themeColors.card.DEFAULT + 'E6' }]}>
-                    <TouchableOpacity
-                      style={styles.removePhotoButton}
-                      onPress={() => handleRemovePhoto(photo)}
-                      disabled={isUploading}
-                    >
-                      <X size={12} color="#fff" />
                     </TouchableOpacity>
+                    <View style={[styles.photoActions, { backgroundColor: themeColors.card.DEFAULT + 'E6' }]}>
+                      <TouchableOpacity
+                        style={styles.removePhotoButton}
+                        onPress={() => handleRemovePhoto(photo)}
+                      disabled={isUploading}
+                      >
+                        <X size={12} color="#fff" />
+                      </TouchableOpacity>
+                    </View>
                   </View>
-                </View>
-              );
-            })}
+                );
+              })}
           </View>
-        )}
+          )}
+        </View>
       </View>
-    </View>
-  );
+    );
 
   const renderPhotoField = () => renderPhotoGrid(safeField.label, true);
 
@@ -1534,7 +1606,9 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
         styles.card,
         {
           borderWidth: 2,
-          borderColor: themeColors.border.DEFAULT,
+          borderColor: validationError
+            ? themeColors.destructive.DEFAULT
+            : themeColors.border.DEFAULT,
           overflow: 'hidden',
         },
       ]}
@@ -1547,9 +1621,13 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
             flexDirection: actionStack,
             alignItems: actionStack === 'column' ? 'flex-start' : 'center',
             gap: padSm,
-            backgroundColor: themeColors.muted?.DEFAULT || themeColors.border.light || '#f3f4f6',
+            backgroundColor: validationError
+              ? (themeColors.destructive.DEFAULT + '18')
+              : themeColors.muted?.DEFAULT || themeColors.border.light || '#f3f4f6',
             borderBottomWidth: 2,
-            borderBottomColor: themeColors.border.DEFAULT,
+            borderBottomColor: validationError
+              ? themeColors.destructive.DEFAULT
+              : themeColors.border.DEFAULT,
             paddingHorizontal: padMd,
             paddingVertical: padSm + 4,
           },
@@ -1573,6 +1651,12 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
       </View>
 
       <View style={{ padding: padMd, gap: spacing[3] }}>
+      {!!validationError && (
+        <Text style={{ color: themeColors.destructive.DEFAULT, fontSize: 13, fontWeight: '600' }}>
+          {validationMessage ||
+            'This required field must be filled before completing the inspection.'}
+        </Text>
+      )}
       {renderFieldInput()}
 
       {allowsAttachedPhotos && renderAttachedPhotosSection()}
@@ -2051,6 +2135,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
                 onPress={() => {
                   setShowPhotoPicker(false);
                   setGalleryPickSelected(new Set());
+                  setGalleryPickShowAll(false);
                   setShowGalleryPicker(true);
                 }}
                 variant="default"
@@ -2116,6 +2201,11 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
                 });
               }}
               enabled={showGalleryPicker}
+              scopeSectionRef={sectionRef}
+              scopeAliasRefs={galleryAliasRefs}
+              scopeLabel={sectionName}
+              showAll={galleryPickShowAll}
+              onShowAllChange={setGalleryPickShowAll}
             />
             <Button
               title={
@@ -2187,7 +2277,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
             <RemoteImage
               uri={selectedPhoto}
               style={styles.photoViewer as ImageStyle}
-              resizeMode="contain"
+              resizeMode="contain" 
               compactMessage={false}
             />
           )}

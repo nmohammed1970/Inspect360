@@ -55,7 +55,8 @@ import {
   parseLegacyRepeatableInstanceNumber,
   repeatableCountsFromPropertyRoomInstances,
 } from '../../../../shared/propertyRooms';
-import { listRepeatableInstances } from '../../../../shared/inspectionGallery';
+import { listRepeatableInstances, matchesSectionScope } from '../../../../shared/inspectionGallery';
+import { inspectionGalleryService } from '../../services/inspectionGallery';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChevronDown, ChevronLeft, ChevronRight, CheckCircle2, Sparkles, Wifi, WifiOff, Check, Cloud, AlertCircle, Images, Plus, ClipboardList, Trash2 } from 'lucide-react-native';
 import { isGeneralInformationSection } from '../../../../shared/defaultGeneralInformationSection';
@@ -77,7 +78,12 @@ import {
   resolveCipInstanceCount,
   type CustomInspectionPoint,
 } from '../../../../shared/templateCustomInspectionPoints';
-import { computeInspectionCaptureProgress } from '../../../../shared/inspectionProgress';
+import {
+  computeInspectionCaptureProgress,
+  entryLookupKey,
+  formatRequiredIncompleteMessage,
+  listRequiredIncompleteFields,
+} from '../../../../shared/inspectionProgress';
 type RoutePropType = RouteProp<InspectionsStackParamList, 'InspectionCapture'>;
 type NavigationProp = StackNavigationProp<InspectionsStackParamList, 'InspectionCapture'>;
 
@@ -147,6 +153,12 @@ export default function InspectionCaptureScreen() {
 
   const [currentSectionIndex, setCurrentSectionIndex] = useState(0);
   const [captureMode, setCaptureMode] = useState<'sections' | 'gallery' | 'checklist'>('sections');
+  const [sectionGalleryScope, setSectionGalleryScope] = useState<{
+    sectionRef: string;
+    aliasRefs: string[];
+    label: string;
+  } | null>(null);
+  const [requiredErrorKeys, setRequiredErrorKeys] = useState<Set<string>>(() => new Set());
   const [showChecklistSoftGate, setShowChecklistSoftGate] = useState(false);
   const [entries, setEntries] = useState<Record<string, InspectionEntry>>({});
   const [repeatableCounts, setRepeatableCounts] = useState<Record<string, number>>({}); // Track counts for repeatable sections
@@ -209,6 +221,17 @@ export default function InspectionCaptureScreen() {
   });
 
   const effectiveInspection = inspection;
+
+  const { data: galleryListData } = useQuery({
+    queryKey: ['gallery', inspectionId],
+    queryFn: () => inspectionGalleryService.list(inspectionId),
+    enabled: !!inspectionId && isOnline,
+    retry: false,
+  });
+  const galleryImages = galleryListData?.images || [];
+  const countSectionGallery = (sectionRef: string, aliasRefs: string[] = []) =>
+    galleryImages.filter((img) => matchesSectionScope(img, sectionRef, aliasRefs)).length;
+
   const propertyRoomCountsSnapshot = effectiveInspection?.propertyRoomCountsSnapshot ?? null;
   const propertyRoomsSnapshot = (
     effectiveInspection as {
@@ -1165,6 +1188,28 @@ export default function InspectionCaptureScreen() {
     
     // No offline functionality - photos are stored on server only
 
+    // Clear required-field highlight once the user edits this field
+    setRequiredErrorKeys((prev) => {
+      if (!prev.size) return prev;
+      const next = new Set(prev);
+      let changed = false;
+      const refsToClear = [
+        finalSectionRef,
+        sectionRef,
+        ...(writeInst?.aliasRefs || []),
+      ].filter(Boolean) as string[];
+      for (const ref of refsToClear) {
+        if (next.delete(entryLookupKey(ref, fieldKey))) changed = true;
+      }
+      for (const stored of Array.from(next)) {
+        if (stored.endsWith(`-${fieldKey}`)) {
+          next.delete(stored);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+
     // Update local state immediately for snappy UI
     setEntries(prev => ({ ...prev, [key]: newEntry }));
 
@@ -1394,6 +1439,7 @@ export default function InspectionCaptureScreen() {
                             isCheckOut={effectiveInspection?.type === 'check_out'}
                             markedForReview={entry?.markedForReview || false}
                             disabled={effectiveInspection?.status === 'completed' || isDeleted}
+                            validationError={isRequiredFieldHighlighted(sectionRef, expanded.id)}
                             autoContext={{
                               inspectorName: resolvedInspectorName,
                               address: property
@@ -1448,7 +1494,52 @@ export default function InspectionCaptureScreen() {
     );
   };
 
+  const getRequiredIncomplete = () =>
+    listRequiredIncompleteFields({
+      sections,
+      entries,
+      repeatableCounts,
+      propertyRoomInstances,
+      templateStructure: templateSnapshot,
+      excludeTenantSignatures: !tenanciesEnabled,
+    });
+
+  const isRequiredFieldHighlighted = (
+    sectionRef: string,
+    fieldKey: string,
+    aliasRefs: string[] = [],
+  ) => {
+    if (!requiredErrorKeys.size) return false;
+    for (const ref of [sectionRef, ...aliasRefs]) {
+      if (requiredErrorKeys.has(entryLookupKey(ref, fieldKey))) return true;
+    }
+    return false;
+  };
+
   const proceedAfterChecklistGate = () => {
+    const missingRequired = getRequiredIncomplete();
+    if (missingRequired.length > 0) {
+      setRequiredErrorKeys(
+        new Set(
+          missingRequired.flatMap((f) => [
+            f.entryKey,
+            ...f.aliasRefs.map((ref) => entryLookupKey(ref, f.fieldKey)),
+          ]),
+        ),
+      );
+      const first = missingRequired[0]!;
+      const sectionIndex = sections.findIndex((s) => s.id === first.sectionId);
+      if (sectionIndex >= 0) {
+        setCurrentSectionIndex(sectionIndex);
+        setCaptureMode('sections');
+      }
+      Alert.alert('Required fields missing', formatRequiredIncompleteMessage(missingRequired), [
+        { text: 'OK' },
+      ]);
+      return;
+    }
+    setRequiredErrorKeys(new Set());
+
     const progressPercentage = Math.round(progress);
     const isIncomplete = progressPercentage < 100;
 
@@ -1523,7 +1614,7 @@ export default function InspectionCaptureScreen() {
         'Complete Inspection?',
         `This inspection is only ${progressPercentage}% complete. ${
           totalFields - completedFields
-        } field(s) are still missing. Do you want to mark it as complete anyway?`,
+        } optional field(s) are still missing. Required fields are complete. Mark as complete anyway?`,
         [
           { text: 'Cancel', style: 'cancel' },
           {
@@ -1539,6 +1630,28 @@ export default function InspectionCaptureScreen() {
   };
 
   const handleComplete = async () => {
+    const missingRequired = getRequiredIncomplete();
+    if (missingRequired.length > 0) {
+      setRequiredErrorKeys(
+        new Set(
+          missingRequired.flatMap((f) => [
+            f.entryKey,
+            ...f.aliasRefs.map((ref) => entryLookupKey(ref, f.fieldKey)),
+          ]),
+        ),
+      );
+      const first = missingRequired[0]!;
+      const sectionIndex = sections.findIndex((s) => s.id === first.sectionId);
+      if (sectionIndex >= 0) {
+        setCurrentSectionIndex(sectionIndex);
+        setCaptureMode('sections');
+      }
+      Alert.alert('Required fields missing', formatRequiredIncompleteMessage(missingRequired), [
+        { text: 'OK' },
+      ]);
+      return;
+    }
+
     if (COMPLETION_CHECKLIST_INSPECTION_UI_VISIBLE && checklistIsIncomplete) {
       setShowChecklistSoftGate(true);
       return;
@@ -2237,6 +2350,91 @@ export default function InspectionCaptureScreen() {
 
             {currentSection && currentSection.fields && (
               <>
+                {!currentSection.repeatable && (() => {
+                  const sectionGalleryCount = countSectionGallery(currentSection.id);
+                  const brand = themeColors.primary.DEFAULT;
+                  const brandDark = themeColors.primary.dark || brand;
+                  return (
+                  <TouchableOpacity
+                    onPress={() =>
+                      setSectionGalleryScope({
+                        sectionRef: currentSection.id,
+                        aliasRefs: [],
+                        label: formatDisplayHeading(currentSection.title),
+                      })
+                    }
+                    activeOpacity={0.85}
+                    style={{
+                      alignSelf: 'flex-start',
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 8,
+                      marginBottom: spacing[3],
+                      paddingLeft: 6,
+                      paddingRight: 10,
+                      paddingVertical: 6,
+                      borderRadius: 10,
+                      borderWidth: 1.5,
+                      borderColor: `${brand}55`,
+                      backgroundColor: themeColors.primary.light || `${brand}12`,
+                    }}
+                    accessibilityLabel={
+                      sectionGalleryCount === 0
+                        ? 'Open section gallery'
+                        : `Open section gallery, ${sectionGalleryCount} photos`
+                    }
+                  >
+                    <View
+                      style={{
+                        width: 28,
+                        height: 28,
+                        borderRadius: 8,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        backgroundColor: brand,
+                      }}
+                    >
+                      <Images size={14} color="#ffffff" />
+                    </View>
+                    <Text
+                      style={{
+                        fontSize: 13,
+                        color: brandDark,
+                        fontWeight: '700',
+                        letterSpacing: 0.2,
+                      }}
+                    >
+                      Section Gallery
+                    </Text>
+                    <View
+                      style={{
+                        minWidth: 22,
+                        height: 20,
+                        paddingHorizontal: 6,
+                        borderRadius: 10,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        backgroundColor:
+                          sectionGalleryCount > 0 ? brand : themeColors.card.DEFAULT,
+                        borderWidth: sectionGalleryCount > 0 ? 0 : 1,
+                        borderColor: `${brand}40`,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 10,
+                          fontWeight: '700',
+                          color:
+                            sectionGalleryCount > 0 ? '#ffffff' : themeColors.text.secondary,
+                        }}
+                      >
+                        {sectionGalleryCount > 99 ? '99+' : String(sectionGalleryCount)}
+                      </Text>
+                    </View>
+                    <ChevronRight size={14} color={brandDark} />
+                  </TouchableOpacity>
+                  );
+                })()}
                 {currentSection.description && (
                   <Card style={[
                     styles.sectionDescriptionCard,
@@ -2380,23 +2578,111 @@ export default function InspectionCaptureScreen() {
                               )}
                             </Text>
                           </TouchableOpacity>
-                          {canDeleteInstance && (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                            {(() => {
+                              const instanceGalleryCount = countSectionGallery(sectionRef, aliasRefs);
+                              const brand = themeColors.primary.DEFAULT;
+                              const brandDark = themeColors.primary.dark || brand;
+                              return (
                             <TouchableOpacity
                               onPress={() =>
-                                requestDeleteInstance({
+                                setSectionGalleryScope({
                                   sectionRef,
+                                  aliasRefs,
                                   label: instanceName,
-                                  sectionId: currentSection.id,
-                                  sectionIndex: currentSectionIndex,
                                 })
                               }
                               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                              accessibilityLabel={`Remove ${instanceName}`}
-                              style={{ padding: 4 }}
+                              activeOpacity={0.85}
+                              accessibilityLabel={
+                                instanceGalleryCount === 0
+                                  ? `Open section gallery for ${instanceName}`
+                                  : `Open section gallery for ${instanceName}, ${instanceGalleryCount} photos`
+                              }
+                              style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                gap: 6,
+                                paddingLeft: 4,
+                                paddingRight: 8,
+                                paddingVertical: 4,
+                                borderRadius: 8,
+                                borderWidth: 1.5,
+                                borderColor: `${brand}55`,
+                                backgroundColor: themeColors.primary.light || `${brand}12`,
+                              }}
                             >
-                              <Trash2 size={18} color="#dc2626" />
+                              <View
+                                style={{
+                                  width: 22,
+                                  height: 22,
+                                  borderRadius: 6,
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  backgroundColor: brand,
+                                }}
+                              >
+                                <Images size={12} color="#ffffff" />
+                              </View>
+                              <Text
+                                style={{
+                                  fontSize: 11,
+                                  color: brandDark,
+                                  fontWeight: '700',
+                                }}
+                              >
+                                Gallery
+                              </Text>
+                              <View
+                                style={{
+                                  minWidth: 18,
+                                  height: 18,
+                                  paddingHorizontal: 4,
+                                  borderRadius: 9,
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  backgroundColor:
+                                    instanceGalleryCount > 0 ? brand : themeColors.card.DEFAULT,
+                                  borderWidth: instanceGalleryCount > 0 ? 0 : 1,
+                                  borderColor: `${brand}40`,
+                                }}
+                              >
+                                <Text
+                                  style={{
+                                    fontSize: 9,
+                                    fontWeight: '700',
+                                    color:
+                                      instanceGalleryCount > 0
+                                        ? '#ffffff'
+                                        : themeColors.text.secondary,
+                                  }}
+                                >
+                                  {instanceGalleryCount > 99
+                                    ? '99+'
+                                    : String(instanceGalleryCount)}
+                                </Text>
+                              </View>
                             </TouchableOpacity>
-                          )}
+                              );
+                            })()}
+                            {canDeleteInstance && (
+                              <TouchableOpacity
+                                onPress={() =>
+                                  requestDeleteInstance({
+                                    sectionRef,
+                                    label: instanceName,
+                                    sectionId: currentSection.id,
+                                    sectionIndex: currentSectionIndex,
+                                  })
+                                }
+                                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                accessibilityLabel={`Remove ${instanceName}`}
+                                style={{ padding: 4 }}
+                              >
+                                <Trash2 size={18} color="#dc2626" />
+                              </TouchableOpacity>
+                            )}
+                          </View>
                         </View>
                         {roomShellOpen ? (
                         <>
@@ -2438,10 +2724,16 @@ export default function InspectionCaptureScreen() {
                                   inspectionId={inspectionId}
                                   entryId={properEntryId}
                                   sectionRef={sectionRef}
+                                  galleryAliasRefs={aliasRefs}
                                   sectionName={instanceName}
                                   isCheckOut={effectiveInspection?.type === 'check_out'}
                                   markedForReview={entry?.markedForReview || false}
                                   disabled={effectiveInspection?.status === 'completed' || isDeleted}
+                                  validationError={isRequiredFieldHighlighted(
+                                    sectionRef,
+                                    fieldId,
+                                    aliasRefs,
+                                  )}
                                   autoContext={{
                                     inspectorName: resolvedInspectorName,
                                     address: property
@@ -2641,6 +2933,7 @@ export default function InspectionCaptureScreen() {
                             inspectionId={inspectionId}
                             entryId={entryId}
                             sectionRef={currentSection.id}
+                            galleryAliasRefs={[]}
                             sectionName={currentSection.title}
                             isCheckOut={effectiveInspection?.type === 'check_out'}
                             markedForReview={entry?.markedForReview || false}
@@ -2648,6 +2941,10 @@ export default function InspectionCaptureScreen() {
                               effectiveInspection?.status === 'completed' ||
                               isDeleted
                             }
+                            validationError={isRequiredFieldHighlighted(
+                              currentSection.id,
+                              field.id || field.key || '',
+                            )}
                             autoContext={{
                               inspectorName: resolvedInspectorName,
                               address: property
@@ -2708,6 +3005,68 @@ export default function InspectionCaptureScreen() {
             </>
             )}
         </FormScreen>
+
+        <Modal
+          visible={!!sectionGalleryScope}
+          animationType="slide"
+          onRequestClose={() => setSectionGalleryScope(null)}
+        >
+          <View
+            style={{
+              flex: 1,
+              backgroundColor: themeColors.background?.DEFAULT || themeColors.card.DEFAULT,
+              paddingTop: Math.max(insets.top, spacing[3]),
+              paddingBottom: Math.max(insets.bottom, spacing[3]),
+            }}
+          >
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                paddingHorizontal: spacing[4],
+                marginBottom: spacing[2],
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: typography.fontSize.lg,
+                  fontWeight: '700',
+                  color: themeColors.text.primary,
+                  flex: 1,
+                }}
+                numberOfLines={1}
+              >
+                {sectionGalleryScope
+                  ? `Section Gallery — ${sectionGalleryScope.label}`
+                  : 'Section Gallery'}
+              </Text>
+              <TouchableOpacity
+                onPress={() => setSectionGalleryScope(null)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityLabel="Close Section Gallery"
+              >
+                <Text style={{ color: themeColors.primary.DEFAULT, fontWeight: '600' }}>Close</Text>
+              </TouchableOpacity>
+            </View>
+            {sectionGalleryScope ? (
+              <InspectionGalleryPanel
+                inspectionId={inspectionId}
+                canEdit={effectiveInspection?.status !== 'completed' && !isDeleted}
+                scopeSectionRef={sectionGalleryScope.sectionRef}
+                scopeAliasRefs={sectionGalleryScope.aliasRefs}
+                scopeLabel={sectionGalleryScope.label}
+                onEntriesChanged={() => {
+                  queryClient.invalidateQueries({
+                    queryKey: [`/api/inspections/${inspectionId}/entries`],
+                  });
+                  queryClient.invalidateQueries({ queryKey: ['inspection', inspectionId] });
+                  queryClient.invalidateQueries({ queryKey: ['gallery', inspectionId] });
+                }}
+              />
+            ) : null}
+          </View>
+        </Modal>
 
         <Modal
           visible={COMPLETION_CHECKLIST_INSPECTION_UI_VISIBLE && showChecklistSoftGate}

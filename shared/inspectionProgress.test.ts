@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import {
   computeInspectionCaptureProgress,
+  formatRequiredIncompleteMessage,
   isInspectionEntryComplete,
   isProgressMetaFieldKey,
+  listRequiredIncompleteFields,
   normalizeProgressEntriesMap,
   repeatableCountsFromEntries,
   resolveSectionInstanceRefs,
@@ -157,5 +159,112 @@ assert.deepEqual(
   ]),
   { bedrooms: 3 },
 );
+
+const requiredSections = [
+  {
+    id: "general",
+    title: "General Overview",
+    fields: [
+      { id: "notes", label: "Notes", type: "long_text", required: true },
+      { id: "optional", label: "Optional", type: "text", required: false },
+    ],
+  },
+  {
+    id: "bedrooms",
+    title: "Bedroom",
+    repeatable: true,
+    fields: [{ id: "walls", label: "Walls", type: "photo_array", required: true }],
+  },
+];
+
+const requiredMissing = listRequiredIncompleteFields({
+  sections: requiredSections,
+  entries: {},
+  repeatableCounts: { bedrooms: 1 },
+  propertyRoomInstances: [{ sectionRef: "bedrooms/room_a", title: "Bedroom 1" }],
+  excludeTenantSignatures: true,
+});
+assert.equal(requiredMissing.length, 2);
+assert.ok(requiredMissing.some((f) => f.fieldKey === "notes"));
+assert.ok(requiredMissing.some((f) => f.fieldKey === "walls" && f.sectionRef === "bedrooms/room_a"));
+assert.ok(formatRequiredIncompleteMessage(requiredMissing).includes("2 required fields"));
+
+const requiredFilled = listRequiredIncompleteFields({
+  sections: requiredSections,
+  entries: {
+    "general-notes": { sectionRef: "general", fieldKey: "notes", valueJson: "Done" },
+    "bedrooms/room_a-walls": {
+      sectionRef: "bedrooms/room_a",
+      fieldKey: "walls",
+      photos: ["/objects/a.jpg"],
+    },
+  },
+  repeatableCounts: { bedrooms: 1 },
+  propertyRoomInstances: [{ sectionRef: "bedrooms/room_a", title: "Bedroom 1" }],
+  excludeTenantSignatures: true,
+});
+assert.equal(requiredFilled.length, 0);
+
+// Empty condition/cleanliness shells must not satisfy required
+const emptyShellMissing = listRequiredIncompleteFields({
+  sections: [
+    {
+      id: "entry",
+      title: "Entry / Hallway",
+      fields: [{ id: "door", label: "Door Condition", type: "photo_array", required: true }],
+    },
+  ],
+  entries: {
+    "entry-door": {
+      sectionRef: "entry",
+      fieldKey: "door",
+      valueJson: { value: null, condition: undefined, cleanliness: "" },
+      photos: [],
+    },
+  },
+  excludeTenantSignatures: true,
+});
+assert.equal(emptyShellMissing.length, 1);
+
+// Condition alone is not enough for required photo fields
+const conditionOnlyStillMissing = listRequiredIncompleteFields({
+  sections: [
+    {
+      id: "entry",
+      title: "Entry / Hallway",
+      fields: [{ id: "door", label: "Door Condition", type: "photo_array", required: true }],
+    },
+  ],
+  entries: {
+    "entry-door": {
+      sectionRef: "entry",
+      fieldKey: "door",
+      valueJson: { value: null, condition: "Good", cleanliness: "" },
+      photos: [],
+    },
+  },
+  excludeTenantSignatures: true,
+});
+assert.equal(conditionOnlyStillMissing.length, 1);
+
+const photosSatisfyRequired = listRequiredIncompleteFields({
+  sections: [
+    {
+      id: "entry",
+      title: "Entry / Hallway",
+      fields: [{ id: "door", label: "Door Condition", type: "photo_array", required: true }],
+    },
+  ],
+  entries: {
+    "entry-door": {
+      sectionRef: "entry",
+      fieldKey: "door",
+      valueJson: { value: null, condition: "Good" },
+      photos: ["/objects/door.jpg"],
+    },
+  },
+  excludeTenantSignatures: true,
+});
+assert.equal(photosSatisfyRequired.length, 0);
 
 console.log("inspectionProgress.test.ts: all assertions passed");
