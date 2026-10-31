@@ -4,8 +4,12 @@
  */
 import assert from "node:assert/strict";
 import {
+  SECTION_GALLERY_FIELD_KEY,
   assertDestinationValid,
+  formatDestinationLabel,
+  isSectionGalleryFieldKey,
   listPhotoDestinations,
+  matchesSectionScope,
   normalizeObjectUrl,
 } from "../shared/inspectionGallery";
 
@@ -66,5 +70,48 @@ assert.equal(
   "/objects/x.jpg",
 );
 assert.equal(normalizeObjectUrl("not-an-object"), null);
+
+// Section-pool destination validation (no entries.photos sync for this key)
+const pool = assertDestinationValid(snapshot, "section_a", SECTION_GALLERY_FIELD_KEY, {});
+assert.ok(pool, "section-pool assign accepted for valid section");
+assert.ok(isSectionGalleryFieldKey(pool!.fieldKey));
+assert.equal(formatDestinationLabel(pool!), "Area A");
+assert.ok(
+  !listPhotoDestinations(snapshot, { section_rooms: 2 }).some((d) =>
+    isSectionGalleryFieldKey(d.fieldKey),
+  ),
+);
+
+const poolRoom = assertDestinationValid(
+  snapshot,
+  "section_rooms/Rooms 1",
+  SECTION_GALLERY_FIELD_KEY,
+  { section_rooms: 2 },
+);
+assert.ok(poolRoom);
+assert.equal(
+  assertDestinationValid(
+    snapshot,
+    "section_rooms/Rooms 9",
+    SECTION_GALLERY_FIELD_KEY,
+    { section_rooms: 2 },
+  ),
+  null,
+);
+
+// Exclusive reassignment model: one active assignment per image (client/server clear priors).
+// Scope match uses aliases so UUID room paths and Title N stay in sync.
+assert.equal(
+  matchesSectionScope(
+    {
+      assignments: [
+        { sectionRef: "section_rooms/room-1", fieldKey: SECTION_GALLERY_FIELD_KEY },
+      ],
+    },
+    "section_rooms/Rooms 1",
+    ["section_rooms/room-1"],
+  ),
+  true,
+);
 
 console.log("inspectionGalleryService.test.ts: ok");

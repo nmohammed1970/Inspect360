@@ -24,6 +24,7 @@ export type ProgressFieldLike = {
   key?: string;
   type?: string;
   label?: string;
+  required?: boolean;
 };
 
 export type ProgressSectionLike = {
@@ -91,9 +92,18 @@ function hasMeaningfulValueJson(value: unknown): boolean {
   if (Array.isArray(obj.audioUrls) && obj.audioUrls.some((u) => typeof u === "string" && u.trim())) {
     return true;
   }
-  if ("value" in obj) {
-    return hasMeaningfulValueJson(obj.value);
+
+  // Condition/cleanliness shells from FieldWidget: `{ value, condition?, cleanliness? }`
+  // Empty shells must not count as filled (keys alone are not enough).
+  const hasConditionShell =
+    "value" in obj || "condition" in obj || "cleanliness" in obj;
+  if (hasConditionShell) {
+    if (hasMeaningfulValueJson(obj.value)) return true;
+    if (typeof obj.condition === "string" && obj.condition.trim()) return true;
+    if (typeof obj.cleanliness === "string" && obj.cleanliness.trim()) return true;
+    return false;
   }
+
   // Signature / rich objects: any non-empty own key counts
   return Object.keys(obj).length > 0;
 }
@@ -301,3 +311,173 @@ export function repeatableCountsFromEntries(
 }
 
 export { isCipCountFieldKey };
+
+export type RequiredIncompleteField = {
+  sectionId: string;
+  sectionRef: string;
+  /** Extra refs that may hold the same instance entry (UUID vs Title N). */
+  aliasRefs: string[];
+  fieldKey: string;
+  fieldLabel: string;
+  sectionLabel: string;
+  /** Stable key for UI highlight maps: `${sectionRef}-${fieldKey}`. */
+  entryKey: string;
+};
+
+function isFieldRequired(field: ProgressFieldLike): boolean {
+  const raw = (field as { required?: unknown }).required;
+  if (raw === true || raw === 1) return true;
+  if (typeof raw === "string") return raw.trim().toLowerCase() === "true";
+  return false;
+}
+
+function isMediaRequiredFieldType(type: string | undefined): boolean {
+  const t = String(type || "").toLowerCase();
+  return t === "photo" || t === "photo_array" || t === "video" || t === "signature";
+}
+
+function entryHasMedia(entry: ProgressEntryLike | undefined): boolean {
+  if (!entry) return false;
+  const photos = entry.photos;
+  if (Array.isArray(photos) && photos.some((p) => typeof p === "string" && p.trim())) {
+    return true;
+  }
+  const v = entry.valueJson;
+  if (typeof v === "string" && v.trim()) return true;
+  if (Array.isArray(v) && v.some((p) => typeof p === "string" && p.trim())) return true;
+  if (v && typeof v === "object") {
+    const obj = v as Record<string, unknown>;
+    if (typeof obj.signature === "string" && obj.signature.trim()) return true;
+    if (typeof obj.dataUrl === "string" && obj.dataUrl.trim()) return true;
+    if (typeof obj.url === "string" && obj.url.trim()) return true;
+  }
+  return false;
+}
+
+/** Required-field completeness: media types need media, not just condition shells. */
+function isRequiredEntrySatisfied(
+  field: ProgressFieldLike,
+  entry: ProgressEntryLike | undefined,
+): boolean {
+  if (isMediaRequiredFieldType(field.type)) {
+    return entryHasMedia(entry);
+  }
+  return isInspectionEntryComplete(entry ?? null);
+}
+
+function lookupEntryAcrossRefs(
+  entriesMap: Record<string, ProgressEntryLike>,
+  refs: string[],
+  fieldKey: string,
+): ProgressEntryLike | undefined {
+  for (const ref of refs) {
+    const entry = entriesMap[entryLookupKey(ref, fieldKey)];
+    if (entry) return entry;
+  }
+  return undefined;
+}
+
+/**
+ * Required template fields (incl. CIP expansions) that are still blank.
+ * Same instance / CIP expansion rules as capture progress.
+ */
+export function listRequiredIncompleteFields(
+  input: ComputeInspectionProgressInput,
+): RequiredIncompleteField[] {
+  const sections = Array.isArray(input.sections) ? input.sections : [];
+  const repeatableCounts = input.repeatableCounts || {};
+  const propertyRoomInstances = input.propertyRoomInstances || [];
+  const excludeTenantSignatures = !!input.excludeTenantSignatures;
+  const entriesMap = normalizeProgressEntriesMap(input.entries);
+  const structure = input.templateStructure ?? null;
+  const missing: RequiredIncompleteField[] = [];
+
+  for (const section of sections) {
+    if (!section?.id) continue;
+    const instanceRefs = resolveSectionInstanceRefs(
+      section,
+      repeatableCounts,
+      propertyRoomInstances,
+    );
+    const roomInsts = propertyRoomInstances.filter((r) =>
+      String(r.sectionRef || "").startsWith(`${section.id}/`),
+    );
+    const cips: CustomInspectionPoint[] = getCipsForSection(structure, section as any);
+
+    instanceRefs.forEach((sectionRef, instanceIndex) => {
+      const synthetic = `${section.id}/${section.title} ${instanceIndex + 1}`;
+      const roomRef = roomInsts[instanceIndex]?.sectionRef;
+      const aliasRefs = [synthetic, roomRef]
+        .map((r) => String(r || "").trim())
+        .filter((r) => r && r !== sectionRef);
+      const lookupRefs = [sectionRef, ...aliasRefs];
+      const sectionLabel = section.repeatable
+        ? roomInsts[instanceIndex]?.title ||
+          `${section.title} ${instanceIndex + 1}`
+        : section.title;
+
+      const pushIfMissing = (field: ProgressFieldLike, fieldKey: string, fieldLabel: string) => {
+        if (!isFieldRequired(field)) return;
+        if (shouldSkipField(field, excludeTenantSignatures)) return;
+        const entry = lookupEntryAcrossRefs(entriesMap, lookupRefs, fieldKey);
+        if (isRequiredEntrySatisfied(field, entry)) return;
+        missing.push({
+          sectionId: section.id,
+          sectionRef,
+          aliasRefs,
+          fieldKey,
+          fieldLabel: fieldLabel || fieldKey,
+          sectionLabel,
+          entryKey: entryLookupKey(sectionRef, fieldKey),
+        });
+      };
+
+      for (const field of section.fields || []) {
+        const fieldKey = resolveFieldId(field);
+        if (!fieldKey) continue;
+        pushIfMissing(field, fieldKey, String(field.label || fieldKey).trim() || fieldKey);
+      }
+
+      for (const cip of cips) {
+        const count = resolveCipInstanceCount(
+          cip,
+          lookupEntryAcrossRefs(entriesMap, lookupRefs, cipCountFieldKey(cip.id))?.valueJson,
+        );
+        for (const expanded of expandCipFieldsForCount(cip, count)) {
+          if (shouldSkipField(expanded, excludeTenantSignatures)) continue;
+          pushIfMissing(
+            expanded,
+            expanded.id,
+            String(expanded.label || expanded.id).trim() || expanded.id,
+          );
+        }
+      }
+    });
+  }
+
+  return missing;
+}
+
+/** Short toast / alert copy for missing required fields. */
+export function formatRequiredIncompleteMessage(
+  missing: RequiredIncompleteField[],
+): string {
+  if (!missing.length) return "";
+  if (missing.length === 1) {
+    const f = missing[0]!;
+    return `Please fill required field: ${f.sectionLabel} → ${f.fieldLabel}`;
+  }
+  const preview = missing
+    .slice(0, 5)
+    .map((f) => `${f.sectionLabel} → ${f.fieldLabel}`)
+    .join("; ");
+  const more = missing.length > 5 ? ` (+${missing.length - 5} more)` : "";
+  return `Please fill ${missing.length} required fields: ${preview}${more}`;
+}
+
+/** True when any required field is still blank. */
+export function hasRequiredIncompleteFields(
+  input: ComputeInspectionProgressInput,
+): boolean {
+  return listRequiredIncompleteFields(input).length > 0;
+}

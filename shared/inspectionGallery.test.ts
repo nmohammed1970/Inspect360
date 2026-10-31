@@ -1,11 +1,16 @@
 import assert from "node:assert/strict";
 import {
+  SECTION_GALLERY_FIELD_KEY,
   assertDestinationValid,
+  assertSectionGalleryDestination,
   extractRepeatableCountsFromEntries,
   formatDestinationLabel,
   isAllowedGalleryMime,
+  isSectionGalleryFieldKey,
   listPhotoDestinations,
+  matchesSectionScope,
   normalizeObjectUrl,
+  resolveSectionInstanceLabel,
 } from "./inspectionGallery";
 
 const structure = {
@@ -267,5 +272,90 @@ const cipDest = assertDestinationValid(withCips, "section_decoration", cipFieldK
 assert.ok(cipDest);
 assert.equal(cipDest!.fieldKey, cipFieldKey);
 assert.ok(cipDest!.fieldLabel.includes("Paint Condition"));
+
+// Section Gallery pool (reserved field key — not listed as a point destination)
+assert.ok(isSectionGalleryFieldKey(SECTION_GALLERY_FIELD_KEY));
+assert.ok(!isSectionGalleryFieldKey("field_floor"));
+assert.ok(
+  !listPhotoDestinations(structure, { section_bedrooms: 2 }).some((d) =>
+    isSectionGalleryFieldKey(d.fieldKey),
+  ),
+  "section-pool key must not appear in point destinations",
+);
+
+const poolKitchen = assertSectionGalleryDestination(structure, "section_kitchen", {});
+assert.ok(poolKitchen);
+assert.equal(poolKitchen!.fieldKey, SECTION_GALLERY_FIELD_KEY);
+assert.equal(poolKitchen!.sectionLabel, "Kitchen");
+assert.equal(
+  formatDestinationLabel(poolKitchen!),
+  "Kitchen",
+  "section-pool label is section only",
+);
+
+const poolBedroom = assertDestinationValid(
+  structure,
+  "section_bedrooms/Bedrooms 1",
+  SECTION_GALLERY_FIELD_KEY,
+  { section_bedrooms: 2 },
+);
+assert.ok(poolBedroom);
+assert.ok(
+  poolBedroom!.sectionLabel === "Bedrooms 1" || poolBedroom!.sectionLabel === "Bedroom 1",
+  `unexpected section label: ${poolBedroom!.sectionLabel}`,
+);
+assert.equal(
+  assertDestinationValid(
+    structure,
+    "section_bedrooms/Bedrooms 9",
+    SECTION_GALLERY_FIELD_KEY,
+    { section_bedrooms: 2 },
+  ),
+  null,
+);
+
+// Alias-aware section scope matching
+const scopedImage = {
+  assignments: [
+    {
+      sectionRef: "section_bedrooms/room-abc",
+      fieldKey: SECTION_GALLERY_FIELD_KEY,
+    },
+  ],
+};
+assert.equal(
+  matchesSectionScope(scopedImage, "section_bedrooms/Bedrooms 1", [
+    "section_bedrooms/room-abc",
+  ]),
+  true,
+);
+assert.equal(
+  matchesSectionScope(scopedImage, "section_bedrooms/Bedrooms 2", [
+    "section_bedrooms/room-xyz",
+  ]),
+  false,
+);
+assert.equal(
+  matchesSectionScope(
+    { assignments: [{ sectionRef: "section_kitchen", fieldKey: "field_kitchen" }] },
+    "section_kitchen",
+    [],
+  ),
+  true,
+);
+
+// Section Gallery badge resolves UUID room path → human label
+assert.equal(
+  resolveSectionInstanceLabel(
+    withRooms,
+    "section_bedrooms/room-abc",
+    { section_bedrooms: 2 },
+  ),
+  "Master Bedroom",
+);
+assert.equal(
+  resolveSectionInstanceLabel(structure, "section_kitchen", {}),
+  "Kitchen",
+);
 
 console.log("inspectionGallery.test.ts: ok");

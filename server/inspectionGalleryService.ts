@@ -16,13 +16,17 @@ import {
 import {
   GALLERY_FIELD_PHOTO_MAX,
   GALLERY_REGISTER_BATCH_MAX,
+  SECTION_GALLERY_FIELD_KEY,
   assertDestinationValid,
   extractCipCountsFromEntries,
   extractRepeatableCountsFromEntries,
   formatDestinationLabel,
   isAllowedGalleryMime,
+  isSectionGalleryFieldKey,
   listPhotoDestinations,
+  listRepeatableInstances,
   normalizeObjectUrl,
+  resolveSectionInstanceLabel,
   type PhotoDestination,
 } from "@shared/inspectionGallery";
 import { formatSignerDisplayName } from "@shared/signature";
@@ -163,6 +167,21 @@ function destinationLabelMap(
   const map = new Map<string, string>();
   for (const d of listPhotoDestinations(structure, counts, cipCounts)) {
     map.set(`${d.sectionRef}::${d.fieldKey}`, formatDestinationLabel(d));
+    // Section-pool badge: section name only (e.g. "Bedroom 1")
+    const poolKey = `${d.sectionRef}::${SECTION_GALLERY_FIELD_KEY}`;
+    if (!map.has(poolKey)) map.set(poolKey, d.sectionLabel);
+  }
+
+  // Seed pool labels for every repeatable instance ref + aliases (UUID room paths).
+  const sections = Array.isArray(structure?.sections) ? structure.sections : [];
+  for (const section of sections) {
+    if (!section?.repeatable || !section.id) continue;
+    for (const inst of listRepeatableInstances(structure, section.id, counts)) {
+      for (const ref of [inst.sectionRef, ...inst.aliasRefs]) {
+        const key = `${ref}::${SECTION_GALLERY_FIELD_KEY}`;
+        if (!map.has(key)) map.set(key, inst.sectionLabel);
+      }
+    }
   }
   return map;
 }
@@ -181,6 +200,10 @@ async function toDto(
   }>,
   labelMap: Map<string, string>,
   context: { propertyAddress: string | null; inspectorName: string | null },
+  labelContext?: {
+    structure?: any;
+    counts?: Record<string, number>;
+  },
 ): Promise<GalleryImageDto> {
   return {
     id: image.id,
@@ -194,14 +217,33 @@ async function toDto(
     captureLatitude: image.captureLatitude ?? null,
     captureLongitude: image.captureLongitude ?? null,
     addressMatchStatus: normalizeMatchStatus(image.addressMatchStatus),
-    assignments: assignments.map((a) => ({
-      id: a.id,
-      sectionRef: a.sectionRef,
-      fieldKey: a.fieldKey,
-      label:
-        labelMap.get(`${a.sectionRef}::${a.fieldKey}`) ||
-        `${a.sectionRef} → ${a.fieldKey}`,
-    })),
+    assignments: assignments.map((a) => {
+      if (isSectionGalleryFieldKey(a.fieldKey)) {
+        const fromMap = labelMap.get(`${a.sectionRef}::${SECTION_GALLERY_FIELD_KEY}`);
+        const resolved =
+          fromMap ||
+          resolveSectionInstanceLabel(
+            labelContext?.structure,
+            a.sectionRef,
+            labelContext?.counts || {},
+          ) ||
+          a.sectionRef;
+        return {
+          id: a.id,
+          sectionRef: a.sectionRef,
+          fieldKey: a.fieldKey,
+          label: resolved,
+        };
+      }
+      return {
+        id: a.id,
+        sectionRef: a.sectionRef,
+        fieldKey: a.fieldKey,
+        label:
+          labelMap.get(`${a.sectionRef}::${a.fieldKey}`) ||
+          `${a.sectionRef} → ${a.fieldKey}`,
+      };
+    }),
   };
 }
 
@@ -311,7 +353,8 @@ export async function listGallery(
   const counts = await loadRepeatableCounts(inspectionId, inspection);
   const entries = await storage.getInspectionEntries(inspectionId);
   const cipCounts = extractCipCountsFromEntries(entries);
-  const labelMap = destinationLabelMap(inspection.templateSnapshotJson as any, counts, cipCounts);
+  const structure = inspection.templateSnapshotJson as any;
+  const labelMap = destinationLabelMap(structure, counts, cipCounts);
 
   const images = await db
     .select()
@@ -343,7 +386,12 @@ export async function listGallery(
 
   const result: GalleryImageDto[] = [];
   for (const img of images) {
-    result.push(await toDto(img, byImage.get(img.id) || [], labelMap, context));
+    result.push(
+      await toDto(img, byImage.get(img.id) || [], labelMap, context, {
+        structure,
+        counts,
+      }),
+    );
   }
   return result;
 }

@@ -18,6 +18,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { ChevronDown, ChevronLeft, ChevronRight, Save, CheckCircle2, AlertCircle, Wifi, WifiOff, Cloud, Sparkles, Loader2, Plus, Minus, Images, ArrowRight, ClipboardList, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
@@ -51,9 +57,10 @@ import {
   parseLegacyRepeatableInstanceNumber,
   repeatableCountsFromPropertyRoomInstances,
 } from "@shared/propertyRooms";
-import { listRepeatableInstances } from "@shared/inspectionGallery";
+import { listRepeatableInstances, matchesSectionScope } from "@shared/inspectionGallery";
 import { useCompanyModules } from "@/hooks/useCompanyModules";
 import { InspectionGalleryPanel } from "@/components/inspection-gallery/InspectionGalleryPanel";
+import type { GalleryImage } from "@/components/inspection-gallery/types";
 import {
   CompletionChecklistPanel,
   useInspectionCompletionChecklist,
@@ -71,7 +78,13 @@ import {
   resolveCipInstanceCount,
   type CustomInspectionPoint,
 } from "@shared/templateCustomInspectionPoints";
-import { computeInspectionCaptureProgress } from "@shared/inspectionProgress";
+import {
+  computeInspectionCaptureProgress,
+  entryLookupKey,
+  formatRequiredIncompleteMessage,
+  listRequiredIncompleteFields,
+  type RequiredIncompleteField,
+} from "@shared/inspectionProgress";
 
 interface AIAnalysisStatus {
   status: "idle" | "processing" | "completed" | "failed";
@@ -117,6 +130,74 @@ interface InspectionEntry {
   markedForReview?: boolean;
 }
 
+/** Section-scoped gallery opener — mirrors main Gallery chrome with a softer brand treatment. */
+function SectionGalleryButton({
+  count,
+  onClick,
+  testId,
+  compact = false,
+}: {
+  count: number;
+  onClick: () => void;
+  testId: string;
+  compact?: boolean;
+}) {
+  const countLabel = count > 99 ? "99+" : String(count);
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      onClick={onClick}
+      data-testid={testId}
+      title={
+        count === 0
+          ? "Open section photo gallery"
+          : `${count} photo${count === 1 ? "" : "s"} in this section — open gallery`
+      }
+      aria-label={
+        count === 0
+          ? "Open section gallery"
+          : `Open section gallery, ${count} photo${count === 1 ? "" : "s"}`
+      }
+      className={cn(
+        "group shrink-0 gap-2 border-[#00A89A]/40 bg-gradient-to-br from-[#2DE0C5]/12 via-[#04C6BD]/6 to-transparent",
+        "text-[#007F74] font-semibold shadow-xs",
+        "hover:border-[#00A89A]/60 hover:from-[#2DE0C5]/20 hover:via-[#04C6BD]/10 hover:to-[#00A89A]/5",
+        "hover:text-[#00695C] active:scale-[0.98]",
+        compact ? "h-9 min-h-9 pl-1 pr-2" : "h-10 min-h-10 pl-1.5 pr-2.5",
+      )}
+    >
+      <span
+        className={cn(
+          "inline-flex items-center justify-center rounded-md bg-gradient-to-br from-[#2DE0C5] via-[#04C6BD] to-[#00A89A] shadow-sm shrink-0 ring-1 ring-white/30",
+          compact ? "h-6 w-6" : "h-7 w-7",
+        )}
+      >
+        <Images className={cn("text-white", compact ? "h-3 w-3" : "h-3.5 w-3.5")} aria-hidden />
+      </span>
+      <span className={cn("tracking-wide", compact ? "text-[11px]" : "text-xs sm:text-sm")}>
+        Section Gallery
+      </span>
+      <span
+        className={cn(
+          "inline-flex items-center justify-center min-w-[1.35rem] h-5 px-1.5 rounded-full text-[10px] font-bold tabular-nums leading-none",
+          count > 0
+            ? "bg-[#00A89A] text-white shadow-sm"
+            : "bg-background/80 text-muted-foreground ring-1 ring-[#00A89A]/25",
+        )}
+        data-testid={`${testId}-count`}
+      >
+        {countLabel}
+      </span>
+      <ArrowRight
+        className="h-3.5 w-3.5 opacity-60 shrink-0 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:opacity-100"
+        aria-hidden
+      />
+    </Button>
+  );
+}
+
 function entryNumericFieldValue(valueJson: any): number | null {
   if (valueJson == null) return null;
   if (typeof valueJson === "number" && Number.isFinite(valueJson)) return valueJson;
@@ -134,6 +215,13 @@ export default function InspectionCapture() {
   const { toast } = useToast();
   const [currentSectionIndex, setCurrentSectionIndex] = useState(0);
   const [captureMode, setCaptureMode] = useState<"sections" | "gallery">("sections");
+  const [sectionGalleryScope, setSectionGalleryScope] = useState<{
+    sectionRef: string;
+    aliasRefs: string[];
+    label: string;
+  } | null>(null);
+  /** Entry keys (`sectionRef-fieldKey`) for blank required fields after Complete was blocked. */
+  const [requiredErrorKeys, setRequiredErrorKeys] = useState<Set<string>>(() => new Set());
   const [entries, setEntries] = useState<Record<string, InspectionEntry>>({});
   const [repeatableCounts, setRepeatableCounts] = useState<Record<string, number>>({}); // Track counts for repeatable sections
   const repeatableCountsInitialized = React.useRef(false); // Track if we've initialized default counts
@@ -205,11 +293,104 @@ export default function InspectionCapture() {
   const checklistRequiredIncomplete =
     completionChecklist?.progress?.requiredIncomplete ?? 0;
 
+  const { data: galleryData } = useQuery<{ images: GalleryImage[] }>({
+    queryKey: ["/api/inspections", id, "gallery"],
+    queryFn: async () => {
+      const res = await fetch(`/api/inspections/${id}/gallery`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load gallery");
+      return res.json();
+    },
+    enabled: !!id,
+  });
+  const galleryImages = galleryData?.images || [];
+
+  const countSectionGallery = (sectionRef: string, aliasRefs: string[] = []) =>
+    galleryImages.filter((img) => matchesSectionScope(img, sectionRef, aliasRefs)).length;
+
   const scrollToChecklist = () => {
     checklistPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
+  const getRequiredIncomplete = (): RequiredIncompleteField[] =>
+    listRequiredIncompleteFields({
+      sections,
+      entries,
+      repeatableCounts,
+      propertyRoomInstances,
+      templateStructure: templateSnapshot,
+      excludeTenantSignatures: !tenanciesEnabled,
+    });
+
+  const isRequiredFieldHighlighted = (
+    sectionRef: string,
+    fieldKey: string,
+    aliasRefs: string[] = [],
+  ) => {
+    if (!requiredErrorKeys.size) return false;
+    for (const ref of [sectionRef, ...aliasRefs]) {
+      if (requiredErrorKeys.has(entryLookupKey(ref, fieldKey))) return true;
+    }
+    return false;
+  };
+
+  const clearRequiredErrorForField = (sectionRef: string, fieldKey: string, aliasRefs: string[] = []) => {
+    setRequiredErrorKeys((prev) => {
+      if (!prev.size) return prev;
+      const next = new Set(prev);
+      let changed = false;
+      for (const ref of [sectionRef, ...aliasRefs]) {
+        const key = entryLookupKey(ref, fieldKey);
+        if (next.delete(key)) changed = true;
+      }
+      // Also clear primary keys that share this field under any stored incomplete key
+      for (const key of Array.from(next)) {
+        if (key.endsWith(`-${fieldKey}`)) {
+          next.delete(key);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  };
+
+  const focusFirstRequiredIncomplete = (missing: RequiredIncompleteField[]) => {
+    if (!missing.length) return;
+    const first = missing[0]!;
+    const sectionIndex = sections.findIndex((s) => s.id === first.sectionId);
+    if (sectionIndex >= 0) {
+      setCurrentSectionIndex(sectionIndex);
+      setCaptureMode("sections");
+    }
+    // Scroll after section paints
+    window.setTimeout(() => {
+      const el =
+        document.querySelector(`[data-testid="field-widget-${first.fieldKey}"]`) ||
+        document.querySelector(`[data-validation-error="true"]`);
+      el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 150);
+  };
+
   const requestComplete = () => {
+    const missing = getRequiredIncomplete();
+    if (missing.length > 0) {
+      setRequiredErrorKeys(
+        new Set(
+          missing.flatMap((f) => [
+            f.entryKey,
+            ...f.aliasRefs.map((ref) => entryLookupKey(ref, f.fieldKey)),
+          ]),
+        ),
+      );
+      toast({
+        variant: "destructive",
+        title: "Required fields missing",
+        description: formatRequiredIncompleteMessage(missing),
+      });
+      focusFirstRequiredIncomplete(missing);
+      return;
+    }
+    setRequiredErrorKeys(new Set());
+
     if (
       COMPLETION_CHECKLIST_INSPECTION_UI_VISIBLE &&
       checklistRequiredIncomplete > 0
@@ -1312,6 +1493,7 @@ export default function InspectionCapture() {
         ? writeInst?.sectionRef ||
           `${currentSection.id}/${currentSection.title} ${instanceIndex + 1}`
         : currentSection.id;
+    clearRequiredErrorForField(sectionRef, fieldKey, writeInst?.aliasRefs || []);
     
     const entryKey = `${sectionRef}-${fieldKey}`;
     const existingEntry = entries[entryKey];
@@ -1487,6 +1669,7 @@ export default function InspectionCapture() {
     note?: string,
     photos?: string[],
   ) => {
+    clearRequiredErrorForField(sectionRef, fieldKey);
     const entryKey = `${sectionRef}-${fieldKey}`;
     const existingEntry = entries[entryKey];
     const isPhotoRemoval =
@@ -1783,6 +1966,10 @@ export default function InspectionCapture() {
                             sectionRef={sectionRef}
                             autoContext={autoContext}
                             showRecommendedActions={showRecommendedActions}
+                            validationError={isRequiredFieldHighlighted(
+                              sectionRef,
+                              expanded.id,
+                            )}
                             onChange={(value: any, note?: string, photos?: string[]) =>
                               handleScopedFieldChange(
                                 sectionRef,
@@ -2007,6 +2194,27 @@ export default function InspectionCapture() {
     !!inspection?.propertyId;
 
   const finalizeComplete = async (opts: { withAI: boolean; sendToTenant: boolean }) => {
+    const missing = getRequiredIncomplete();
+    if (missing.length > 0) {
+      setRequiredErrorKeys(
+        new Set(
+          missing.flatMap((f) => [
+            f.entryKey,
+            ...f.aliasRefs.map((ref) => entryLookupKey(ref, f.fieldKey)),
+          ]),
+        ),
+      );
+      setShowCompleteDialog(false);
+      setShowSendToTenantDialog(false);
+      toast({
+        variant: "destructive",
+        title: "Required fields missing",
+        description: formatRequiredIncompleteMessage(missing),
+      });
+      focusFirstRequiredIncomplete(missing);
+      return;
+    }
+
     setCompletingAction(opts.withAI ? "with-ai" : "without-ai");
     if (opts.sendToTenant) {
       setSendingToTenantAction("yes");
@@ -2677,14 +2885,31 @@ export default function InspectionCapture() {
       {currentSection && (
         <Card className="border border-border shadow-sm min-w-0 overflow-hidden">
           <CardHeader className="p-4 sm:p-6 border-b bg-muted/30">
-            <CardTitle data-testid="text-section-title" className="text-lg sm:text-xl font-bold break-words">
-              {formatDisplayHeading(currentSection.title)}
-            </CardTitle>
-            {currentSection.description && (
-              <p className="text-sm text-muted-foreground break-words" data-testid="text-section-description">
-                {currentSection.description}
-              </p>
-            )}
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0 space-y-1">
+                <CardTitle data-testid="text-section-title" className="text-lg sm:text-xl font-bold break-words">
+                  {formatDisplayHeading(currentSection.title)}
+                </CardTitle>
+                {currentSection.description && (
+                  <p className="text-sm text-muted-foreground break-words" data-testid="text-section-description">
+                    {currentSection.description}
+                  </p>
+                )}
+              </div>
+              {!currentSection.repeatable && id && (
+                <SectionGalleryButton
+                  testId="button-section-gallery"
+                  count={countSectionGallery(currentSection.id)}
+                  onClick={() =>
+                    setSectionGalleryScope({
+                      sectionRef: currentSection.id,
+                      aliasRefs: [],
+                      label: formatDisplayHeading(currentSection.title),
+                    })
+                  }
+                />
+              )}
+            </div>
           </CardHeader>
           <CardContent className="space-y-8 p-4 sm:p-6 pt-6 bg-muted/20">
             {/* Repeatable section count input (hidden when locked from property — instances render below) */}
@@ -2808,26 +3033,42 @@ export default function InspectionCapture() {
                           </h3>
                         </button>
                       </CollapsibleTrigger>
-                      {canDeleteInstance && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="shrink-0 h-9 w-9 text-destructive hover:text-destructive hover:bg-destructive/10"
-                          title={`Remove ${instanceName}`}
-                          aria-label={`Remove ${instanceName}`}
-                          data-testid={`button-delete-instance-${instanceIndex}`}
-                          onClick={() =>
-                            setInstancePendingDelete({
-                              sectionRef,
-                              label: instanceName,
-                              sectionId: currentSection.id,
-                            })
-                          }
-                        >
-                          <Trash2 className="h-4 w-4" aria-hidden />
-                        </Button>
-                      )}
+                      <div className="flex items-center gap-1 shrink-0">
+                        {id && (
+                          <SectionGalleryButton
+                            compact
+                            testId={`button-section-gallery-${instanceIndex}`}
+                            count={countSectionGallery(sectionRef, aliasRefs)}
+                            onClick={() =>
+                              setSectionGalleryScope({
+                                sectionRef,
+                                aliasRefs,
+                                label: instanceName,
+                              })
+                            }
+                          />
+                        )}
+                        {canDeleteInstance && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="shrink-0 h-9 w-9 text-destructive hover:text-destructive hover:bg-destructive/10"
+                            title={`Remove ${instanceName}`}
+                            aria-label={`Remove ${instanceName}`}
+                            data-testid={`button-delete-instance-${instanceIndex}`}
+                            onClick={() =>
+                              setInstancePendingDelete({
+                                sectionRef,
+                                label: instanceName,
+                                sectionId: currentSection.id,
+                              })
+                            }
+                          >
+                            <Trash2 className="h-4 w-4" aria-hidden />
+                          </Button>
+                        )}
+                      </div>
                     </div>
                     <CollapsibleContent>
                     <div className="space-y-8 p-3 sm:p-5 pt-3">
@@ -2924,8 +3165,14 @@ export default function InspectionCapture() {
                             markedForReview={entry?.markedForReview || false}
                             sectionName={instanceName}
                             sectionRef={sectionRef}
+                            galleryAliasRefs={aliasRefs}
                             autoContext={autoContext}
                             showRecommendedActions={showRecommendedActions}
+                            validationError={isRequiredFieldHighlighted(
+                              sectionRef,
+                              field.id,
+                              aliasRefs,
+                            )}
                             onChange={(value: any, note?: string, photos?: string[]) =>
                               handleFieldChange(field.id, value, note, photos, instanceIndex)
                             }
@@ -3051,9 +3298,14 @@ export default function InspectionCapture() {
                       markedForReview={entry?.markedForReview || false}
                       sectionName={currentSection.title}
                       sectionRef={currentSection.id}
+                      galleryAliasRefs={[]}
                       disabled={false}
                       autoContext={autoContext}
                       showRecommendedActions={showRecommendedActions}
+                      validationError={isRequiredFieldHighlighted(
+                        currentSection.id,
+                        field.id,
+                      )}
                       onChange={(value: any, note?: string, photos?: string[]) => {
                         handleFieldChange(field.id, value, note, photos);
                       }}
@@ -3121,6 +3373,38 @@ export default function InspectionCapture() {
       </div>
       </>
       )}
+
+      <Dialog
+        open={!!sectionGalleryScope}
+        onOpenChange={(open) => {
+          if (!open) setSectionGalleryScope(null);
+        }}
+      >
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader className="sr-only">
+            <DialogTitle>
+              {sectionGalleryScope
+                ? `Section Gallery — ${sectionGalleryScope.label}`
+                : "Section Gallery"}
+            </DialogTitle>
+          </DialogHeader>
+          {id && sectionGalleryScope && (
+            <InspectionGalleryPanel
+              inspectionId={id}
+              canEdit={inspection?.status !== "completed"}
+              embedded
+              scopeSectionRef={sectionGalleryScope.sectionRef}
+              scopeAliasRefs={sectionGalleryScope.aliasRefs}
+              scopeLabel={sectionGalleryScope.label}
+              onEntriesChanged={() => {
+                queryClient.invalidateQueries({
+                  queryKey: [`/api/inspections/${id}/entries`],
+                });
+              }}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Quick Actions FAB */}
       <InspectionQuickActions

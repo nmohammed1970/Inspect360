@@ -164,6 +164,8 @@ export async function sendInspectionCompleteEmail(
     
     const subject = `Inspection Complete: ${inspectionDetails.templateName}`;
     const location = inspectionDetails.propertyName || inspectionDetails.blockName || 'Unknown Location';
+    const baseUrl = (process.env.BASE_URL || 'https://portal.inspect360.ai').replace(/\/$/, '');
+    const reportUrl = `${baseUrl}/inspections/${inspectionDetails.inspectionId}/report`;
     
     const html = `
 <!DOCTYPE html>

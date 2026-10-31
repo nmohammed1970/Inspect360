@@ -29,6 +29,8 @@ import {
   GALLERY_FIELD_PHOTO_MAX,
   GALLERY_REGISTER_BATCH_MAX,
   GALLERY_UPLOAD_SELECT_MAX,
+  SECTION_GALLERY_FIELD_KEY,
+  matchesSectionScope,
 } from '../../../../shared/inspectionGallery';
 import {
   listLocalGalleryImages,
@@ -55,12 +57,19 @@ type Props = {
   inspectionId: string;
   canEdit?: boolean;
   onEntriesChanged?: () => void;
+  /** When set, panel shows only images for this section instance (Section Gallery). */
+  scopeSectionRef?: string;
+  scopeAliasRefs?: string[];
+  scopeLabel?: string;
 };
 
 export function InspectionGalleryPanel({
   inspectionId,
   canEdit = true,
   onEntriesChanged,
+  scopeSectionRef,
+  scopeAliasRefs = [],
+  scopeLabel,
 }: Props) {
   const theme = useTheme();
   const themeColors = theme?.colors || colors;
@@ -107,13 +116,33 @@ export function InspectionGalleryPanel({
     enabled: !!inspectionId && assignOpen,
   });
 
-  const images: MergedGalleryImage[] = useMemo(() => {
+  const isScoped = Boolean(String(scopeSectionRef || '').trim());
+  const scopeRef = String(scopeSectionRef || '').trim();
+  const sectionPoolAssign =
+    isScoped && scopeRef
+      ? { sectionRef: scopeRef, fieldKey: SECTION_GALLERY_FIELD_KEY }
+      : null;
+
+  const allImages: MergedGalleryImage[] = useMemo(() => {
     const server = serverGalleryQuery.data?.images || [];
     const local = localGalleryQuery.data || [];
     return mergeGalleryImages(server, local);
   }, [serverGalleryQuery.data?.images, localGalleryQuery.data]);
 
-  const destinations = destinationsQuery.data?.destinations || [];
+  const images: MergedGalleryImage[] = useMemo(() => {
+    if (!isScoped) return allImages;
+    return allImages.filter((img) => matchesSectionScope(img, scopeRef, scopeAliasRefs));
+  }, [allImages, isScoped, scopeRef, scopeAliasRefs]);
+
+  // Section Gallery: Assign only offers points under this section instance.
+  const destinations = useMemo(() => {
+    const all = destinationsQuery.data?.destinations || [];
+    if (!isScoped) return all;
+    const refs = new Set(
+      [scopeRef, ...scopeAliasRefs].map((r) => String(r || '').trim()).filter(Boolean),
+    );
+    return all.filter((d) => refs.has(d.sectionRef));
+  }, [destinationsQuery.data?.destinations, isScoped, scopeRef, scopeAliasRefs]);
 
   const filtered = useMemo(() => {
     if (filter === 'unassigned') return images.filter((i) => i.assignments.length === 0);
@@ -166,6 +195,7 @@ export function InspectionGalleryPanel({
             mimeType: 'image/jpeg',
             captureLatitude: gps?.latitude ?? null,
             captureLongitude: gps?.longitude ?? null,
+            pendingAssign: sectionPoolAssign,
           });
           stored.push(result);
           // Show each tile as soon as it is on disk — do not wait for the full batch.
@@ -229,7 +259,7 @@ export function InspectionGalleryPanel({
               const result = await inspectionGalleryService.register(
                 inspectionId,
                 chunk,
-                null,
+                sectionPoolAssign,
                 gps,
               );
               const byUrl = new Map((result.images || []).map((ri) => [ri.objectUrl, ri.id]));
@@ -254,7 +284,7 @@ export function InspectionGalleryPanel({
                 data: JSON.stringify({
                   inspectionId,
                   images: chunk,
-                  assign: null,
+                  assign: sectionPoolAssign,
                 }),
                 retryCount: 0,
                 lastError: e?.message || null,
@@ -494,6 +524,18 @@ export function InspectionGalleryPanel({
 
   return (
     <View style={styles.root}>
+      {isScoped ? (
+        <View style={{ marginBottom: spacing[2] }}>
+          <Text style={{ fontSize: typography.fontSize.lg, fontWeight: '700', color: themeColors.text.primary }}>
+            {`Section Gallery${scopeLabel ? ` — ${scopeLabel}` : ''}`}
+          </Text>
+          <Text style={{ fontSize: 12, color: themeColors.text.secondary, marginTop: 2 }}>
+            {images.length} photo{images.length === 1 ? '' : 's'}
+            {allImages.length > images.length ? ` · ${allImages.length} in inspection` : ''}
+          </Text>
+        </View>
+      ) : null}
+
       {!isOnline && (
         <View style={[styles.offlineBanner, { backgroundColor: themeColors.muted?.DEFAULT || '#f1f5f9' }]}>
           <CloudOff size={14} color={themeColors.warning || '#d97706'} />

@@ -15,6 +15,8 @@ import { CompletionChecklistPanel } from "@/components/CompletionChecklistPanel"
 import { COMPLETION_CHECKLIST_INSPECTION_UI_VISIBLE } from "@shared/completionChecklist";
 import {
   computeInspectionCaptureProgress,
+  formatRequiredIncompleteMessage,
+  listRequiredIncompleteFields,
   repeatableCountsFromEntries,
 } from "@shared/inspectionProgress";
 import { repeatableCountsFromPropertyLayout } from "@shared/propertyLayout";
@@ -71,7 +73,7 @@ export default function InspectionReview() {
     title?: string;
   }>;
 
-  const { totalFields, completedFields, progress } = useMemo(() => {
+  const progressInput = useMemo(() => {
     const fromEntries = repeatableCountsFromEntries(entries);
     const layoutCounts =
       (inspection as Inspection & { propertyRoomCountsSnapshot?: Record<string, number> | null })
@@ -79,19 +81,33 @@ export default function InspectionReview() {
     const fromLayout = layoutCounts
       ? repeatableCountsFromPropertyLayout(snapshot, layoutCounts)
       : {};
-    return computeInspectionCaptureProgress({
+    return {
       sections,
       entries,
       repeatableCounts: { ...fromEntries, ...fromLayout },
       propertyRoomInstances,
       templateStructure: snapshot,
       excludeTenantSignatures: !tenanciesEnabled,
-    });
+    };
   }, [sections, entries, snapshot, propertyRoomInstances, tenanciesEnabled, inspection]);
+
+  const { totalFields, completedFields, progress } = useMemo(
+    () => computeInspectionCaptureProgress(progressInput),
+    [progressInput],
+  );
+
+  const requiredIncomplete = useMemo(
+    () => listRequiredIncompleteFields(progressInput),
+    [progressInput],
+  );
 
   // Complete inspection mutation
   const completeInspection = useMutation({
     mutationFn: async () => {
+      const missing = listRequiredIncompleteFields(progressInput);
+      if (missing.length > 0) {
+        throw new Error(formatRequiredIncompleteMessage(missing));
+      }
       const response = await fetch(`/api/inspections/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -101,7 +117,16 @@ export default function InspectionReview() {
           submittedAt: new Date().toISOString(),
         }),
       });
-      if (!response.ok) throw new Error(await response.text());
+      if (!response.ok) {
+        const text = await response.text();
+        try {
+          const body = JSON.parse(text);
+          throw new Error(body.message || text);
+        } catch (e: any) {
+          if (e?.message && e.message !== text) throw e;
+          throw new Error(text || "Failed to complete inspection");
+        }
+      }
       return response.json();
     },
     onSuccess: () => {
@@ -268,8 +293,24 @@ export default function InspectionReview() {
               </Button>
               <Button
                 className="min-h-11"
-                onClick={() => completeInspection.mutate()}
-                disabled={completeInspection.isPending || progress < 100}
+                onClick={() => {
+                  if (requiredIncomplete.length > 0) {
+                    toast({
+                      variant: "destructive",
+                      title: "Required fields missing",
+                      description: formatRequiredIncompleteMessage(requiredIncomplete),
+                    });
+                    navigate(`/inspections/${id}/capture`);
+                    return;
+                  }
+                  completeInspection.mutate();
+                }}
+                disabled={completeInspection.isPending}
+                title={
+                  requiredIncomplete.length > 0
+                    ? formatRequiredIncompleteMessage(requiredIncomplete)
+                    : undefined
+                }
                 data-testid="button-mark-complete"
               >
                 <CheckCircle2 className="w-4 h-4 mr-2 shrink-0" />

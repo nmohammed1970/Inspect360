@@ -74,6 +74,8 @@ interface FieldWidgetProps {
   sectionName?: string;
   /** Template sectionRef for gallery assignment (e.g. section_bedrooms/Bedrooms 1). */
   sectionRef?: string;
+  /** Alias section refs (UUID room path vs Title N) for section-scoped gallery pick. */
+  galleryAliasRefs?: string[];
   /** When true, value inputs are non-editable (e.g. property-seeded bedroom count). */
   disabled?: boolean;
   autoContext?: {
@@ -89,6 +91,10 @@ interface FieldWidgetProps {
   onLogMaintenance?: (fieldLabel: string, photos: string[], note?: string) => void;
   /** Template AI setting — Recommended Actions panel (default off). */
   showRecommendedActions?: boolean;
+  /** When true, highlight this field as a missing required value. */
+  validationError?: boolean;
+  /** Optional message under the field when validationError is set. */
+  validationMessage?: string;
 }
 
 export function FieldWidget({
@@ -102,12 +108,15 @@ export function FieldWidget({
   markedForReview,
   sectionName,
   sectionRef,
+  galleryAliasRefs = [],
   disabled = false,
   autoContext,
   onChange,
   onMarkedForReviewChange,
   onLogMaintenance,
   showRecommendedActions = false,
+  validationError = false,
+  validationMessage,
 }: FieldWidgetProps) {
   const isOnline = useOnlineStatus();
   const locale = useLocale();
@@ -1581,6 +1590,9 @@ export function FieldWidget({
           destinationLabel={
             sectionName ? `${sectionName} → ${field.label}` : field.label
           }
+          scopeSectionRef={sectionRef}
+          scopeAliasRefs={galleryAliasRefs}
+          scopeLabel={sectionName}
           busy={galleryBusy}
           onConfirm={async (picked) => {
             setGalleryBusy(true);
@@ -1987,6 +1999,9 @@ export function FieldWidget({
                 destinationLabel={
                   sectionName ? `${sectionName} → ${field.label}` : field.label
                 }
+                scopeSectionRef={sectionRef}
+                scopeAliasRefs={galleryAliasRefs}
+                scopeLabel={sectionName}
                 busy={galleryBusy}
                 onConfirm={async (picked) => {
                   setGalleryBusy(true);
@@ -2282,10 +2297,21 @@ export function FieldWidget({
 
   return (
     <div
-      className="min-w-0 overflow-hidden rounded-xl border-2 border-border bg-card shadow-md"
+      className={
+        validationError
+          ? "min-w-0 overflow-hidden rounded-xl border-2 border-destructive bg-card shadow-md ring-2 ring-destructive/30"
+          : "min-w-0 overflow-hidden rounded-xl border-2 border-border bg-card shadow-md"
+      }
       data-testid={`field-widget-${field.id}`}
+      data-validation-error={validationError ? "true" : undefined}
     >
-      <div className="flex flex-wrap items-start justify-between gap-2 min-w-0 border-b-2 border-border bg-muted/50 px-4 py-3.5 sm:px-5">
+      <div
+        className={
+          validationError
+            ? "flex flex-wrap items-start justify-between gap-2 min-w-0 border-b-2 border-destructive/40 bg-destructive/5 px-4 py-3.5 sm:px-5"
+            : "flex flex-wrap items-start justify-between gap-2 min-w-0 border-b-2 border-border bg-muted/50 px-4 py-3.5 sm:px-5"
+        }
+      >
         <Label className="text-base sm:text-lg font-semibold leading-snug flex flex-wrap items-center gap-2 break-words min-w-0">
           <span className="break-words min-w-0">{formatDisplayHeading(field.label)}</span>
           {field.required && <span className="text-destructive shrink-0">*</span>}
@@ -2293,6 +2319,11 @@ export function FieldWidget({
       </div>
 
       <div className="space-y-3 p-4 sm:p-5">
+      {validationError && (
+        <p className="text-sm text-destructive font-medium" data-testid={`field-required-error-${field.id}`}>
+          {validationMessage || "This required field must be filled before completing the inspection."}
+        </p>
+      )}
       {renderField()}
 
       {allowsAttachedPhotos && renderAttachedPhotosSection()}

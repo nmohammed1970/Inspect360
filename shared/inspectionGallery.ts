@@ -30,6 +30,77 @@ export const GALLERY_REGISTER_BATCH_MAX = 500;
 export const GALLERY_UPLOAD_SELECT_MAX = 500;
 export const GALLERY_FIELD_PHOTO_MAX = 10;
 
+/**
+ * Reserved field key for images uploaded into a Section Gallery that are not yet
+ * assigned to a specific inspection point. Stored on assignments only (not entries.photos).
+ */
+export const SECTION_GALLERY_FIELD_KEY = "__section_gallery__";
+
+export function isSectionGalleryFieldKey(fieldKey: string | null | undefined): boolean {
+  return String(fieldKey || "").trim() === SECTION_GALLERY_FIELD_KEY;
+}
+
+export type GalleryAssignmentLike = {
+  sectionRef?: string | null;
+  fieldKey?: string | null;
+};
+
+export type GalleryImageScopeLike = {
+  assignments?: GalleryAssignmentLike[] | null;
+};
+
+/** True when any assignment belongs to this section instance (exact or alias refs). */
+export function matchesSectionScope(
+  image: GalleryImageScopeLike | null | undefined,
+  sectionRef: string,
+  aliasRefs: string[] = [],
+): boolean {
+  const refs = new Set(
+    [sectionRef, ...aliasRefs]
+      .map((r) => String(r || "").trim())
+      .filter(Boolean),
+  );
+  if (!refs.size) return false;
+  const assignments = image?.assignments || [];
+  return assignments.some((a) => refs.has(String(a.sectionRef || "").trim()));
+}
+
+/** Resolve section id from a sectionRef (`sectionId` or `sectionId/instance`). */
+export function sectionIdFromRef(sectionRef: string): string {
+  const ref = String(sectionRef || "").trim();
+  if (!ref) return "";
+  const slash = ref.indexOf("/");
+  return slash > 0 ? ref.slice(0, slash) : ref;
+}
+
+/**
+ * Human-readable section/instance label for a sectionRef (exact or alias).
+ * Used for Section Gallery badges so UUID room paths show as "Bedroom 1".
+ */
+export function resolveSectionInstanceLabel(
+  structure: GalleryTemplateStructure | null | undefined,
+  sectionRef: string,
+  repeatableCounts: Record<string, number> = {},
+): string | null {
+  const ref = String(sectionRef || "").trim();
+  if (!ref) return null;
+  const sections = Array.isArray(structure?.sections) ? structure!.sections! : [];
+  const sectionId = sectionIdFromRef(ref);
+  const section = sections.find((s) => s.id === sectionId);
+  if (!section) return null;
+
+  if (!section.repeatable) {
+    if (ref !== section.id) return null;
+    return (section.title || section.id).trim() || section.id;
+  }
+
+  const instances = listRepeatableInstances(structure, sectionId, repeatableCounts);
+  const matched = instances.find(
+    (inst) => inst.sectionRef === ref || inst.aliasRefs.includes(ref),
+  );
+  return matched?.sectionLabel || null;
+}
+
 export type GalleryTemplateField = {
   id?: string;
   key?: string;
@@ -342,6 +413,72 @@ export function listPhotoDestinations(
   return destinations;
 }
 
+/**
+ * Resolve a valid section-pool destination for Section Gallery uploads
+ * (fieldKey === SECTION_GALLERY_FIELD_KEY). Not listed in point Assign dialogs.
+ */
+export function assertSectionGalleryDestination(
+  structure: GalleryTemplateStructure | null | undefined,
+  sectionRef: string,
+  repeatableCounts: Record<string, number> = {},
+): PhotoDestination | null {
+  const ref = String(sectionRef || "").trim();
+  if (!ref) return null;
+  const sections = Array.isArray(structure?.sections) ? structure!.sections! : [];
+  const sectionId = sectionIdFromRef(ref);
+  const section = sections.find((s) => s.id === sectionId);
+  if (!section) return null;
+
+  if (section.repeatable) {
+    const instances = listRepeatableInstances(structure, sectionId, repeatableCounts);
+    const matched = instances.find(
+      (inst) => inst.sectionRef === ref || inst.aliasRefs.includes(ref),
+    );
+    if (matched) {
+      return {
+        sectionId,
+        sectionRef: ref,
+        sectionLabel: matched.sectionLabel,
+        fieldKey: SECTION_GALLERY_FIELD_KEY,
+        fieldLabel: "Section Gallery",
+        fieldType: "photo_array",
+      };
+    }
+    // Synthetic Title N for a valid in-range instance
+    const title = (section.title || section.id).trim() || section.id;
+    const titleNumMatch = ref
+      .slice(ref.indexOf("/") + 1)
+      .trim()
+      .match(new RegExp(`^${escapeRegExp(title)}\\s+(\\d+)$`, "i"));
+    if (titleNumMatch) {
+      const idx = Math.floor(Number(titleNumMatch[1]));
+      const inst = instances[idx - 1];
+      if (inst) {
+        return {
+          sectionId,
+          sectionRef: ref,
+          sectionLabel: inst.sectionLabel,
+          fieldKey: SECTION_GALLERY_FIELD_KEY,
+          fieldLabel: "Section Gallery",
+          fieldType: "photo_array",
+        };
+      }
+    }
+    return null;
+  }
+
+  // Non-repeatable: sectionRef must be the section id
+  if (ref !== section.id) return null;
+  return {
+    sectionId: section.id,
+    sectionRef: section.id,
+    sectionLabel: (section.title || section.id).trim() || section.id,
+    fieldKey: SECTION_GALLERY_FIELD_KEY,
+    fieldLabel: "Section Gallery",
+    fieldType: "photo_array",
+  };
+}
+
 export function assertDestinationValid(
   structure: GalleryTemplateStructure | null | undefined,
   sectionRef: string,
@@ -349,6 +486,10 @@ export function assertDestinationValid(
   repeatableCounts: Record<string, number> = {},
   cipCounts?: CipCountMap,
 ): PhotoDestination | null {
+  if (isSectionGalleryFieldKey(fieldKey)) {
+    return assertSectionGalleryDestination(structure, sectionRef, repeatableCounts);
+  }
+
   // When validating a specific CIP expanded field, ensure that instance is listed
   // even if the CIP count entry is missing/stale (common right after Browse upload).
   const cipParsed = parseCipExpandedFieldKey(fieldKey);
@@ -473,9 +614,23 @@ function escapeRegExp(value: string): string {
 }
 
 export function formatDestinationLabel(
-  dest: Pick<PhotoDestination, "sectionLabel" | "fieldLabel">,
+  dest: Pick<PhotoDestination, "sectionLabel" | "fieldLabel" | "fieldKey">,
 ): string {
+  if (isSectionGalleryFieldKey(dest.fieldKey) || dest.fieldLabel === "Section Gallery") {
+    return dest.sectionLabel;
+  }
   return `${dest.sectionLabel} → ${dest.fieldLabel}`;
+}
+
+/** Point-assign destinations only (excludes section-pool sentinel). */
+export function listPointPhotoDestinations(
+  structure: GalleryTemplateStructure | null | undefined,
+  repeatableCounts: Record<string, number> = {},
+  cipCounts?: CipCountMap,
+): PhotoDestination[] {
+  return listPhotoDestinations(structure, repeatableCounts, cipCounts).filter(
+    (d) => !isSectionGalleryFieldKey(d.fieldKey),
+  );
 }
 
 export function extractRepeatableCountsFromEntries(
