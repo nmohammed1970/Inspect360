@@ -942,22 +942,23 @@ export default function InspectionCaptureScreen() {
     contentScrollViewRef.current?.scrollTo({ y: 0, animated: true });
   };
 
-  /** Scroll the section tab strip so the active tab sits at the leftmost edge. */
-  const scrollActiveSectionTabToLeft = React.useCallback(
-    (animated = true) => {
-      const x = tabPositionsRef.current[currentSectionIndex];
-      if (typeof x !== 'number') return;
-      tabsScrollViewRef.current?.scrollTo({ x: Math.max(0, x), animated });
-    },
-    [currentSectionIndex],
-  );
+  /** Scroll the section tab strip so the given tab sits at the leftmost edge. */
+  const scrollSectionTabToLeft = React.useCallback((index: number, animated = true) => {
+    const x = tabPositionsRef.current[index];
+    if (typeof x !== 'number') return;
+    tabsScrollViewRef.current?.scrollTo({ x: Math.max(0, x), animated });
+  }, []);
 
   useEffect(() => {
     if (captureMode !== 'sections') return;
-    // Wait a frame so onLayout measurements are available after index/section changes.
-    const timer = setTimeout(() => scrollActiveSectionTabToLeft(true), 0);
-    return () => clearTimeout(timer);
-  }, [captureMode, currentSectionIndex, sections.length, scrollActiveSectionTabToLeft]);
+    const index = currentSectionIndex;
+    const timer = setTimeout(() => scrollSectionTabToLeft(index, true), 0);
+    const correct = setTimeout(() => scrollSectionTabToLeft(index, false), 80);
+    return () => {
+      clearTimeout(timer);
+      clearTimeout(correct);
+    };
+  }, [captureMode, currentSectionIndex, sections.length, scrollSectionTabToLeft]);
 
   const requestDeleteInstance = (opts: {
     sectionRef: string;
@@ -2334,7 +2335,7 @@ export default function InspectionCaptureScreen() {
                   onScroll={handleTabsScroll}
                   scrollEventThrottle={16}
                   onContentSizeChange={() => {
-                    scrollActiveSectionTabToLeft(false);
+                    scrollSectionTabToLeft(currentSectionIndex, false);
                   }}
                 >
                   {sections.map((section, index) => {
@@ -2346,11 +2347,12 @@ export default function InspectionCaptureScreen() {
                       onPress={() => {
                         setCurrentSectionIndex(index);
                         scrollCaptureToTop();
+                        scrollSectionTabToLeft(index, true);
                       }}
                       onLayout={(event) => {
                         tabPositionsRef.current[index] = event.nativeEvent.layout.x;
                         if (index === currentSectionIndex) {
-                          scrollActiveSectionTabToLeft(false);
+                          scrollSectionTabToLeft(index, false);
                         }
                       }}
                       style={[

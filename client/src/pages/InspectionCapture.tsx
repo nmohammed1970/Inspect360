@@ -2128,6 +2128,49 @@ export default function InspectionCapture() {
     });
   };
 
+  const sectionTabsScrollRef = useRef<HTMLDivElement>(null);
+  const sectionTabButtonRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
+  /**
+   * Scroll the section tab strip so the given tab sits at the leftmost edge.
+   * Uses direct scrollLeft (not scrollIntoView) so the page body does not jump,
+   * and retries after focus-scroll so the browser cannot leave the tab mid-strip.
+   */
+  const scrollSectionTabToLeft = React.useCallback(
+    (index: number, behavior: ScrollBehavior = "smooth") => {
+      const container = sectionTabsScrollRef.current;
+      const tab = sectionTabButtonRefs.current[index];
+      if (!container || !tab) return;
+      const nextLeft = Math.max(
+        0,
+        container.scrollLeft +
+          (tab.getBoundingClientRect().left - container.getBoundingClientRect().left),
+      );
+      if (behavior === "smooth") {
+        container.scrollTo({ left: nextLeft, behavior: "smooth" });
+      } else {
+        container.scrollLeft = nextLeft;
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (captureMode !== "sections") return;
+    const index = currentSectionIndex;
+    // Smooth pass for UX, then an instant correction after focus/layout settles.
+    const frame = requestAnimationFrame(() => {
+      scrollSectionTabToLeft(index, "smooth");
+    });
+    const correct = window.setTimeout(() => {
+      scrollSectionTabToLeft(index, "auto");
+    }, 80);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.clearTimeout(correct);
+    };
+  }, [captureMode, currentSectionIndex, sections.length, scrollSectionTabToLeft]);
+
   // Navigate sections
   const goToNextSection = () => {
     if (currentSectionIndex < sections.length - 1) {
@@ -2900,19 +2943,34 @@ export default function InspectionCapture() {
 
       {/* Section tabs + Gallery: divider separates them; brand Gallery chrome restored */}
       <div className="flex flex-nowrap items-start gap-5 sm:gap-6 min-w-0 pb-2 -mx-3 sm:mx-0 px-3 sm:px-0">
-        <div className="flex-1 min-w-0 overflow-x-auto overflow-y-hidden flex flex-nowrap items-center gap-2 pr-3">
+        <div
+          ref={sectionTabsScrollRef}
+          className="relative flex-1 min-w-0 overflow-x-auto overflow-y-hidden flex flex-nowrap items-center gap-2 pr-3"
+        >
           {sections.map((section, index) => {
             const isActive = captureMode === "sections" && index === currentSectionIndex;
             const remaining = bySection[section.id]?.remainingFields ?? 0;
             return (
             <Button
               key={section.id}
+              ref={(el) => {
+                sectionTabButtonRefs.current[index] = el;
+              }}
               variant="ghost"
               size="sm"
+              onMouseDown={(e) => {
+                // Stop the browser from auto-scrolling this overflow strip on focus
+                // (it leaves the tab mid-view instead of leftmost).
+                e.preventDefault();
+              }}
               onClick={() => {
                 setCaptureMode("sections");
                 setCurrentSectionIndex(index);
                 scrollCaptureToTop();
+                requestAnimationFrame(() => {
+                  scrollSectionTabToLeft(index, "smooth");
+                  window.setTimeout(() => scrollSectionTabToLeft(index, "auto"), 80);
+                });
               }}
               data-testid={`button-section-${index}`}
               aria-pressed={isActive}
