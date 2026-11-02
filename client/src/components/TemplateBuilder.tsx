@@ -120,6 +120,7 @@ const templateMetaSchema = z.object({
   aiMaxWords: z.number().min(50).max(500).default(150),
   aiInstruction: z.string().optional(),
   aiIncludeRecommendedActions: z.boolean().default(false),
+  aiIncludeMaintenanceIssues: z.boolean().default(false),
   reportConfig: reportConfigSchema.optional(),
 });
 
@@ -333,6 +334,7 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
       aiMaxWords: template?.aiMaxWords ?? 150,
       aiInstruction: template?.aiInstruction || "",
       aiIncludeRecommendedActions: template?.aiIncludeRecommendedActions === true,
+      aiIncludeMaintenanceIssues: template?.aiIncludeMaintenanceIssues === true,
       reportConfig: template?.reportConfig
         ? {
             ...DEFAULT_REPORT_CONFIG,
@@ -1223,9 +1225,30 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
                               />
                             </FormControl>
                             <FormDescription>
-                              Custom instruction for AI analysis. Leave blank to use default. The AI will focus on condition, cleanliness, and maintenance issues.
+                              Custom instruction for AI analysis. Leave blank to use default. Optional Maintenance Issues and Recommended Actions sections are controlled by the toggles below.
                             </FormDescription>
                             <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="aiIncludeMaintenanceIssues"
+                        render={({ field }) => (
+                          <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3">
+                            <div className="space-y-0.5 pr-4">
+                              <FormLabel>Maintenance Issues</FormLabel>
+                              <FormDescription>
+                                When enabled, InspectAI adds a Maintenance Issues section to notes. Off by default.
+                              </FormDescription>
+                            </div>
+                            <FormControl>
+                              <Switch
+                                checked={field.value === true}
+                                onCheckedChange={field.onChange}
+                                data-testid="switch-ai-maintenance-issues"
+                              />
+                            </FormControl>
                           </FormItem>
                         )}
                       />

@@ -9,6 +9,12 @@
 
 import { isTenantSignatureField } from "./signature";
 import {
+  listRepeatableInstances,
+  sectionShouldExpandAsInstances,
+  type GalleryTemplateStructure,
+} from "./inspectionGallery";
+import { numberedRoomInstanceTitle } from "./propertyRooms";
+import {
   cipCountFieldKey,
   expandCipFieldsForCount,
   getCipsForSection,
@@ -112,6 +118,119 @@ export function entryLookupKey(sectionRef: string, fieldKey: string): string {
   return `${sectionRef}-${fieldKey}`;
 }
 
+/** Dedupe section refs while preserving order (primary first). */
+export function uniqueSectionRefs(
+  ...groups: Array<string | null | undefined | Array<string | null | undefined>>
+): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const g of groups) {
+    const list = Array.isArray(g) ? g : [g];
+    for (const raw of list) {
+      const ref = String(raw || "").trim();
+      if (!ref || seen.has(ref)) continue;
+      seen.add(ref);
+      out.push(ref);
+    }
+  }
+  return out;
+}
+
+function unionPhotoUrls(
+  ...lists: Array<string[] | null | undefined>
+): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const list of lists) {
+    if (!Array.isArray(list)) continue;
+    for (const raw of list) {
+      if (typeof raw !== "string") continue;
+      const p = raw.trim();
+      if (!p || seen.has(p)) continue;
+      seen.add(p);
+      out.push(p);
+    }
+  }
+  return out;
+}
+
+function hasMeaningfulEntryValue(value: unknown): boolean {
+  if (value === null || value === undefined) return false;
+  if (typeof value === "string") return value.trim().length > 0;
+  if (typeof value === "number" || typeof value === "boolean") return true;
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === "object") return Object.keys(value as object).length > 0;
+  return false;
+}
+
+/**
+ * Merge UUID / synthetic / Overview alias rows into one logical entry under
+ * `primarySectionRef`. Photos are unioned; value/note prefer primary then first
+ * non-empty alias. Prevents dual-key splits from dropping photos on read/write.
+ */
+export function mergeEntriesAcrossRefs<T extends ProgressEntryLike>(
+  entriesMap: Record<string, T | undefined>,
+  fieldKey: string,
+  primarySectionRef: string,
+  aliasRefs: string[] = [],
+): T | undefined {
+  const key = String(fieldKey || "").trim();
+  const primary = String(primarySectionRef || "").trim();
+  if (!key || !primary) return undefined;
+
+  const refs = uniqueSectionRefs(primary, aliasRefs);
+  const found: T[] = [];
+  for (const ref of refs) {
+    const entry =
+      entriesMap[entryLookupKey(ref, key)] ||
+      (entriesMap[`${ref}-${key}`] as T | undefined);
+    if (entry) found.push(entry);
+  }
+  if (!found.length) return undefined;
+
+  const primaryRow =
+    found.find((e) => String(e.sectionRef || "").trim() === primary) || null;
+  const withPhotos = found.find(
+    (e) => Array.isArray(e.photos) && e.photos.some((p) => typeof p === "string" && p.trim()),
+  );
+  const base = primaryRow || withPhotos || found[0]!;
+
+  let valueJson = primaryRow?.valueJson;
+  if (!hasMeaningfulEntryValue(valueJson)) {
+    for (const e of found) {
+      if (hasMeaningfulEntryValue(e.valueJson)) {
+        valueJson = e.valueJson;
+        break;
+      }
+    }
+  }
+  if (valueJson === undefined) valueJson = base.valueJson;
+
+  let note = primaryRow?.note;
+  if (!note) {
+    for (const e of found) {
+      if (typeof e.note === "string" && e.note.trim()) {
+        note = e.note;
+        break;
+      }
+    }
+  }
+
+  const photos = unionPhotoUrls(...found.map((e) => e.photos));
+  const markedForReview = found.some((e) => !!(e as { markedForReview?: boolean }).markedForReview);
+
+  return {
+    ...base,
+    id: primaryRow?.id || base.id,
+    sectionRef: primary,
+    fieldKey: key,
+    valueJson,
+    note: note ?? base.note,
+    photos: photos.length ? photos : base.photos ?? null,
+    ...(markedForReview ? { markedForReview: true } : {}),
+  } as T;
+}
+
 export function normalizeProgressEntriesMap(
   entries: Record<string, ProgressEntryLike> | ProgressEntryLike[] | null | undefined,
 ): Record<string, ProgressEntryLike> {
@@ -137,27 +256,60 @@ export function normalizeProgressEntriesMap(
 }
 
 /**
- * SectionRef paths for each rendered instance of a section (matches capture UI).
+ * SectionRef paths for each rendered instance of a section (matches capture UI
+ * + gallery: template.repeatable OR forced property-layout room sections).
  */
 export function resolveSectionInstanceRefs(
   section: ProgressSectionLike,
   repeatableCounts: Record<string, number>,
   propertyRoomInstances: ProgressRoomInstance[] = [],
+  templateStructure?: GalleryTemplateStructure | TemplateStructureWithCips | null,
 ): string[] {
-  if (!section.repeatable) return [section.id];
-
-  const count = repeatableCounts[section.id] ?? 1;
-  if (count <= 0) return [];
-
   const roomInsts = propertyRoomInstances.filter((r) =>
     String(r.sectionRef || "").startsWith(`${section.id}/`),
   );
+  const structure = (templateStructure || null) as GalleryTemplateStructure | null;
 
+  const shouldExpand =
+    !!section.repeatable ||
+    roomInsts.length > 0 ||
+    (structure
+      ? sectionShouldExpandAsInstances(section as any, structure, repeatableCounts)
+      : false);
+
+  if (!shouldExpand) return [section.id];
+
+  // Capture-supplied property rooms win (already scoped to this section).
+  if (roomInsts.length > 0) {
+    const count = repeatableCounts[section.id] ?? roomInsts.length;
+    if (count <= 0) return [];
+    const refs: string[] = [];
+    for (let i = 0; i < count; i++) {
+      refs.push(
+        roomInsts[i]?.sectionRef || `${section.id}/${section.title} ${i + 1}`,
+      );
+    }
+    return refs;
+  }
+
+  // Fall back to gallery instance enumeration (forced room types + snapshot rooms).
+  if (structure) {
+    const instances = listRepeatableInstances(
+      structure,
+      section.id,
+      repeatableCounts,
+      !section.repeatable,
+    );
+    if (instances.length > 0) {
+      return instances.map((inst) => inst.sectionRef);
+    }
+  }
+
+  const count = repeatableCounts[section.id] ?? 1;
+  if (count <= 0) return [];
   const refs: string[] = [];
   for (let i = 0; i < count; i++) {
-    refs.push(
-      roomInsts[i]?.sectionRef || `${section.id}/${section.title} ${i + 1}`,
-    );
+    refs.push(`${section.id}/${section.title} ${i + 1}`);
   }
   return refs;
 }
@@ -228,11 +380,18 @@ export function computeInspectionCaptureProgress(
     return bySection[sectionId]!;
   };
 
-  const bump = (sectionId: string, sectionRef: string, fieldKey: string) => {
+  const bump = (
+    sectionId: string,
+    sectionRef: string,
+    fieldKey: string,
+    aliasRefs: string[] = [],
+  ) => {
     total += 1;
     const sec = ensureSection(sectionId);
     sec.totalFields += 1;
-    const entry = entriesMap[entryLookupKey(sectionRef, fieldKey)];
+    const entry =
+      lookupEntryAcrossRefs(entriesMap, [sectionRef, ...aliasRefs], fieldKey) ||
+      entriesMap[entryLookupKey(sectionRef, fieldKey)];
     if (isInspectionEntryComplete(entry ?? { sectionRef, fieldKey })) {
       completed += 1;
       sec.completedFields += 1;
@@ -246,31 +405,55 @@ export function computeInspectionCaptureProgress(
       section,
       repeatableCounts,
       propertyRoomInstances,
+      structure,
     );
+    const roomInsts = propertyRoomInstances.filter((r) =>
+      String(r.sectionRef || "").startsWith(`${section.id}/`),
+    );
+    const galleryInstances = structure
+      ? listRepeatableInstances(
+          structure as GalleryTemplateStructure,
+          section.id,
+          repeatableCounts,
+          !section.repeatable,
+        )
+      : [];
     const cips: CustomInspectionPoint[] = getCipsForSection(structure, section as any);
 
-    for (const sectionRef of instanceRefs) {
+    instanceRefs.forEach((sectionRef, instanceIndex) => {
+      const galleryInst = galleryInstances.find((g) => g.sectionRef === sectionRef);
+      const synthetic = `${section.id}/${section.title} ${instanceIndex + 1}`;
+      const roomRef = roomInsts[instanceIndex]?.sectionRef;
+      const aliasRefs = uniqueSectionRefs(
+        galleryInst?.aliasRefs || [],
+        synthetic,
+        roomRef,
+      ).filter((r) => r !== sectionRef);
       for (const field of section.fields || []) {
         if (shouldSkipField(field, excludeTenantSignatures)) continue;
         const fieldKey = resolveFieldId(field);
         if (!fieldKey) continue;
-        bump(section.id, sectionRef, fieldKey);
+        bump(section.id, sectionRef, fieldKey, aliasRefs);
       }
 
       for (const cip of cips) {
         if (isCipRepeatable(cip)) {
-          bump(section.id, sectionRef, cipCountFieldKey(cip.id));
+          bump(section.id, sectionRef, cipCountFieldKey(cip.id), aliasRefs);
         }
         const count = resolveCipInstanceCount(
           cip,
-          entriesMap[entryLookupKey(sectionRef, cipCountFieldKey(cip.id))]?.valueJson,
+          lookupEntryAcrossRefs(
+            entriesMap,
+            [sectionRef, ...aliasRefs],
+            cipCountFieldKey(cip.id),
+          )?.valueJson,
         );
         for (const expanded of expandCipFieldsForCount(cip, count)) {
           if (shouldSkipField(expanded, excludeTenantSignatures)) continue;
-          bump(section.id, sectionRef, expanded.id);
+          bump(section.id, sectionRef, expanded.id, aliasRefs);
         }
       }
-    }
+    });
   }
 
   for (const sec of Object.values(bySection)) {
@@ -370,11 +553,9 @@ function lookupEntryAcrossRefs(
   refs: string[],
   fieldKey: string,
 ): ProgressEntryLike | undefined {
-  for (const ref of refs) {
-    const entry = entriesMap[entryLookupKey(ref, fieldKey)];
-    if (entry) return entry;
-  }
-  return undefined;
+  const list = uniqueSectionRefs(refs);
+  if (!list.length) return undefined;
+  return mergeEntriesAcrossRefs(entriesMap, fieldKey, list[0]!, list.slice(1));
 }
 
 /**
@@ -398,23 +579,40 @@ export function listRequiredIncompleteFields(
       section,
       repeatableCounts,
       propertyRoomInstances,
+      structure,
     );
     const roomInsts = propertyRoomInstances.filter((r) =>
       String(r.sectionRef || "").startsWith(`${section.id}/`),
     );
+    const galleryInstances = structure
+      ? listRepeatableInstances(
+          structure as GalleryTemplateStructure,
+          section.id,
+          repeatableCounts,
+          !section.repeatable,
+        )
+      : [];
     const cips: CustomInspectionPoint[] = getCipsForSection(structure, section as any);
 
     instanceRefs.forEach((sectionRef, instanceIndex) => {
+      const galleryInst = galleryInstances.find((g) => g.sectionRef === sectionRef);
       const synthetic = `${section.id}/${section.title} ${instanceIndex + 1}`;
       const roomRef = roomInsts[instanceIndex]?.sectionRef;
-      const aliasRefs = [synthetic, roomRef]
-        .map((r) => String(r || "").trim())
-        .filter((r) => r && r !== sectionRef);
+      const aliasRefs = uniqueSectionRefs(
+        galleryInst?.aliasRefs || [],
+        synthetic,
+        roomRef,
+      ).filter((r) => r !== sectionRef);
       const lookupRefs = [sectionRef, ...aliasRefs];
-      const sectionLabel = section.repeatable
-        ? roomInsts[instanceIndex]?.title ||
-          `${section.title} ${instanceIndex + 1}`
-        : section.title;
+      const sectionLabel =
+        galleryInst?.sectionLabel ||
+        (instanceRefs.length > 1 || section.repeatable
+          ? numberedRoomInstanceTitle(
+              roomInsts[instanceIndex]?.title,
+              section.title,
+              instanceIndex,
+            )
+          : section.title);
 
       const pushIfMissing = (field: ProgressFieldLike, fieldKey: string, fieldLabel: string) => {
         if (!isFieldRequired(field)) return;

@@ -230,7 +230,12 @@ export const UK_ENGLISH_REPORTING_PROMPT = `LANGUAGE (mandatory): Write all narr
 Use UK forms such as: colour/discolouration, localised, centre, favour, metre, mould (not mold), skirting board (not baseboard), tap (not faucet), communal (prefer over common area when appropriate).
 Do not use American spellings (e.g. color, discoloration, localized, center, favor, meter for length, mold for fungi, baseboard, faucet).`;
 
-/** Full three-section note prompt (includes Recommended Actions). */
+export type AiNoteSectionFlags = {
+  includeRecommendedActions?: boolean | null;
+  includeMaintenanceIssues?: boolean | null;
+};
+
+/** Full three-section note prompt. */
 export const INSPECTION_NOTE_STRUCTURE_PROMPT = `${UK_ENGLISH_REPORTING_PROMPT}
 
 Structure your response EXACTLY in these three labeled sections (plain text, no markdown, no bullets, no emojis):
@@ -246,7 +251,7 @@ RECOMMENDED ACTIONS:
 
 Do not write anything outside these three sections.`;
 
-/** Two-section note prompt used when template has Recommended Actions disabled. */
+/** Description + Maintenance Issues (Recommended Actions off). */
 export const INSPECTION_NOTE_STRUCTURE_PROMPT_NO_RECOMMENDED = `${UK_ENGLISH_REPORTING_PROMPT}
 
 Structure your response EXACTLY in these two labeled sections (plain text, no markdown, no bullets, no emojis):
@@ -260,11 +265,58 @@ MAINTENANCE ISSUES:
 Do NOT include a RECOMMENDED ACTIONS section, recommendations, advice, or next steps.
 Do not write anything outside these two sections.`;
 
-/** Build InspectAI note structure prompt from template setting (default: no recommended actions). */
-export function buildInspectionNoteStructurePrompt(includeRecommendedActions?: boolean | null): string {
-  return includeRecommendedActions === true
-    ? INSPECTION_NOTE_STRUCTURE_PROMPT
-    : INSPECTION_NOTE_STRUCTURE_PROMPT_NO_RECOMMENDED;
+/** Description + Recommended Actions (Maintenance Issues off). */
+export const INSPECTION_NOTE_STRUCTURE_PROMPT_NO_MAINTENANCE = `${UK_ENGLISH_REPORTING_PROMPT}
+
+Structure your response EXACTLY in these two labeled sections (plain text, no markdown, no bullets, no emojis):
+
+DESCRIPTION:
+[Factual condition and cleanliness assessment only]
+
+RECOMMENDED ACTIONS:
+[Brief actionable recommendations — or write None]
+
+Do NOT include a MAINTENANCE ISSUES section.
+Do not write anything outside these two sections.`;
+
+/** Description only (both optional AI sections off). */
+export const INSPECTION_NOTE_STRUCTURE_PROMPT_DESCRIPTION_ONLY = `${UK_ENGLISH_REPORTING_PROMPT}
+
+Structure your response EXACTLY in this labeled section (plain text, no markdown, no bullets, no emojis):
+
+DESCRIPTION:
+[Factual condition and cleanliness assessment only]
+
+Do NOT include MAINTENANCE ISSUES, RECOMMENDED ACTIONS, recommendations, advice, or next steps.
+Do not write anything outside this section.`;
+
+/**
+ * Build InspectAI note structure prompt from template settings.
+ * Both Maintenance Issues and Recommended Actions default off.
+ * Legacy boolean arg = includeRecommendedActions only (maintenance kept on for old callers).
+ */
+export function buildInspectionNoteStructurePrompt(
+  options?: AiNoteSectionFlags | boolean | null,
+): string {
+  let includeRecommendedActions = false;
+  let includeMaintenanceIssues = true;
+  if (typeof options === "boolean" || options == null) {
+    includeRecommendedActions = options === true;
+  } else {
+    includeRecommendedActions = options.includeRecommendedActions === true;
+    includeMaintenanceIssues = options.includeMaintenanceIssues === true;
+  }
+
+  if (includeMaintenanceIssues && includeRecommendedActions) {
+    return INSPECTION_NOTE_STRUCTURE_PROMPT;
+  }
+  if (includeMaintenanceIssues && !includeRecommendedActions) {
+    return INSPECTION_NOTE_STRUCTURE_PROMPT_NO_RECOMMENDED;
+  }
+  if (!includeMaintenanceIssues && includeRecommendedActions) {
+    return INSPECTION_NOTE_STRUCTURE_PROMPT_NO_MAINTENANCE;
+  }
+  return INSPECTION_NOTE_STRUCTURE_PROMPT_DESCRIPTION_ONLY;
 }
 
 /** Read snapshot/template flag; missing/undefined = disabled. */
@@ -274,18 +326,70 @@ export function resolveAiIncludeRecommendedActions(
   return source?.aiIncludeRecommendedActions === true;
 }
 
+/** Read snapshot/template flag; missing/undefined = disabled. */
+export function resolveAiIncludeMaintenanceIssues(
+  source: { aiIncludeMaintenanceIssues?: boolean | null } | null | undefined,
+): boolean {
+  return source?.aiIncludeMaintenanceIssues === true;
+}
+
+function formatNoteFromSections(
+  sections: InspectionNoteSections,
+  flags: { includeMaintenanceIssues: boolean; includeRecommendedActions: boolean },
+): string {
+  const desc = sections.description.trim() || "None";
+  const parts = [`DESCRIPTION:\n${desc}`];
+  if (flags.includeMaintenanceIssues) {
+    parts.push(`MAINTENANCE ISSUES:\n${sections.maintenanceIssues.trim() || "None"}`);
+  }
+  if (flags.includeRecommendedActions) {
+    parts.push(`RECOMMENDED ACTIONS:\n${sections.recommendedActions.trim() || "None"}`);
+  }
+  return parts.join("\n\n");
+}
+
 /** Drop recommended-actions content from a stored note (when template setting is off). */
 export function stripRecommendedActionsFromNote(note: string | null | undefined): string {
   const raw = (note || "").trim();
   if (!raw) return "";
   const sections = parseInspectionNote(raw);
-  // Persist two-section format only — no RECOMMENDED ACTIONS header.
-  const desc = sections.description.trim() || "None";
-  const maint = sections.maintenanceIssues.trim() || "None";
   if (!sections.recommendedActions && !/recommended\s+actions?/i.test(raw)) {
     return raw;
   }
-  return `DESCRIPTION:\n${desc}\n\nMAINTENANCE ISSUES:\n${maint}`;
+  return formatNoteFromSections(sections, {
+    includeMaintenanceIssues: true,
+    includeRecommendedActions: false,
+  });
+}
+
+/** Drop maintenance-issues content from a stored note (when template setting is off). */
+export function stripMaintenanceIssuesFromNote(note: string | null | undefined): string {
+  const raw = (note || "").trim();
+  if (!raw) return "";
+  const sections = parseInspectionNote(raw);
+  if (!sections.maintenanceIssues && !/maintenance\s+issues?/i.test(raw)) {
+    return raw;
+  }
+  return formatNoteFromSections(sections, {
+    includeMaintenanceIssues: false,
+    includeRecommendedActions: Boolean(sections.recommendedActions),
+  });
+}
+
+/** Apply both template AI section flags to a note (strip disabled sections). */
+export function applyAiNoteSectionFlags(
+  note: string | null | undefined,
+  flags: AiNoteSectionFlags,
+): string {
+  const raw = (note || "").trim();
+  if (!raw) return "";
+  const includeRecommendedActions = flags.includeRecommendedActions === true;
+  const includeMaintenanceIssues = flags.includeMaintenanceIssues === true;
+  const sections = parseInspectionNote(raw);
+  return formatNoteFromSections(sections, {
+    includeMaintenanceIssues,
+    includeRecommendedActions,
+  });
 }
 
 /**
@@ -294,7 +398,10 @@ export function stripRecommendedActionsFromNote(note: string | null | undefined)
  */
 export function withTemplateAiMeta(
   structureJson: unknown,
-  template: { aiIncludeRecommendedActions?: boolean | null } | null | undefined,
+  template: {
+    aiIncludeRecommendedActions?: boolean | null;
+    aiIncludeMaintenanceIssues?: boolean | null;
+  } | null | undefined,
 ): Record<string, unknown> {
   const base =
     structureJson && typeof structureJson === "object" && !Array.isArray(structureJson)
@@ -303,5 +410,6 @@ export function withTemplateAiMeta(
   return {
     ...base,
     aiIncludeRecommendedActions: resolveAiIncludeRecommendedActions(template),
+    aiIncludeMaintenanceIssues: resolveAiIncludeMaintenanceIssues(template),
   };
 }

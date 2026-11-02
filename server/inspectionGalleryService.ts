@@ -26,7 +26,10 @@ import {
   listPhotoDestinations,
   listRepeatableInstances,
   normalizeObjectUrl,
+  resolveGalleryAssignmentLabel,
   resolveSectionInstanceLabel,
+  sectionActsAsRepeatableForInstanceRef,
+  sectionShouldExpandAsInstances,
   type PhotoDestination,
 } from "@shared/inspectionGallery";
 import { formatSignerDisplayName } from "@shared/signature";
@@ -172,14 +175,51 @@ function destinationLabelMap(
     if (!map.has(poolKey)) map.set(poolKey, d.sectionLabel);
   }
 
-  // Seed pool labels for every repeatable instance ref + aliases (UUID room paths).
+  // Seed labels for every instance ref + aliases (UUID ↔ Title N), including
+  // Capture forced-repeatable Kitchen/Living sections (expand even when the
+  // frozen template left repeatable:false).
   const sections = Array.isArray(structure?.sections) ? structure.sections : [];
   for (const section of sections) {
-    if (!section?.repeatable || !section.id) continue;
-    for (const inst of listRepeatableInstances(structure, section.id, counts)) {
+    if (!section?.id) continue;
+    const force =
+      !section.repeatable &&
+      (sectionShouldExpandAsInstances(section, structure, counts) ||
+        // Always seed at least one forced instance for room-type sections so
+        // Overview-style Capture refs resolve even before a count is stored.
+        sectionActsAsRepeatableForInstanceRef(section, `${section.id}/x`));
+    const instances = listRepeatableInstances(
+      structure,
+      section.id,
+      counts,
+      force,
+    );
+    if (!instances.length) continue;
+
+    const photoFields = (section.fields || []).filter(
+      (f: any) => f && (f.id || f.key),
+    );
+    for (const inst of instances) {
       for (const ref of [inst.sectionRef, ...inst.aliasRefs]) {
-        const key = `${ref}::${SECTION_GALLERY_FIELD_KEY}`;
-        if (!map.has(key)) map.set(key, inst.sectionLabel);
+        const sectionLabel =
+          resolveSectionInstanceLabel(structure, ref, counts) || inst.sectionLabel;
+        const poolKey = `${ref}::${SECTION_GALLERY_FIELD_KEY}`;
+        if (!map.has(poolKey)) map.set(poolKey, sectionLabel);
+
+        for (const field of photoFields) {
+          const fieldKey = String(field.id || field.key || "").trim();
+          if (!fieldKey) continue;
+          const pointKey = `${ref}::${fieldKey}`;
+          if (!map.has(pointKey)) {
+            map.set(
+              pointKey,
+              formatDestinationLabel({
+                sectionLabel,
+                fieldLabel: String(field.label || fieldKey).trim() || fieldKey,
+                fieldKey,
+              }),
+            );
+          }
+        }
       }
     }
   }
@@ -218,30 +258,28 @@ async function toDto(
     captureLongitude: image.captureLongitude ?? null,
     addressMatchStatus: normalizeMatchStatus(image.addressMatchStatus),
     assignments: assignments.map((a) => {
-      if (isSectionGalleryFieldKey(a.fieldKey)) {
-        const fromMap = labelMap.get(`${a.sectionRef}::${SECTION_GALLERY_FIELD_KEY}`);
-        const resolved =
-          fromMap ||
-          resolveSectionInstanceLabel(
-            labelContext?.structure,
-            a.sectionRef,
-            labelContext?.counts || {},
-          ) ||
-          a.sectionRef;
+      const mapKey = `${a.sectionRef}::${a.fieldKey}`;
+      const fromMap = labelMap.get(mapKey);
+      if (fromMap) {
         return {
           id: a.id,
           sectionRef: a.sectionRef,
           fieldKey: a.fieldKey,
-          label: resolved,
+          label: fromMap,
         };
       }
+      // Fallback: never show raw section_xxx/… paths when a human label exists
+      const resolved = resolveGalleryAssignmentLabel(
+        labelContext?.structure,
+        a.sectionRef,
+        a.fieldKey,
+        labelContext?.counts || {},
+      );
       return {
         id: a.id,
         sectionRef: a.sectionRef,
         fieldKey: a.fieldKey,
-        label:
-          labelMap.get(`${a.sectionRef}::${a.fieldKey}`) ||
-          `${a.sectionRef} → ${a.fieldKey}`,
+        label: resolved,
       };
     }),
   };
@@ -253,17 +291,26 @@ export async function backfillGalleryFromEntries(
   organizationId: string,
 ): Promise<void> {
   const entries = await storage.getInspectionEntries(inspection.id);
-  const labelMap = destinationLabelMap(
-    inspection.templateSnapshotJson as any,
-    extractRepeatableCountsFromEntries(entries),
-    extractCipCountsFromEntries(entries),
-  );
+  const structure = inspection.templateSnapshotJson as any;
+  const counts = extractRepeatableCountsFromEntries(entries);
+  const cipCounts = extractCipCountsFromEntries(entries);
 
   for (const entry of entries) {
     const photos = Array.isArray(entry.photos) ? entry.photos : [];
     for (const raw of photos) {
       const objectUrl = normalizeObjectUrl(raw);
       if (!objectUrl) continue;
+
+      // Prefer canonical primary sectionRef (UUID / Title N) over Overview aliases.
+      const dest = assertDestinationValid(
+        structure,
+        entry.sectionRef,
+        entry.fieldKey,
+        counts,
+        cipCounts,
+      );
+      const assignSectionRef = dest?.sectionRef || entry.sectionRef;
+      const assignFieldKey = dest?.fieldKey || entry.fieldKey;
 
       const existing = await db
         .select()
@@ -321,8 +368,8 @@ export async function backfillGalleryFromEntries(
         .values({
           galleryImageId: imageId,
           inspectionId: inspection.id,
-          sectionRef: entry.sectionRef,
-          fieldKey: entry.fieldKey,
+          sectionRef: assignSectionRef,
+          fieldKey: assignFieldKey,
         })
         .onConflictDoNothing({
           target: [
@@ -331,9 +378,6 @@ export async function backfillGalleryFromEntries(
             inspectionGalleryAssignments.fieldKey,
           ],
         });
-
-      // Keep label map warm (unused here but validates destination path existence)
-      void labelMap;
     }
   }
 }
@@ -347,6 +391,16 @@ export async function listGallery(
     user,
     "read",
   );
+
+  // Heal dual sectionRef keys before backfill so assignments land on the primary.
+  try {
+    const { consolidateInspectionSectionRefAliases } = await import(
+      "./sectionRefConsolidation"
+    );
+    await consolidateInspectionSectionRefAliases(inspection);
+  } catch (healErr) {
+    console.warn("[gallery] sectionRef consolidation skipped:", healErr);
+  }
 
   await backfillGalleryFromEntries(inspection, organizationId);
 
@@ -444,12 +498,14 @@ export async function registerGalleryImages(
       counts,
       cipCounts,
     );
-    // Still register the image even if assign target is unknown — browse/camera
-    // uploads must appear in the gallery; assignment is best-effort.
+    // Caller asked to register+assign (field Capture sync, section pool upload).
+    // Never store an unassigned gallery row in that case — it leaves photos on the
+    // field while Gallery shows "Unassigned". Fail closed; entry backfill / retry
+    // can recover once the destination is valid.
     if (!dest) {
-      console.warn(
-        "[gallery] register: invalid assign destination, storing unassigned",
-        autoAssign,
+      throw httpError(
+        "Invalid assignment destination for this inspection template",
+        400,
       );
     }
   }
@@ -639,10 +695,46 @@ async function removePhotoFromEntry(
 ): Promise<void> {
   const entry = await findEntry(inspectionId, sectionRef, fieldKey);
   if (!entry || !Array.isArray(entry.photos)) return;
-  const next = entry.photos.filter((p) => p !== objectUrl);
+  const target = normalizeObjectUrl(objectUrl) || objectUrl;
+  const next = entry.photos.filter((p) => {
+    const n = normalizeObjectUrl(p) || p;
+    return n !== target && p !== objectUrl;
+  });
+  if (next.length === entry.photos.length) return;
   await storage.updateInspectionEntry(entry.id, {
     photos: next.length ? next : null,
   } as any);
+}
+
+/**
+ * One photo → one field. When assigning (or re-assigning), strip this URL from
+ * any other entry so orphan "on field but Gallery Unassigned" rows cannot linger
+ * after a later Gallery assign/move.
+ */
+async function detachObjectUrlFromOtherEntries(
+  inspectionId: string,
+  objectUrl: string,
+  keep: { sectionRef: string; fieldKey: string } | null,
+): Promise<void> {
+  const target = normalizeObjectUrl(objectUrl) || objectUrl;
+  if (!target) return;
+  const entries = await storage.getInspectionEntries(inspectionId);
+  for (const entry of entries) {
+    if (
+      keep &&
+      entry.sectionRef === keep.sectionRef &&
+      entry.fieldKey === keep.fieldKey
+    ) {
+      continue;
+    }
+    // Section-pool keys are assignment-only; skip if somehow present
+    if (isSectionGalleryFieldKey(entry.fieldKey)) continue;
+    const photos = Array.isArray(entry.photos) ? entry.photos : [];
+    if (!photos.length) continue;
+    const hit = photos.some((p) => (normalizeObjectUrl(p) || p) === target || p === objectUrl);
+    if (!hit) continue;
+    await removePhotoFromEntry(inspectionId, entry.sectionRef, entry.fieldKey, target);
+  }
 }
 
 async function assignImagesInternal(
@@ -666,20 +758,23 @@ async function assignImagesInternal(
     throw httpError("One or more images were not found in this inspection gallery", 404);
   }
 
-  // Capacity is per field total (existing + new), not per assign batch
-  const entry = await findEntry(inspection.id, dest.sectionRef, dest.fieldKey);
-  const currentPhotos = Array.isArray(entry?.photos) ? entry!.photos! : [];
-  const currentSet = new Set(currentPhotos);
-  const newUrls = images
-    .map((img) => img.objectUrl)
-    .filter((url) => url && !currentSet.has(url));
-  const remaining = Math.max(0, GALLERY_FIELD_PHOTO_MAX - currentPhotos.length);
-  if (newUrls.length > remaining) {
-    throw httpError(
-      `${formatDestinationLabel(dest)} already has ${currentPhotos.length}/${GALLERY_FIELD_PHOTO_MAX} photos. ` +
-        `You selected ${newUrls.length} new photo${newUrls.length === 1 ? "" : "s"} but only ${remaining} slot${remaining === 1 ? "" : "s"} left.`,
-      400,
-    );
+  // Capacity is per field total (existing + new), not per assign batch.
+  // Section-pool assignments are gallery-only (no entries.photos).
+  if (!isSectionGalleryFieldKey(dest.fieldKey)) {
+    const entry = await findEntry(inspection.id, dest.sectionRef, dest.fieldKey);
+    const currentPhotos = Array.isArray(entry?.photos) ? entry!.photos! : [];
+    const currentSet = new Set(currentPhotos);
+    const newUrls = images
+      .map((img) => img.objectUrl)
+      .filter((url) => url && !currentSet.has(url));
+    const remaining = Math.max(0, GALLERY_FIELD_PHOTO_MAX - currentPhotos.length);
+    if (newUrls.length > remaining) {
+      throw httpError(
+        `${formatDestinationLabel(dest)} already has ${currentPhotos.length}/${GALLERY_FIELD_PHOTO_MAX} photos. ` +
+          `You selected ${newUrls.length} new photo${newUrls.length === 1 ? "" : "s"} but only ${remaining} slot${remaining === 1 ? "" : "s"} left.`,
+        400,
+      );
+    }
   }
 
   for (const image of images) {
@@ -701,6 +796,17 @@ async function assignImagesInternal(
       );
     }
 
+    // Also detach orphan entry photos (URL on a field with no gallery assignment).
+    // Skip entry sync for section-pool destinations.
+    if (!isSectionGalleryFieldKey(dest.fieldKey)) {
+      await detachObjectUrlFromOtherEntries(inspection.id, image.objectUrl, {
+        sectionRef: dest.sectionRef,
+        fieldKey: dest.fieldKey,
+      });
+    } else {
+      await detachObjectUrlFromOtherEntries(inspection.id, image.objectUrl, null);
+    }
+
     await db
       .insert(inspectionGalleryAssignments)
       .values({
@@ -718,7 +824,9 @@ async function assignImagesInternal(
         ],
       });
 
-    await appendPhotoToEntry(inspection.id, dest, image.objectUrl);
+    if (!isSectionGalleryFieldKey(dest.fieldKey)) {
+      await appendPhotoToEntry(inspection.id, dest, image.objectUrl);
+    }
   }
 }
 

@@ -397,8 +397,9 @@ import {
   buildInspectionNoteStructurePrompt,
   formatInspectionNote,
   parseInspectionNote,
+  applyAiNoteSectionFlags,
+  resolveAiIncludeMaintenanceIssues,
   resolveAiIncludeRecommendedActions,
-  stripRecommendedActionsFromNote,
   withTemplateAiMeta,
 } from "@shared/inspectionNoteSections";
 import { resolveFieldLabelFromTemplateStructure } from "@shared/templateCustomInspectionPoints";
@@ -882,6 +883,9 @@ async function processInspectionAIAnalysis(
   let aiIncludeRecommendedActions = resolveAiIncludeRecommendedActions(
     inspection.templateSnapshotJson as any,
   );
+  let aiIncludeMaintenanceIssues = resolveAiIncludeMaintenanceIssues(
+    inspection.templateSnapshotJson as any,
+  );
 
   if (inspection.templateId) {
     const template = await storage.getInspectionTemplate(inspection.templateId);
@@ -890,12 +894,16 @@ async function processInspectionAIAnalysis(
       aiInstruction = template.aiInstruction || organization.defaultAiInstruction || "";
       // Live template wins for new analyses (snapshot used when template missing)
       aiIncludeRecommendedActions = resolveAiIncludeRecommendedActions(template);
+      aiIncludeMaintenanceIssues = resolveAiIncludeMaintenanceIssues(template);
     }
   } else {
     aiMaxWords = organization.defaultAiMaxWords ?? 150;
     aiInstruction = organization.defaultAiInstruction || "";
   }
-  const noteStructurePrompt = buildInspectionNoteStructurePrompt(aiIncludeRecommendedActions);
+  const noteStructurePrompt = buildInspectionNoteStructurePrompt({
+    includeRecommendedActions: aiIncludeRecommendedActions,
+    includeMaintenanceIssues: aiIncludeMaintenanceIssues,
+  });
 
   let processedCount = 0;
 
@@ -974,7 +982,7 @@ INSPECTION CONTEXT:
 
 CRITICAL: I have ${photoUrls.length} image(s) uploaded specifically for "${inspectionPointTitle}" in the "${category}". The photo may show the entire ${category} area, but you MUST focus your analysis EXCLUSIVELY on "${inspectionPointTitle}". Do NOT describe or analyze any other elements visible in the photo.
 
-Provide a focused assessment for "${inspectionPointTitle}" covering overall condition, any damage/defects/wear, and cleanliness${aiIncludeRecommendedActions ? ", and recommendations only if action is needed" : ""}.
+Provide a focused assessment for "${inspectionPointTitle}" covering overall condition${aiIncludeMaintenanceIssues ? ", any damage/defects/wear" : ""}, and cleanliness${aiIncludeRecommendedActions ? ", and recommendations only if action is needed" : ""}.
 
 IMPORTANT FORMATTING RULES:
 - Keep your response under ${aiMaxWords} words
@@ -1040,9 +1048,10 @@ Be thorough but concise, specific, and objective about "${inspectionPointTitle}"
         .replace(/\n{3,}/g, '\n\n')
         .trim();
 
-      if (!aiIncludeRecommendedActions) {
-        analysis = stripRecommendedActionsFromNote(analysis);
-      }
+      analysis = applyAiNoteSectionFlags(analysis, {
+        includeRecommendedActions: aiIncludeRecommendedActions,
+        includeMaintenanceIssues: aiIncludeMaintenanceIssues,
+      });
 
       // Update entry note - append if existing notes
       const existingNote = entry.note || "";
@@ -9762,6 +9771,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let aiIncludeRecommendedActions = resolveAiIncludeRecommendedActions(
         inspection.templateSnapshotJson as any,
       );
+      let aiIncludeMaintenanceIssues = resolveAiIncludeMaintenanceIssues(
+        inspection.templateSnapshotJson as any,
+      );
 
       // Get organization for default settings
       const organization = await storage.getOrganization(user.organizationId);
@@ -9776,6 +9788,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           templateAiMaxWords = template.aiMaxWords;
           templateAiInstruction = template.aiInstruction || null;
           aiIncludeRecommendedActions = resolveAiIncludeRecommendedActions(template);
+          aiIncludeMaintenanceIssues = resolveAiIncludeMaintenanceIssues(template);
         }
       }
 
@@ -9785,7 +9798,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // aiInstruction: template > organization > empty (use default prompt)
       aiInstruction = templateAiInstruction ?? organization?.defaultAiInstruction ?? "";
-      const noteStructurePrompt = buildInspectionNoteStructurePrompt(aiIncludeRecommendedActions);
+      const noteStructurePrompt = buildInspectionNoteStructurePrompt({
+        includeRecommendedActions: aiIncludeRecommendedActions,
+        includeMaintenanceIssues: aiIncludeMaintenanceIssues,
+      });
 
       // Build the prompt with explicit Category and Inspection Point context
       // sectionName = Category (e.g., "Kitchen", "Bathroom", "Living Room")
@@ -9831,9 +9847,9 @@ CRITICAL: I have ${photoUrls.length} image(s) uploaded specifically for "${inspe
 
 Provide a focused assessment for "${inspectionPointTitle}" covering:
 1. Condition of "${inspectionPointTitle}" only
-2. Any damage, defects, or wear specific to this item
-3. Cleanliness issues (if applicable)${aiIncludeRecommendedActions ? `
-4. Brief recommendation (only if action needed for "${inspectionPointTitle}")` : ""}
+2. Cleanliness issues (if applicable)${aiIncludeMaintenanceIssues ? `
+3. Any damage, defects, or wear specific to this item` : ""}${aiIncludeRecommendedActions ? `
+${aiIncludeMaintenanceIssues ? "4" : "3"}. Brief recommendation (only if action needed for "${inspectionPointTitle}")` : ""}
 
 FORMATTING RULES:
 - Maximum ${aiMaxWords} words
@@ -10022,9 +10038,10 @@ Remember: Only analyse "${inspectionPointTitle}" in the "${category}" - nothing 
         .replace(/\n{3,}/g, '\n\n') // Collapse multiple newlines
         .trim();
 
-      if (!aiIncludeRecommendedActions) {
-        analysis = stripRecommendedActionsFromNote(analysis);
-      }
+      analysis = applyAiNoteSectionFlags(analysis, {
+        includeRecommendedActions: aiIncludeRecommendedActions,
+        includeMaintenanceIssues: aiIncludeMaintenanceIssues,
+      });
 
       // Credits are deducted only when the inspection is completed
 
@@ -19497,9 +19514,21 @@ ${optionalNotes || "No details provided."}`;
       res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
       res.setHeader("Pragma", "no-cache");
       res.setHeader("Expires", "0");
+
+      // Heal dual sectionRef keys (UUID ↔ Title N ↔ Overview N) before clients read.
+      try {
+        const inspection = await storage.getInspection(inspectionId);
+        if (inspection?.templateSnapshotJson) {
+          const { consolidateInspectionSectionRefAliases } = await import(
+            "./sectionRefConsolidation"
+          );
+          await consolidateInspectionSectionRefAliases(inspection);
+        }
+      } catch (healErr) {
+        console.warn("[entries] sectionRef alias consolidation skipped:", healErr);
+      }
+
       const entries = await storage.getInspectionEntries(inspectionId);
-      
-      
       res.json(entries);
     } catch (error) {
       console.error("Error fetching inspection entries:", error);
@@ -19580,9 +19609,30 @@ ${optionalNotes || "No details provided."}`;
         });
       }
 
+      // Canonicalize UUID ↔ synthetic alias refs so writes always hit the primary key.
+      let existingEntries = await storage.getInspectionEntries(validatedData.inspectionId);
+      try {
+        const inspection = await storage.getInspection(validatedData.inspectionId);
+        if (inspection?.templateSnapshotJson) {
+          const {
+            canonicalizeEntrySectionRef,
+            consolidateInspectionSectionRefAliases,
+          } = await import("./sectionRefConsolidation");
+          validatedData.sectionRef = canonicalizeEntrySectionRef(
+            inspection,
+            validatedData.sectionRef,
+            existingEntries,
+          );
+          // Merge any leftover alias rows for this inspection before upsert.
+          await consolidateInspectionSectionRefAliases(inspection);
+          existingEntries = await storage.getInspectionEntries(validatedData.inspectionId);
+        }
+      } catch (canonErr) {
+        console.warn("[entries] sectionRef canonicalize skipped:", canonErr);
+      }
+
       // Check if an entry already exists for this inspection, section, and field
       // This allows updating existing entries instead of creating duplicates
-      const existingEntries = await storage.getInspectionEntries(validatedData.inspectionId);
       const existingEntry = existingEntries.find(
         (e: any) =>
           e.sectionRef === validatedData.sectionRef &&

@@ -26,7 +26,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { extractFileUrlFromUploadResponse } from "@/lib/utils";
 import SignatureCanvas from "react-signature-canvas";
 import { createSignatureValue, parseSignatureValue, formatSignerDisplayName } from "@shared/signature";
-import { useOnlineStatus } from "@/lib/offlineQueue";
+import { offlineQueue, useOnlineStatus } from "@/lib/offlineQueue";
 import { fileUploadSync } from "@/lib/fileUploadSync";
 import { useLocale } from "@/contexts/LocaleContext";
 import { LocaleDateInput } from "@/components/LocaleDateInput";
@@ -91,6 +91,8 @@ interface FieldWidgetProps {
   onLogMaintenance?: (fieldLabel: string, photos: string[], note?: string) => void;
   /** Template AI setting — Recommended Actions panel (default off). */
   showRecommendedActions?: boolean;
+  /** Template AI setting — Maintenance Issues panel (default off). */
+  showMaintenanceIssues?: boolean;
   /** When true, highlight this field as a missing required value. */
   validationError?: boolean;
   /** Optional message under the field when validationError is set. */
@@ -115,6 +117,7 @@ export function FieldWidget({
   onMarkedForReviewChange,
   onLogMaintenance,
   showRecommendedActions = false,
+  showMaintenanceIssues = false,
   validationError = false,
   validationMessage,
 }: FieldWidgetProps) {
@@ -146,6 +149,8 @@ export function FieldWidget({
   const [localCleanliness, setLocalCleanliness] = useState(parsed.cleanliness);
   const [localNote, setLocalNote] = useState(note || "");
   const [localPhotos, setLocalPhotos] = useState<string[]>(photos || []);
+  /** When true, allow props `photos=[]` through (user just cleared locally). */
+  const allowEmptyPhotosPropRef = useRef(false);
   const [localMarkedForReview, setLocalMarkedForReview] = useState(markedForReview || false);
   // Initialize audioUrls from valueJson (support audioUrls array or legacy audioUrl)
   const getInitialAudioUrls = (): string[] => {
@@ -274,7 +279,27 @@ export function FieldWidget({
   }, [note]);
 
   useEffect(() => {
-    setLocalPhotos(photos || []);
+    const next = photos || [];
+    // Ignore empty prop updates that arrive while we already show photos —
+    // stale entry refetches after note/AI saves used to blank the grid.
+    // Allow empty when the user just cleared locally (allowEmptyPhotosPropRef).
+    setLocalPhotos((prev) => {
+      if (next.length === 0 && prev.length > 0) {
+        if (allowEmptyPhotosPropRef.current) {
+          allowEmptyPhotosPropRef.current = false;
+          return next;
+        }
+        return prev;
+      }
+      if (next.length > 0) allowEmptyPhotosPropRef.current = false;
+      if (
+        next.length === prev.length &&
+        next.every((url, i) => url === prev[i])
+      ) {
+        return prev;
+      }
+      return next;
+    });
   }, [photos]);
 
   // Cleanup recording timer and media recorder on unmount
@@ -613,22 +638,17 @@ export function FieldWidget({
         queryKey: ["/api/inspections", inspectionId, "gallery"],
       });
     } catch (e) {
-      // Retry register without assign so the photo still lands in the gallery
-      if (assign) {
-        try {
-          await apiRequest("POST", `/api/inspections/${inspectionId}/gallery/register`, {
-            images: normalized.map((objectUrl) => ({ objectUrl })),
-          });
-          queryClient.invalidateQueries({
-            queryKey: ["/api/inspections", inspectionId, "gallery"],
-          });
-          console.warn("[FieldWidget] Gallery register without assign (assign failed):", e);
-          return;
-        } catch (e2) {
-          console.warn("[FieldWidget] Gallery register failed:", e2);
-        }
-      } else {
-        console.warn("[FieldWidget] Gallery register failed:", e);
+      // Do NOT fall back to register-without-assign. Queue retry with assign
+      // (same as mobile) so Gallery stays consistent once the destination is valid.
+      console.warn("[FieldWidget] Gallery register/assign failed, queueing retry:", e);
+      try {
+        offlineQueue.enqueueGalleryRegister({
+          inspectionId,
+          images: normalized.map((objectUrl) => ({ objectUrl })),
+          assign,
+        });
+      } catch (qe) {
+        console.warn("[FieldWidget] Failed to queue gallery register:", qe);
       }
     }
   };
@@ -669,6 +689,7 @@ export function FieldWidget({
   const handlePhotoRemove = (photoUrl: string) => {
     setLocalPhotos((prev) => {
       const newPhotos = prev.filter((p) => p !== photoUrl);
+      if (newPhotos.length === 0) allowEmptyPhotosPropRef.current = true;
       const composedValue = composeValue(localValue, localCondition, localCleanliness, audioUrls);
       // Always pass the photos array (even if empty) so removal is persisted
       onChange(composedValue, localNote || undefined, newPhotos);
@@ -717,6 +738,8 @@ export function FieldWidget({
         : analysis;
       setLocalNote(newNote);
       const composedValue = composeValue(localValue, localCondition, localCleanliness, audioUrls);
+      // Always pass the current photo list (never undefined) so parent state cannot
+      // drop images while saving AI notes.
       onChange(composedValue, newNote, localPhotos);
 
       // Invalidate organization query to update credit balance on dashboard and billing pages
@@ -724,10 +747,10 @@ export function FieldWidget({
         queryClient.invalidateQueries({ queryKey: [`/api/organizations/${user.organizationId}`] });
       }
 
-      // Invalidate inspection entries to ensure report page gets updated AI notes
+      // Soft-invalidate only — a forced refetch here raced with the note save and
+      // could briefly replace entry.photos with a stale empty list in the UI.
       if (inspectionId) {
         queryClient.invalidateQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
-        queryClient.refetchQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
       }
 
       toast({
@@ -2770,6 +2793,7 @@ export function FieldWidget({
                 className="mt-3"
                 hideDescription
                 showRecommendedActions={showRecommendedActions}
+                showMaintenanceIssues={showMaintenanceIssues}
               />
             </>
           ) : (
@@ -2788,6 +2812,7 @@ export function FieldWidget({
                 className="mt-3"
                 hideDescription
                 showRecommendedActions={showRecommendedActions}
+                showMaintenanceIssues={showMaintenanceIssues}
               />
             </>
           )}

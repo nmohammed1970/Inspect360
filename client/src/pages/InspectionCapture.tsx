@@ -24,7 +24,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { ChevronDown, ChevronLeft, ChevronRight, Save, CheckCircle2, AlertCircle, Wifi, WifiOff, Cloud, Sparkles, Loader2, Plus, Minus, Images, ArrowRight, ClipboardList, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Save, CheckCircle2, AlertCircle, WifiOff, Cloud, Sparkles, Loader2, Plus, Minus, Images, ArrowRight, ClipboardList, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -35,6 +35,7 @@ import { FieldWidget } from "@/components/FieldWidget";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { offlineQueue, useOnlineStatus } from "@/lib/offlineQueue";
 import { InspectionQuickActions } from "@/components/InspectionQuickActions";
+import { optionPillStyle, resolvePaletteHex } from "@shared/fieldOptionColors";
 import { QuickAddAssetSheet } from "@/components/QuickAddAssetSheet";
 import { QuickUpdateAssetSheet } from "@/components/QuickUpdateAssetSheet";
 import { QuickAddMaintenanceSheet } from "@/components/QuickAddMaintenanceSheet";
@@ -57,7 +58,11 @@ import {
   parseLegacyRepeatableInstanceNumber,
   repeatableCountsFromPropertyRoomInstances,
 } from "@shared/propertyRooms";
-import { listRepeatableInstances, matchesSectionScope } from "@shared/inspectionGallery";
+import {
+  listRepeatableInstances,
+  matchesSectionScope,
+  sectionShouldExpandAsInstances,
+} from "@shared/inspectionGallery";
 import { useCompanyModules } from "@/hooks/useCompanyModules";
 import { InspectionGalleryPanel } from "@/components/inspection-gallery/InspectionGalleryPanel";
 import type { GalleryImage } from "@/components/inspection-gallery/types";
@@ -83,6 +88,8 @@ import {
   entryLookupKey,
   formatRequiredIncompleteMessage,
   listRequiredIncompleteFields,
+  mergeEntriesAcrossRefs,
+  uniqueSectionRefs,
   type RequiredIncompleteField,
 } from "@shared/inspectionProgress";
 
@@ -662,6 +669,7 @@ export default function InspectionCapture() {
 
   const templateSnapshot = inspection?.templateSnapshotJson as any;
   const showRecommendedActions = templateSnapshot?.aiIncludeRecommendedActions === true;
+  const showMaintenanceIssues = templateSnapshot?.aiIncludeMaintenanceIssues === true;
 
   const sectionCipsFor = React.useCallback(
     (section: TemplateSection | null | undefined) =>
@@ -1479,13 +1487,18 @@ export default function InspectionCapture() {
     const field = currentSection.fields.find(f => f.id === fieldKey);
     if (!field) return;
 
-    // Same instance refs as gallery destinations / renderer.
+    // Same instance refs as gallery destinations / renderer (incl. forced room types).
+    const snapshot = inspection?.templateSnapshotJson as any;
+    const forceExpand =
+      !currentSection.repeatable &&
+      sectionShouldExpandAsInstances(currentSection, snapshot, repeatableCounts);
     const writeInst =
       instanceIndex !== undefined
         ? listRepeatableInstances(
-            inspection?.templateSnapshotJson as any,
+            snapshot,
             currentSection.id,
             repeatableCounts,
+            forceExpand,
           )[instanceIndex]
         : undefined;
     const sectionRef =
@@ -1493,10 +1506,14 @@ export default function InspectionCapture() {
         ? writeInst?.sectionRef ||
           `${currentSection.id}/${currentSection.title} ${instanceIndex + 1}`
         : currentSection.id;
-    clearRequiredErrorForField(sectionRef, fieldKey, writeInst?.aliasRefs || []);
+    const aliasRefs = writeInst?.aliasRefs || [];
+    clearRequiredErrorForField(sectionRef, fieldKey, aliasRefs);
     
     const entryKey = `${sectionRef}-${fieldKey}`;
-    const existingEntry = entries[entryKey];
+    // Merge UUID ↔ synthetic alias rows so writes never drop photos stored under an alias.
+    const existingEntry =
+      mergeEntriesAcrossRefs(entries, fieldKey, sectionRef, aliasRefs) ||
+      entries[entryKey];
 
     // Check if this is a photo removal operation (photos array passed but possibly empty)
     const isPhotoRemoval = photos !== undefined && existingEntry?.photos && existingEntry.photos.length > 0;
@@ -1517,6 +1534,8 @@ export default function InspectionCapture() {
       }
     }
 
+    const resolvedPhotos = photos !== undefined ? photos : existingEntry?.photos;
+
     // If offline, queue the entry
     if (!isOnline) {
       offlineQueue.enqueue({
@@ -1526,21 +1545,29 @@ export default function InspectionCapture() {
         fieldType: field.type,
         valueJson: value,
         note,
-        photos,
+        photos: resolvedPhotos,
       });
 
-      // Update local state optimistically
-      setEntries(prev => ({
-        ...prev,
-        [entryKey]: {
-          sectionRef,
-          fieldKey,
-          fieldType: field.type,
-          valueJson: value,
-          note,
-          photos,
+      // Update local state optimistically (canonical primary only)
+      setEntries((prev) => {
+        const next: typeof prev = {
+          ...prev,
+          [entryKey]: {
+            sectionRef,
+            fieldKey,
+            fieldType: field.type,
+            valueJson: value,
+            note,
+            photos: resolvedPhotos,
+          },
+        };
+        for (const alias of uniqueSectionRefs(aliasRefs)) {
+          if (alias === sectionRef) continue;
+          delete next[entryLookupKey(alias, fieldKey)];
+          delete next[`${alias}-${fieldKey}`];
         }
-      }));
+        return next;
+      });
 
       setPendingCount(offlineQueue.getPendingCount());
 
@@ -1551,6 +1578,9 @@ export default function InspectionCapture() {
       return;
     }
 
+    // FieldWidget passes photos=undefined for note/condition/AI edits meaning "keep
+    // existing photos". Never write undefined into state — that wiped thumbnails while
+    // notes (e.g. InspectAI text) remained.
     const entry: InspectionEntry = {
       id: existingEntry?.id, // Include ID if entry exists (for update)
       sectionRef,
@@ -1558,7 +1588,7 @@ export default function InspectionCapture() {
       fieldType: field.type,
       valueJson: value,
       note,
-      photos,
+      photos: resolvedPhotos,
       markedForReview: existingEntry?.markedForReview || false,
     };
 
@@ -1575,18 +1605,35 @@ export default function InspectionCapture() {
       });
     }
 
-    // Optimistic local + sequenced server write (blocks stale upload/delete races)
+    // Optimistic local + sequenced server write (blocks stale upload/delete races).
+    // Drop alias keys locally — server consolidation deletes those rows.
+    if (aliasRefs.length) {
+      setEntries((prev) => {
+        const next = { ...prev, [entryKey]: entry };
+        for (const alias of uniqueSectionRefs(aliasRefs)) {
+          if (alias === sectionRef) continue;
+          delete next[entryLookupKey(alias, fieldKey)];
+          delete next[`${alias}-${fieldKey}`];
+        }
+        return next;
+      });
+    }
     saveInspectionEntry(entry);
   };
 
   // Handle mark for review change
   const handleMarkedForReviewChange = async (fieldKey: string, marked: boolean, instanceIndex?: number) => {
+    const snapshot = inspection?.templateSnapshotJson as any;
+    const forceExpand =
+      !currentSection.repeatable &&
+      sectionShouldExpandAsInstances(currentSection, snapshot, repeatableCounts);
     const writeInst =
       instanceIndex !== undefined
         ? listRepeatableInstances(
-            inspection?.templateSnapshotJson as any,
+            snapshot,
             currentSection.id,
             repeatableCounts,
+            forceExpand,
           )[instanceIndex]
         : undefined;
     const sectionRef =
@@ -1595,7 +1642,9 @@ export default function InspectionCapture() {
           `${currentSection.id}/${currentSection.title} ${instanceIndex + 1}`
         : currentSection.id;
     const entryKey = `${sectionRef}-${fieldKey}`;
-    const entry = entries[entryKey];
+    const entry =
+      mergeEntriesAcrossRefs(entries, fieldKey, sectionRef, writeInst?.aliasRefs || []) ||
+      entries[entryKey];
 
     // Update local state optimistically
     setEntries(prev => ({
@@ -1668,10 +1717,13 @@ export default function InspectionCapture() {
     value: any,
     note?: string,
     photos?: string[],
+    aliasRefs: string[] = [],
   ) => {
-    clearRequiredErrorForField(sectionRef, fieldKey);
+    clearRequiredErrorForField(sectionRef, fieldKey, aliasRefs);
     const entryKey = `${sectionRef}-${fieldKey}`;
-    const existingEntry = entries[entryKey];
+    const existingEntry =
+      mergeEntriesAcrossRefs(entries, fieldKey, sectionRef, aliasRefs) ||
+      entries[entryKey];
     const isPhotoRemoval =
       photos !== undefined && existingEntry?.photos && existingEntry.photos.length > 0;
     const hasAudioUrl =
@@ -1693,9 +1745,21 @@ export default function InspectionCapture() {
       fieldType: field.type,
       valueJson: value,
       note,
-      photos,
+      // undefined photos = keep existing (note/AI/condition edits must not drop images)
+      photos: photos !== undefined ? photos : existingEntry?.photos,
       markedForReview: existingEntry?.markedForReview || false,
     };
+    if (aliasRefs.length) {
+      setEntries((prev) => {
+        const next = { ...prev, [entryKey]: entry };
+        for (const alias of uniqueSectionRefs(aliasRefs)) {
+          if (alias === sectionRef) continue;
+          delete next[entryLookupKey(alias, fieldKey)];
+          delete next[`${alias}-${fieldKey}`];
+        }
+        return next;
+      });
+    }
     persistInspectionEntry(entry);
   };
 
@@ -1703,9 +1767,12 @@ export default function InspectionCapture() {
     sectionRef: string,
     fieldKey: string,
     marked: boolean,
+    aliasRefs: string[] = [],
   ) => {
     const entryKey = `${sectionRef}-${fieldKey}`;
-    const entry = entries[entryKey];
+    const entry =
+      mergeEntriesAcrossRefs(entries, fieldKey, sectionRef, aliasRefs) ||
+      entries[entryKey];
 
     setEntries((prev) => ({
       ...prev,
@@ -1741,11 +1808,19 @@ export default function InspectionCapture() {
     }
   };
 
-  const handleCipCountChange = (sectionRef: string, cip: CustomInspectionPoint, count: number) => {
+  const handleCipCountChange = (
+    sectionRef: string,
+    cip: CustomInspectionPoint,
+    count: number,
+    aliasRefs: string[] = [],
+  ) => {
     const newCount = Math.max(0, Math.min(50, Math.floor(Number(count) || 0)));
     const countFieldKey = cipCountFieldKey(cip.id);
     const countEntryKey = `${sectionRef}-${countFieldKey}`;
-    const prevCount = parseCipCountValue(entries[countEntryKey]?.valueJson);
+    const prevCount = parseCipCountValue(
+      mergeEntriesAcrossRefs(entries, countFieldKey, sectionRef, aliasRefs)?.valueJson ??
+        entries[countEntryKey]?.valueJson,
+    );
 
     const countEntry: InspectionEntry = {
       id: entries[countEntryKey]?.id,
@@ -1772,7 +1847,11 @@ export default function InspectionCapture() {
     }
   };
 
-  const renderCipCountInputs = (sectionRef: string, sectionCips: CustomInspectionPoint[]) => {
+  const renderCipCountInputs = (
+    sectionRef: string,
+    sectionCips: CustomInspectionPoint[],
+    aliasRefs: string[] = [],
+  ) => {
     const repeatableCips = sectionCips.filter((cip) => isCipRepeatable(cip));
     if (!repeatableCips.length) return null;
     return (
@@ -1780,7 +1859,10 @@ export default function InspectionCapture() {
         {repeatableCips.map((cip) => {
           const countFieldKey = cipCountFieldKey(cip.id);
           const countEntryKey = `${sectionRef}-${countFieldKey}`;
-          const countValue = parseCipCountValue(entries[countEntryKey]?.valueJson);
+          const countValue = parseCipCountValue(
+            mergeEntriesAcrossRefs(entries, countFieldKey, sectionRef, aliasRefs)?.valueJson ??
+              entries[countEntryKey]?.valueJson,
+          );
           return (
             <div key={`cip-count-${sectionRef}-${cip.id}`} className="space-y-2 min-w-0">
               <Label htmlFor={`cip-count-${sectionRef}-${cip.id}`}>
@@ -1792,7 +1874,7 @@ export default function InspectionCapture() {
                   variant="outline"
                   size="icon"
                   className="min-h-11 min-w-11 shrink-0"
-                  onClick={() => handleCipCountChange(sectionRef, cip, countValue - 1)}
+                  onClick={() => handleCipCountChange(sectionRef, cip, countValue - 1, aliasRefs)}
                   disabled={countValue <= 0}
                 >
                   <Minus className="h-4 w-4" />
@@ -1805,7 +1887,12 @@ export default function InspectionCapture() {
                   value={countValue}
                   onChange={(e) => {
                     const n = parseInt(e.target.value, 10);
-                    handleCipCountChange(sectionRef, cip, Number.isFinite(n) ? n : 0);
+                    handleCipCountChange(
+                      sectionRef,
+                      cip,
+                      Number.isFinite(n) ? n : 0,
+                      aliasRefs,
+                    );
                   }}
                   className="w-24 min-h-11 text-center"
                 />
@@ -1814,7 +1901,7 @@ export default function InspectionCapture() {
                   variant="outline"
                   size="icon"
                   className="min-h-11 min-w-11 shrink-0"
-                  onClick={() => handleCipCountChange(sectionRef, cip, countValue + 1)}
+                  onClick={() => handleCipCountChange(sectionRef, cip, countValue + 1, aliasRefs)}
                   disabled={countValue >= 50}
                 >
                   <Plus className="h-4 w-4" />
@@ -1839,6 +1926,7 @@ export default function InspectionCapture() {
     instanceName: string,
     sectionCips: CustomInspectionPoint[],
     pointsDefaultOpen = false,
+    aliasRefs: string[] = [],
   ) => {
     if (!sectionCips.length) return null;
 
@@ -1892,9 +1980,11 @@ export default function InspectionCapture() {
     return (
       <div className="space-y-6 mt-8">
         {sectionCips.map((cip) => {
+          const countFieldKey = cipCountFieldKey(cip.id);
           const count = resolveCipInstanceCount(
             cip,
-            entries[`${sectionRef}-${cipCountFieldKey(cip.id)}`]?.valueJson,
+            mergeEntriesAcrossRefs(entries, countFieldKey, sectionRef, aliasRefs)?.valueJson ??
+              entries[`${sectionRef}-${countFieldKey}`]?.valueJson,
           );
           if (count < 1) return null;
           return Array.from({ length: count }, (_, idx) => idx + 1).map((instanceIndex) => {
@@ -1949,8 +2039,13 @@ export default function InspectionCapture() {
                       ) {
                         return null;
                       }
-                      const entryKey = `${sectionRef}-${expanded.id}`;
-                      const entry = entries[entryKey];
+                      const entry =
+                        mergeEntriesAcrossRefs(
+                          entries,
+                          expanded.id,
+                          sectionRef,
+                          aliasRefs,
+                        ) || entries[`${sectionRef}-${expanded.id}`];
                       return (
                         <div key={expanded.id} className="min-w-0">
                           <FieldWidget
@@ -1964,11 +2059,14 @@ export default function InspectionCapture() {
                             markedForReview={entry?.markedForReview || false}
                             sectionName={instanceName}
                             sectionRef={sectionRef}
+                            galleryAliasRefs={aliasRefs}
                             autoContext={autoContext}
                             showRecommendedActions={showRecommendedActions}
+                            showMaintenanceIssues={showMaintenanceIssues}
                             validationError={isRequiredFieldHighlighted(
                               sectionRef,
                               expanded.id,
+                              aliasRefs,
                             )}
                             onChange={(value: any, note?: string, photos?: string[]) =>
                               handleScopedFieldChange(
@@ -1978,10 +2076,16 @@ export default function InspectionCapture() {
                                 value,
                                 note,
                                 photos,
+                                aliasRefs,
                               )
                             }
                             onMarkedForReviewChange={(marked: boolean) =>
-                              handleScopedMarkedForReviewChange(sectionRef, expanded.id, marked)
+                              handleScopedMarkedForReviewChange(
+                                sectionRef,
+                                expanded.id,
+                                marked,
+                                aliasRefs,
+                              )
                             }
                             onLogMaintenance={
                               maintenanceEnabled
@@ -2356,15 +2460,17 @@ export default function InspectionCapture() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:gap-3 md:gap-4 min-w-0">
-          {/* Online/Offline status */}
-          <Badge
-            variant={isOnline ? "success" : "secondary"}
-            data-testid="badge-online-status"
-            className="gap-2 text-xs sm:text-sm rounded-button"
-          >
-            {isOnline ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-            {isOnline ? "Online" : "Offline"}
-          </Badge>
+          {/* Only show connectivity when offline — Online badge was noisy in the header */}
+          {!isOnline && (
+            <Badge
+              variant="secondary"
+              data-testid="badge-online-status"
+              className="gap-2 text-xs sm:text-sm rounded-button"
+            >
+              <WifiOff className="w-3 h-3" />
+              Offline
+            </Badge>
+          )}
 
           {/* Pending sync count */}
           {pendingCount > 0 && (
@@ -2400,11 +2506,15 @@ export default function InspectionCapture() {
               <span className="sm:hidden">Analysing</span>
             </Button>
           ) : aiAnalysisStatus?.status === "completed" ? (
-            <Badge variant="success" className="text-xs sm:text-sm" data-testid="badge-ai-complete">
-              <CheckCircle2 className="w-3 h-3 mr-1" />
+            <span
+              data-testid="badge-ai-complete"
+              className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs sm:text-sm font-medium tracking-normal"
+              style={optionPillStyle(resolvePaletteHex("green")) || undefined}
+            >
+              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" aria-hidden />
               <span className="hidden sm:inline">AI Analysis Complete</span>
               <span className="sm:hidden">AI Done</span>
-            </Badge>
+            </span>
           ) : (
             <Button
               variant="brand"
@@ -2968,15 +3078,33 @@ export default function InspectionCapture() {
               </div>
             )}
 
-            {/* Render fields - for repeatable sections, render for each instance */}
-            {currentSection.repeatable && (repeatableCounts[currentSection.id] ?? 1) > 0 ? (
-              // Render instances for repeatable sections (same refs as gallery destinations)
+            {/* Render fields - for repeatable / forced room-type sections (same as gallery) */}
+            {(() => {
+              const snapshot = inspection?.templateSnapshotJson as any;
+              const expandAsInstances =
+                !!currentSection.repeatable ||
+                sectionShouldExpandAsInstances(
+                  currentSection,
+                  snapshot,
+                  repeatableCounts,
+                );
+              return expandAsInstances && (repeatableCounts[currentSection.id] ?? 1) > 0;
+            })() ? (
+              // Render instances (same refs as gallery destinations)
               (() => {
                 const snapshot = inspection?.templateSnapshotJson as any;
+                const forceExpand =
+                  !currentSection.repeatable &&
+                  sectionShouldExpandAsInstances(
+                    currentSection,
+                    snapshot,
+                    repeatableCounts,
+                  );
                 const repeatableInstances = listRepeatableInstances(
                   snapshot,
                   currentSection.id,
                   repeatableCounts,
+                  forceExpand,
                 );
                 const instanceCount = Math.max(1, repeatableInstances.length || (repeatableCounts[currentSection.id] ?? 1));
                 return Array.from({ length: instanceCount }).map((_, instanceIndex) => {
@@ -3074,7 +3202,9 @@ export default function InspectionCapture() {
                     <div className="space-y-8 p-3 sm:p-5 pt-3">
                     {(() => {
                       const sectionCips = sectionCipsFor(currentSection);
-                      return sectionCips.length ? renderCipCountInputs(sectionRef, sectionCips) : null;
+                      return sectionCips.length
+                        ? renderCipCountInputs(sectionRef, sectionCips, aliasRefs)
+                        : null;
                     })()}
                     {currentSection.fields.map((field) => {
                       if (
@@ -3088,20 +3218,26 @@ export default function InspectionCapture() {
                         inst?.sectionRef ||
                         roomInst?.sectionRef ||
                         `${currentSection.id}/${currentSection.title} ${instanceIndex + 1}`;
-                      const entryCandidates = [
+                      const mergeRefs = uniqueSectionRefs(
                         fieldSectionRef,
-                        ...aliasRefs,
+                        aliasRefs,
                         `${currentSection.id}/${currentSection.title} ${instanceIndex + 1}`,
                         roomInst?.sectionRef,
-                      ].filter(Boolean) as string[];
-                      // Prefer the entry that already has photos (handles UUID ↔ synthetic mismatch).
-                      let entry =
-                        entryCandidates
-                          .map((ref) => entries[`${ref}-${field.id}`] || entries[`${ref}-${(field as any).key}`])
-                          .find((e) => e && Array.isArray(e.photos) && e.photos.length > 0) ||
-                        entryCandidates
-                          .map((ref) => entries[`${ref}-${field.id}`] || entries[`${ref}-${(field as any).key}`])
-                          .find(Boolean);
+                      );
+                      // Union UUID ↔ synthetic ↔ Overview alias rows (photos + value + note).
+                      const entry =
+                        mergeEntriesAcrossRefs(
+                          entries,
+                          field.id,
+                          fieldSectionRef,
+                          mergeRefs.slice(1),
+                        ) ||
+                        mergeEntriesAcrossRefs(
+                          entries,
+                          (field as any).key,
+                          fieldSectionRef,
+                          mergeRefs.slice(1),
+                        );
                       const sectionRef = fieldSectionRef;
 
                       const getAddress = () => {
@@ -3168,6 +3304,7 @@ export default function InspectionCapture() {
                             galleryAliasRefs={aliasRefs}
                             autoContext={autoContext}
                             showRecommendedActions={showRecommendedActions}
+                            showMaintenanceIssues={showMaintenanceIssues}
                             validationError={isRequiredFieldHighlighted(
                               sectionRef,
                               field.id,
@@ -3199,16 +3336,18 @@ export default function InspectionCapture() {
                       );
                     })}
                     {(() => {
-                      const sectionRef =
+                      const cipSectionRef =
+                        inst?.sectionRef ||
                         roomInst?.sectionRef ||
                         `${currentSection.id}/${currentSection.title} ${instanceIndex + 1}`;
                       const sectionCips = sectionCipsFor(currentSection);
                       return sectionCips.length
                         ? renderCipInstanceCards(
-                            sectionRef,
+                            cipSectionRef,
                             instanceName,
                             sectionCips,
                             isGeneralInformationSection(currentSection),
+                            aliasRefs,
                           )
                         : null;
                     })()}
@@ -3218,7 +3357,11 @@ export default function InspectionCapture() {
                 );
                 });
               })()
-            ) : !currentSection.repeatable ? (
+            ) : !sectionShouldExpandAsInstances(
+                currentSection,
+                inspection?.templateSnapshotJson as any,
+                repeatableCounts,
+              ) ? (
               <>
                 {(() => {
                   const sectionCips = sectionCipsFor(currentSection);
@@ -3302,6 +3445,7 @@ export default function InspectionCapture() {
                       disabled={false}
                       autoContext={autoContext}
                       showRecommendedActions={showRecommendedActions}
+                      showMaintenanceIssues={showMaintenanceIssues}
                       validationError={isRequiredFieldHighlighted(
                         currentSection.id,
                         field.id,

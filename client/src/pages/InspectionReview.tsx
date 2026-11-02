@@ -68,6 +68,7 @@ export default function InspectionReview() {
   const sections = templateStructure?.sections || [];
   const snapshot = inspection?.templateSnapshotJson as any;
   const showRecommendedActions = snapshot?.aiIncludeRecommendedActions === true;
+  const showMaintenanceIssues = snapshot?.aiIncludeMaintenanceIssues === true;
   const propertyRoomInstances = (snapshot?.propertyRoomInstances || []) as Array<{
     sectionRef: string;
     title?: string;
@@ -405,6 +406,7 @@ export default function InspectionReview() {
                             <InspectionNoteSectionsView
                               note={entry.note}
                               showRecommendedActions={showRecommendedActions}
+                              showMaintenanceIssues={showMaintenanceIssues}
                             />
                           )}
                         </div>

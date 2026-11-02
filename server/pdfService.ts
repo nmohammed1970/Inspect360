@@ -10,6 +10,7 @@ import {
 } from "@shared/templateCustomInspectionPoints";
 import {
   parseInspectionNote,
+  resolveAiIncludeMaintenanceIssues,
   resolveAiIncludeRecommendedActions,
 } from "@shared/inspectionNoteSections";
 import {
@@ -18,6 +19,15 @@ import {
   type ReportSectionId,
 } from "@shared/reportSectionOrder";
 import { formatFloorArea, fromMillimetres } from "@shared/propertyRooms";
+import {
+  extractRepeatableCountsFromEntries,
+  listRepeatableInstances,
+  resolveSectionInstanceLabel,
+} from "@shared/inspectionGallery";
+import {
+  entryLookupKey,
+  mergeEntriesAcrossRefs,
+} from "@shared/inspectionProgress";
 import { getDefaultCoverLogoDataUrl } from "./reportLogo";
 import {
   optionPillStyle,
@@ -865,6 +875,9 @@ function generateInspectionHTML(
   const showRecommendedActions = resolveAiIncludeRecommendedActions(
     inspection.templateSnapshotJson as any,
   );
+  const showMaintenanceIssues = resolveAiIncludeMaintenanceIssues(
+    inspection.templateSnapshotJson as any,
+  );
 
   // Prefer block details for block inspections (property may be unset)
   const isBlockInspection = Boolean(inspection.blockId) && !inspection.propertyId;
@@ -935,10 +948,13 @@ function generateInspectionHTML(
 
   // Build entries map
   const entriesMap = new Map<string, InspectionEntry>();
+  const entriesRecord: Record<string, InspectionEntry> = {};
   entries.forEach((entry) => {
     const key = `${entry.sectionRef}-${entry.fieldKey}`;
     entriesMap.set(key, entry);
+    entriesRecord[key] = entry;
   });
+  const repeatableCounts = extractRepeatableCountsFromEntries(entries);
 
   // Helper function to get rating color based on score
   const getRatingColor = (score: number | null): string => {
@@ -960,34 +976,46 @@ function generateInspectionHTML(
     </span>`;
   };
 
-  // Prefer property-floor-plan instances (stable sectionRef + display title), else entry-derived.
-  type SectionInstance = { sectionRef: string; title: string };
+  // Same instance refs + human labels as Capture / gallery (never raw UUID suffixes).
+  type SectionInstance = { sectionRef: string; title: string; aliasRefs: string[] };
   const getRepeatableInstances = (sectionId: string): SectionInstance[] => {
-    const roomInstances = Array.isArray((templateStructure as any)?.propertyRoomInstances)
-      ? ((templateStructure as any).propertyRoomInstances as Array<{
-          sectionRef?: string;
-          title?: string;
-        }>)
-      : [];
-    const fromRooms = roomInstances
-      .filter((r) => String(r.sectionRef || "").startsWith(`${sectionId}/`))
-      .map((r) => ({
-        sectionRef: String(r.sectionRef),
-        title: String(r.title || r.sectionRef?.split("/")[1] || sectionId).trim(),
+    const section = (Array.isArray((templateStructure as any)?.sections)
+      ? (templateStructure as any).sections
+      : []
+    ).find((s: any) => s?.id === sectionId);
+    const force = section ? !section.repeatable : false;
+    const instances = listRepeatableInstances(
+      templateStructure as any,
+      sectionId,
+      repeatableCounts,
+      force,
+    );
+    if (instances.length > 0) {
+      return instances.map((inst) => ({
+        sectionRef: inst.sectionRef,
+        title: inst.sectionLabel,
+        aliasRefs: inst.aliasRefs,
       }));
-    if (fromRooms.length > 0) return fromRooms;
+    }
 
     const instanceMap = new Map<string, string>();
     entries.forEach((entry) => {
       if (entry.sectionRef.startsWith(`${sectionId}/`)) {
-        const instanceName = entry.sectionRef.split("/")[1];
-        if (instanceName) {
-          instanceMap.set(entry.sectionRef, instanceName);
-        }
+        const label =
+          resolveSectionInstanceLabel(
+            templateStructure as any,
+            entry.sectionRef,
+            repeatableCounts,
+          ) ||
+          entry.sectionRef.split("/")[1] ||
+          sectionId;
+        // Skip opaque UUID-looking suffixes when we have no better label
+        if (/^[0-9a-f-]{36}$/i.test(String(label).trim())) return;
+        instanceMap.set(entry.sectionRef, String(label).trim());
       }
     });
     return Array.from(instanceMap.entries())
-      .map(([sectionRef, title]) => ({ sectionRef, title }))
+      .map(([sectionRef, title]) => ({ sectionRef, title, aliasRefs: [] as string[] }))
       .sort((a, b) => {
         const numA = parseInt(a.title.match(/\d+$/)?.[0] || "0", 10);
         const numB = parseInt(b.title.match(/\d+$/)?.[0] || "0", 10);
@@ -1002,11 +1030,15 @@ function generateInspectionHTML(
     fieldCounter: number,
     sectionIndex: number,
     sectionHasCondition: boolean,
-    sectionHasCleanliness: boolean
+    sectionHasCleanliness: boolean,
+    aliasRefs: string[] = [],
   ): { rowHTML: string; photoHTML: string } => {
     const fieldKey = field.id || field.key || field.label;
     const key = `${sectionRef}-${fieldKey}`;
-    const entry = entriesMap.get(key);
+    const entry =
+      mergeEntriesAcrossRefs(entriesRecord, String(fieldKey), sectionRef, aliasRefs) ||
+      entriesMap.get(key) ||
+      entriesMap.get(entryLookupKey(sectionRef, String(fieldKey)));
     const fieldRef = `${sectionIndex + 1}.${fieldCounter}`;
 
     // Extract data from entry - condition/cleanliness are stored inside valueJson
@@ -1222,10 +1254,12 @@ function generateInspectionHTML(
             <div style="font-weight: 700; color: #111827; font-size: 13px; margin-bottom: 4px;">Description</div>
             <div style="color: #374151; font-size: 13px; line-height: 1.5;">${formatText(sections.description)}</div>
           </div>`
-        : !sections.maintenanceIssues && !(showRecommendedActions && sections.recommendedActions)
+        : !(showMaintenanceIssues && sections.maintenanceIssues) &&
+            !(showRecommendedActions && sections.recommendedActions)
           ? `<div style="color: #78350f; font-size: 13px;">${formatText(note)}</div>`
           : "";
-      const maintenanceBlock = sections.maintenanceIssues
+      const maintenanceBlock =
+        showMaintenanceIssues && sections.maintenanceIssues
         ? `<div style="margin-top: 6px; padding: 10px 12px; border-radius: 8px; border: 1px solid #fecaca; background: #fef2f2;">
             <div style="font-weight: 700; color: #991b1b; font-size: 13px; margin-bottom: 4px;">Maintenance Issues</div>
             <div style="color: #7f1d1d; font-size: 13px; line-height: 1.5;">${formatText(sections.maintenanceIssues)}</div>
@@ -1299,6 +1333,7 @@ function generateInspectionHTML(
     sectionIndex: number,
     sectionHasCondition: boolean,
     sectionHasCleanliness: boolean,
+    aliasRefs: string[] = [],
   ): { rowsHTML: string; photosHTML: string; fieldCounter: number } => {
     let rowsHTML = "";
     let photosHTML = "";
@@ -1309,8 +1344,14 @@ function generateInspectionHTML(
     }
 
     for (const cip of sectionCips) {
-      const countKey = `${sectionRef}-${cipCountFieldKey(cip.id)}`;
-      const count = resolveCipInstanceCount(cip, entriesMap.get(countKey)?.valueJson);
+      const countEntry =
+        mergeEntriesAcrossRefs(
+          entriesRecord,
+          cipCountFieldKey(cip.id),
+          sectionRef,
+          aliasRefs,
+        ) || entriesMap.get(`${sectionRef}-${cipCountFieldKey(cip.id)}`);
+      const count = resolveCipInstanceCount(cip, countEntry?.valueJson);
       if (count < 1) continue;
 
       const expanded = expandCipFieldsForCount(cip, count);
@@ -1337,6 +1378,7 @@ function generateInspectionHTML(
           sectionIndex,
           sectionHasCondition,
           sectionHasCleanliness,
+          aliasRefs,
         );
         rowsHTML += rowHTML;
         if (photoHTML) photosHTML += photoHTML;
@@ -1404,7 +1446,8 @@ function generateInspectionHTML(
             fieldCounter,
             sectionIndex,
             sectionHasCondition,
-            sectionHasCleanliness
+            sectionHasCleanliness,
+            instance.aliasRefs || [],
           );
           instanceTableRowsHTML += rowHTML;
           if (photoHTML) {
@@ -1419,6 +1462,7 @@ function generateInspectionHTML(
           sectionIndex,
           sectionHasCondition,
           sectionHasCleanliness,
+          instance.aliasRefs || [],
         );
         fieldCounter = cipRendered.fieldCounter;
         instanceTableRowsHTML += cipRendered.rowsHTML;

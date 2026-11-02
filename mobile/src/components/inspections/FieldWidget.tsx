@@ -432,6 +432,8 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
   const signatureRef = useRef<any>(null);
   /** Block props→state photo sync while a multi-photo batch is in flight (avoids wiping optimistic locals). */
   const photoBatchActiveRef = useRef(false);
+  /** When true, allow props `photos=[]` through (user just cleared locally). */
+  const allowEmptyPhotosPropRef = useRef(false);
   const localPhotosRef = useRef<string[]>(photos || []);
 
   // Fetch check-in reference for photo / attached-photo fields during Check-Out
@@ -530,9 +532,27 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
   useEffect(() => {
     // Don't clobber optimistic local paths while a batch upload is running.
     if (photoBatchActiveRef.current) return;
-    if (photos && JSON.stringify(localPhotosRef.current) !== JSON.stringify(photos)) {
-      setLocalPhotos(photos);
-    }
+    const next = Array.isArray(photos) ? photos : [];
+    // Ignore empty prop updates that arrive while we already show photos —
+    // stale entry refetches after note/AI saves used to blank the grid (same as web).
+    // Allow empty when the user just cleared locally (allowEmptyPhotosPropRef).
+    setLocalPhotos((prev) => {
+      if (next.length === 0 && prev.length > 0) {
+        if (allowEmptyPhotosPropRef.current) {
+          allowEmptyPhotosPropRef.current = false;
+          return next;
+        }
+        return prev;
+      }
+      if (next.length > 0) allowEmptyPhotosPropRef.current = false;
+      if (
+        next.length === prev.length &&
+        next.every((url, i) => url === prev[i])
+      ) {
+        return prev;
+      }
+      return next;
+    });
   }, [photos]);
 
   useEffect(() => {
@@ -1033,6 +1053,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
     try {
       // Update local state immediately (works offline)
       const newPhotos = localPhotos.filter(p => p !== photoUrl);
+      if (newPhotos.length === 0) allowEmptyPhotosPropRef.current = true;
       setLocalPhotos(newPhotos);
       const composedValue = composeValue(localValue, localCondition, localCleanliness);
       onChange(composedValue, localNote, newPhotos);
@@ -1054,6 +1075,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
       console.error('[FieldWidget] Error removing photo:', error);
       // Still update UI even if error occurs
       const newPhotos = localPhotos.filter(p => p !== photoUrl);
+      if (newPhotos.length === 0) allowEmptyPhotosPropRef.current = true;
       setLocalPhotos(newPhotos);
       const composedValue = composeValue(localValue, localCondition, localCleanliness);
       onChange(composedValue, localNote, newPhotos);

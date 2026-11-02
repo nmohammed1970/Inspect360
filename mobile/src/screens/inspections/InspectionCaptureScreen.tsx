@@ -55,7 +55,11 @@ import {
   parseLegacyRepeatableInstanceNumber,
   repeatableCountsFromPropertyRoomInstances,
 } from '../../../../shared/propertyRooms';
-import { listRepeatableInstances, matchesSectionScope } from '../../../../shared/inspectionGallery';
+import {
+  listRepeatableInstances,
+  matchesSectionScope,
+  sectionShouldExpandAsInstances,
+} from '../../../../shared/inspectionGallery';
 import { inspectionGalleryService } from '../../services/inspectionGallery';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChevronDown, ChevronLeft, ChevronRight, CheckCircle2, Sparkles, Wifi, WifiOff, Check, Cloud, AlertCircle, Images, Plus, ClipboardList, Trash2 } from 'lucide-react-native';
@@ -83,6 +87,8 @@ import {
   entryLookupKey,
   formatRequiredIncompleteMessage,
   listRequiredIncompleteFields,
+  mergeEntriesAcrossRefs,
+  uniqueSectionRefs,
 } from '../../../../shared/inspectionProgress';
 type RoutePropType = RouteProp<InspectionsStackParamList, 'InspectionCapture'>;
 type NavigationProp = StackNavigationProp<InspectionsStackParamList, 'InspectionCapture'>;
@@ -1121,7 +1127,11 @@ export default function InspectionCaptureScreen() {
     photos?: string[],
     markedForReview?: boolean,
     instanceIndex?: number,
-    options?: { explicitSectionRef?: string; fieldType?: string },
+    options?: {
+      explicitSectionRef?: string;
+      fieldType?: string;
+      aliasRefs?: string[];
+    },
   ) => {
     // Prevent changes if inspection is completed
     if (effectiveInspection?.status === 'completed') {
@@ -1143,14 +1153,20 @@ export default function InspectionCaptureScreen() {
       return;
     }
 
-    // Same instance refs as gallery destinations.
+    // Same instance refs as gallery destinations (incl. forced room types).
     const currentSection = sections.find(s => s.id === sectionRef);
+    const snapshot = effectiveInspection?.templateSnapshotJson as any;
+    const forceExpand =
+      !!currentSection &&
+      !currentSection.repeatable &&
+      sectionShouldExpandAsInstances(currentSection, snapshot, repeatableCounts);
     const writeInst =
       instanceIndex !== undefined && currentSection
         ? listRepeatableInstances(
-            effectiveInspection?.templateSnapshotJson as any,
+            snapshot,
             currentSection.id,
             repeatableCounts,
+            forceExpand,
           )[instanceIndex]
         : undefined;
     const finalSectionRef =
@@ -1159,9 +1175,15 @@ export default function InspectionCaptureScreen() {
         ? writeInst?.sectionRef ||
           `${sectionRef}/${currentSection.title} ${instanceIndex + 1}`
         : sectionRef);
+    const aliasRefs = uniqueSectionRefs(
+      writeInst?.aliasRefs || [],
+      options?.aliasRefs || [],
+    );
 
     const key = `${finalSectionRef}-${fieldKey}`;
-    const existingEntry = entries[key];
+    const existingEntry =
+      mergeEntriesAcrossRefs(entries as any, fieldKey, finalSectionRef, aliasRefs) ||
+      entries[key];
     const fieldType =
       options?.fieldType ||
       currentSection?.fields.find(f => f.id === fieldKey || f.key === fieldKey)?.type ||
@@ -1196,7 +1218,7 @@ export default function InspectionCaptureScreen() {
       const refsToClear = [
         finalSectionRef,
         sectionRef,
-        ...(writeInst?.aliasRefs || []),
+        ...aliasRefs,
       ].filter(Boolean) as string[];
       for (const ref of refsToClear) {
         if (next.delete(entryLookupKey(ref, fieldKey))) changed = true;
@@ -1210,20 +1232,31 @@ export default function InspectionCaptureScreen() {
       return changed ? next : prev;
     });
 
-    // Update local state immediately for snappy UI
-    setEntries(prev => ({ ...prev, [key]: newEntry }));
+    // Update local state on canonical primary; drop alias keys so UI can't split again.
+    setEntries((prev) => {
+      const next: typeof prev = { ...prev, [key]: newEntry };
+      for (const alias of uniqueSectionRefs(aliasRefs)) {
+        if (alias === finalSectionRef) continue;
+        delete next[entryLookupKey(alias, fieldKey)];
+        delete next[`${alias}-${fieldKey}`];
+      }
+      return next;
+    });
 
     // Auto-save mutation
     updateEntry.mutate(newEntry);
-  }, [inspectionId, sections, updateEntry, effectiveInspection, isDeleted, entries, propertyRoomInstances]);
+  }, [inspectionId, sections, updateEntry, effectiveInspection, isDeleted, entries, propertyRoomInstances, repeatableCounts]);
 
   const handleCipCountChange = React.useCallback(
-    (sectionRef: string, cip: CustomInspectionPoint, count: number) => {
+    (sectionRef: string, cip: CustomInspectionPoint, count: number, aliasRefs: string[] = []) => {
       if (effectiveInspection?.status === 'completed' || isDeleted) return;
       const newCount = Math.max(0, Math.min(50, Math.floor(Number(count) || 0)));
       const countFieldKey = cipCountFieldKey(cip.id);
       const countEntryKey = `${sectionRef}-${countFieldKey}`;
-      const prevCount = parseCipCountValue(entries[countEntryKey]?.valueJson);
+      const prevCount = parseCipCountValue(
+        mergeEntriesAcrossRefs(entries as any, countFieldKey, sectionRef, aliasRefs)?.valueJson ??
+          entries[countEntryKey]?.valueJson,
+      );
 
       const countEntry: InspectionEntry = {
         inspectionId,
@@ -1255,14 +1288,21 @@ export default function InspectionCaptureScreen() {
     [effectiveInspection?.status, isDeleted, entries, inspectionId, updateEntry],
   );
 
-  const renderCipCountInputs = (sectionRef: string, sectionCips: CustomInspectionPoint[]) => {
+  const renderCipCountInputs = (
+    sectionRef: string,
+    sectionCips: CustomInspectionPoint[],
+    aliasRefs: string[] = [],
+  ) => {
     const repeatableCips = sectionCips.filter((cip) => isCipRepeatable(cip));
     if (!repeatableCips.length) return null;
     return (
       <Card style={[styles.fieldContainer, { borderColor: themeColors.border.DEFAULT }]}>
         {repeatableCips.map((cip) => {
           const countFieldKey = cipCountFieldKey(cip.id);
-          const countValue = parseCipCountValue(entries[`${sectionRef}-${countFieldKey}`]?.valueJson);
+          const countValue = parseCipCountValue(
+            mergeEntriesAcrossRefs(entries as any, countFieldKey, sectionRef, aliasRefs)?.valueJson ??
+              entries[`${sectionRef}-${countFieldKey}`]?.valueJson,
+          );
           return (
             <View key={`cip-count-${sectionRef}-${cip.id}`} style={{ marginBottom: spacing[4] }}>
               <Text style={[styles.fieldLabel, { color: themeColors.text.primary }]}>
@@ -1278,7 +1318,7 @@ export default function InspectionCaptureScreen() {
                 }}
               >
                 <TouchableOpacity
-                  onPress={() => handleCipCountChange(sectionRef, cip, countValue - 1)}
+                  onPress={() => handleCipCountChange(sectionRef, cip, countValue - 1, aliasRefs)}
                   disabled={countValue <= 0}
                   style={[
                     styles.countButton,
@@ -1302,12 +1342,17 @@ export default function InspectionCaptureScreen() {
                   value={String(countValue)}
                   onChangeText={(text) => {
                     const n = parseInt(text, 10);
-                    handleCipCountChange(sectionRef, cip, Number.isFinite(n) ? n : 0);
+                    handleCipCountChange(
+                      sectionRef,
+                      cip,
+                      Number.isFinite(n) ? n : 0,
+                      aliasRefs,
+                    );
                   }}
                   keyboardType="number-pad"
                 />
                 <TouchableOpacity
-                  onPress={() => handleCipCountChange(sectionRef, cip, countValue + 1)}
+                  onPress={() => handleCipCountChange(sectionRef, cip, countValue + 1, aliasRefs)}
                   disabled={countValue >= 50}
                   style={[
                     styles.countButton,
@@ -1343,6 +1388,7 @@ export default function InspectionCaptureScreen() {
     sectionTitle: string,
     sectionCips: CustomInspectionPoint[],
     pointsDefaultOpen = false,
+    aliasRefs: string[] = [],
   ) => {
     if (!sectionCips.length) return null;
 
@@ -1377,9 +1423,11 @@ export default function InspectionCaptureScreen() {
     return (
       <>
         {sectionCips.map((cip) => {
+          const countFieldKey = cipCountFieldKey(cip.id);
           const count = resolveCipInstanceCount(
             cip,
-            entries[`${sectionRef}-${cipCountFieldKey(cip.id)}`]?.valueJson,
+            mergeEntriesAcrossRefs(entries as any, countFieldKey, sectionRef, aliasRefs)?.valueJson ??
+              entries[`${sectionRef}-${countFieldKey}`]?.valueJson,
           );
           if (count < 1) return null;
           return Array.from({ length: count }, (_, idx) => idx + 1).map((instanceIndex) => {
@@ -1422,9 +1470,14 @@ export default function InspectionCaptureScreen() {
                         key: expanded.id,
                         label: (baseField?.label as string) || expanded.label,
                       };
-                      const entryKey = `${sectionRef}-${expanded.id}`;
-                      const entry = entries[entryKey];
-                      const entryId = entry?.id || entryKey;
+                      const entry =
+                        mergeEntriesAcrossRefs(
+                          entries as any,
+                          expanded.id,
+                          sectionRef,
+                          aliasRefs,
+                        ) || entries[`${sectionRef}-${expanded.id}`];
+                      const entryId = entry?.id || `${sectionRef}-${expanded.id}`;
                       return (
                         <View key={expanded.id} style={styles.fieldContainer}>
                           <FieldWidget
@@ -1435,11 +1488,16 @@ export default function InspectionCaptureScreen() {
                             inspectionId={inspectionId}
                             entryId={entryId}
                             sectionRef={sectionRef}
+                            galleryAliasRefs={aliasRefs}
                             sectionName={instanceName}
                             isCheckOut={effectiveInspection?.type === 'check_out'}
                             markedForReview={entry?.markedForReview || false}
                             disabled={effectiveInspection?.status === 'completed' || isDeleted}
-                            validationError={isRequiredFieldHighlighted(sectionRef, expanded.id)}
+                            validationError={isRequiredFieldHighlighted(
+                              sectionRef,
+                              expanded.id,
+                              aliasRefs,
+                            )}
                             autoContext={{
                               inspectorName: resolvedInspectorName,
                               address: property
@@ -1462,6 +1520,7 @@ export default function InspectionCaptureScreen() {
                               handleFieldChange(currentSection!.id, expanded.id, value, note, photos, undefined, undefined, {
                                 explicitSectionRef: sectionRef,
                                 fieldType: fieldForWidget.type,
+                                aliasRefs,
                               })
                             }
                             onMarkedForReviewChange={(marked) =>
@@ -1473,7 +1532,11 @@ export default function InspectionCaptureScreen() {
                                 undefined,
                                 marked,
                                 undefined,
-                                { explicitSectionRef: sectionRef, fieldType: fieldForWidget.type },
+                                {
+                                  explicitSectionRef: sectionRef,
+                                  fieldType: fieldForWidget.type,
+                                  aliasRefs,
+                                },
                               )
                             }
                             onLogMaintenance={
@@ -2514,14 +2577,32 @@ export default function InspectionCaptureScreen() {
                   </Card>
                 )}
 
-                {/* Render fields - for repeatable sections, render for each instance */}
-                {currentSection.repeatable && (repeatableCounts[currentSection.id] ?? 1) > 0 ? (
-                  // Prefer stable property-room sectionRefs (same as portal) so gallery assignments match
+                {/* Render fields - for repeatable / forced room-type sections (same as gallery) */}
+                {(() => {
+                  const snapshot = effectiveInspection?.templateSnapshotJson as any;
+                  const expandAsInstances =
+                    !!currentSection.repeatable ||
+                    sectionShouldExpandAsInstances(
+                      currentSection,
+                      snapshot,
+                      repeatableCounts,
+                    );
+                  return expandAsInstances && (repeatableCounts[currentSection.id] ?? 1) > 0;
+                })() ? (
                   (() => {
+                    const snapshot = effectiveInspection?.templateSnapshotJson as any;
+                    const forceExpand =
+                      !currentSection.repeatable &&
+                      sectionShouldExpandAsInstances(
+                        currentSection,
+                        snapshot,
+                        repeatableCounts,
+                      );
                     const repeatableInstances = listRepeatableInstances(
-                      effectiveInspection?.templateSnapshotJson as any,
+                      snapshot,
                       currentSection.id,
                       repeatableCounts,
+                      forceExpand,
                     );
                     const instanceCount = Math.max(
                       1,
@@ -2689,7 +2770,7 @@ export default function InspectionCaptureScreen() {
                         {(() => {
                           const sectionCips = sectionCipsFor(currentSection);
                           return sectionCips.length
-                            ? renderCipCountInputs(sectionRef, sectionCips)
+                            ? renderCipCountInputs(sectionRef, sectionCips, aliasRefs)
                             : null;
                         })()}
                         {currentSection.fields.map((field) => {
@@ -2700,17 +2781,18 @@ export default function InspectionCaptureScreen() {
 
                           try {
                             const fieldId = field.id || field.key || '';
-                            const entryCandidates = [
+                            const mergeRefs = uniqueSectionRefs(
                               sectionRef,
-                              ...aliasRefs,
+                              aliasRefs,
                               `${currentSection.id}/${currentSection.title} ${instanceIndex + 1}`,
                               roomInst?.sectionRef,
-                            ].filter(Boolean) as string[];
-                            const entry =
-                              entryCandidates
-                                .map((ref) => entries[`${ref}-${fieldId}`])
-                                .find((e) => e && Array.isArray(e.photos) && e.photos.length > 0) ||
-                              entryCandidates.map((ref) => entries[`${ref}-${fieldId}`]).find(Boolean);
+                            );
+                            const entry = mergeEntriesAcrossRefs(
+                              entries as any,
+                              fieldId,
+                              sectionRef,
+                              mergeRefs.slice(1),
+                            );
                             const key = `${sectionRef}-${fieldId}`;
                             const properEntryId = entry?.id || key;
 
@@ -2828,6 +2910,7 @@ export default function InspectionCaptureScreen() {
                                 currentSection.title,
                                 sectionCips,
                                 isGeneralInformationSection(currentSection),
+                                aliasRefs,
                               )
                             : null;
                         })()}
@@ -2837,7 +2920,11 @@ export default function InspectionCaptureScreen() {
                     );
                     });
                   })()
-                ) : !currentSection.repeatable ? (
+                ) : !sectionShouldExpandAsInstances(
+                    currentSection,
+                    effectiveInspection?.templateSnapshotJson as any,
+                    repeatableCounts,
+                  ) ? (
                   <>
                   {(() => {
                     const sectionCips = sectionCipsFor(currentSection);

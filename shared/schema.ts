@@ -831,6 +831,8 @@ export const inspectionTemplates = pgTable("inspection_templates", {
   aiInstruction: text("ai_instruction"), // Custom AI instruction/prompt for this template
   /** When true, InspectAI includes a Recommended Actions section. Default off. */
   aiIncludeRecommendedActions: boolean("ai_include_recommended_actions").default(false),
+  /** When true, InspectAI includes a Maintenance Issues section. Default off. */
+  aiIncludeMaintenanceIssues: boolean("ai_include_maintenance_issues").default(false),
   reportConfig: jsonb("report_config").$type<{
     showCover: boolean;
     showContentsPage: boolean;
