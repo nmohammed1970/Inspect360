@@ -935,10 +935,29 @@ export default function InspectionCaptureScreen() {
   const [showRightFade, setShowRightFade] = useState(sections.length > 0);
   const tabsScrollViewRef = useRef<ScrollView>(null);
   const contentScrollViewRef = useRef<ScrollView>(null);
+  /** Measured x offset of each section tab within the horizontal ScrollView. */
+  const tabPositionsRef = useRef<Record<number, number>>({});
 
   const scrollCaptureToTop = () => {
     contentScrollViewRef.current?.scrollTo({ y: 0, animated: true });
   };
+
+  /** Scroll the section tab strip so the active tab sits at the leftmost edge. */
+  const scrollActiveSectionTabToLeft = React.useCallback(
+    (animated = true) => {
+      const x = tabPositionsRef.current[currentSectionIndex];
+      if (typeof x !== 'number') return;
+      tabsScrollViewRef.current?.scrollTo({ x: Math.max(0, x), animated });
+    },
+    [currentSectionIndex],
+  );
+
+  useEffect(() => {
+    if (captureMode !== 'sections') return;
+    // Wait a frame so onLayout measurements are available after index/section changes.
+    const timer = setTimeout(() => scrollActiveSectionTabToLeft(true), 0);
+    return () => clearTimeout(timer);
+  }, [captureMode, currentSectionIndex, sections.length, scrollActiveSectionTabToLeft]);
 
   const requestDeleteInstance = (opts: {
     sectionRef: string;
@@ -2315,8 +2334,7 @@ export default function InspectionCaptureScreen() {
                   onScroll={handleTabsScroll}
                   scrollEventThrottle={16}
                   onContentSizeChange={() => {
-                    // Check initial scroll position
-                    tabsScrollViewRef.current?.scrollTo({ x: 0, animated: false });
+                    scrollActiveSectionTabToLeft(false);
                   }}
                 >
                   {sections.map((section, index) => {
@@ -2328,10 +2346,12 @@ export default function InspectionCaptureScreen() {
                       onPress={() => {
                         setCurrentSectionIndex(index);
                         scrollCaptureToTop();
-                        // Scroll the tab into view
-                        const tabWidth = 120; // Approximate tab width
-                        const scrollPosition = index * (tabWidth + spacing[2]);
-                        tabsScrollViewRef.current?.scrollTo({ x: scrollPosition, animated: true });
+                      }}
+                      onLayout={(event) => {
+                        tabPositionsRef.current[index] = event.nativeEvent.layout.x;
+                        if (index === currentSectionIndex) {
+                          scrollActiveSectionTabToLeft(false);
+                        }
                       }}
                       style={[
                         styles.tabButton,
