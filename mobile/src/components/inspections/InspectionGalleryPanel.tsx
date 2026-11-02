@@ -585,12 +585,14 @@ export function InspectionGalleryPanel({
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.actionBtn, { backgroundColor: themeColors.secondary?.DEFAULT || themeColors.muted?.DEFAULT || '#64748b' }]}
+            style={[styles.actionBtn, { backgroundColor: themeColors.primary.DEFAULT }]}
             onPress={handlePickLibrary}
             disabled={uploading || busy}
           >
-            <ImagePlus size={16} color="#fff" />
-            <Text style={[styles.actionBtnText, { color: '#fff' }]}>Upload</Text>
+            <ImagePlus size={16} color={themeColors.primary.foreground || '#fff'} />
+            <Text style={[styles.actionBtnText, { color: themeColors.primary.foreground || '#fff' }]}>
+              Upload
+            </Text>
           </TouchableOpacity>
         </View>
       )}
