@@ -5,7 +5,7 @@
 import { createHash } from "crypto";
 
 /** Bump when PDF layout/chrome changes so in-memory cache cannot serve stale renders. */
-export const INSPECTION_PDF_RENDER_VERSION = "toc-page-numbers-v3";
+export const INSPECTION_PDF_RENDER_VERSION = "entry-dedupe-full-text-v4";
 
 export type InspectionPdfCacheFingerprint = {
   inspectionId: string;

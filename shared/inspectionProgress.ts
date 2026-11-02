@@ -42,10 +42,14 @@ export type ProgressSectionLike = {
 };
 
 export type ProgressEntryLike = {
+  id?: string;
   sectionRef?: string;
   fieldKey?: string;
   valueJson?: unknown;
+  note?: string | null;
   photos?: string[] | null;
+  updatedAt?: string | Date | null;
+  createdAt?: string | Date | null;
 };
 
 export type ProgressRoomInstance = {
@@ -163,10 +167,104 @@ function hasMeaningfulEntryValue(value: unknown): boolean {
   return false;
 }
 
+function entryTimestampMs(entry: ProgressEntryLike | null | undefined): number {
+  if (!entry) return 0;
+  const raw = entry.updatedAt || entry.createdAt;
+  if (!raw) return 0;
+  const ms = new Date(raw).getTime();
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+/** Scalar text used for prefix/completeness comparisons across duplicate rows. */
+export function extractEntryScalarText(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (typeof value === "object" && !Array.isArray(value) && "value" in (value as object)) {
+    return extractEntryScalarText((value as { value?: unknown }).value);
+  }
+  return null;
+}
+
+/**
+ * Prefer the more complete text when one value is a stale keystroke prefix of the other
+ * (e.g. "P" vs "Property is in fair condition"). Returns null when incomparable.
+ */
+export function preferMoreCompleteValue(a: unknown, b: unknown): unknown | null {
+  const sa = extractEntryScalarText(a);
+  const sb = extractEntryScalarText(b);
+  if (sa == null || sb == null) return null;
+  const ta = sa.trim();
+  const tb = sb.trim();
+  if (!ta && tb) return b;
+  if (!tb && ta) return a;
+  if (ta === tb) return null;
+  if (tb.startsWith(ta) && ta.length < tb.length) return b;
+  if (ta.startsWith(tb) && tb.length < ta.length) return a;
+  return null;
+}
+
+/**
+ * Pick the better of two rows for the same logical field.
+ * Completeness beats a newer stale keystroke; otherwise prefer latest updatedAt.
+ */
+export function preferInspectionEntry<T extends ProgressEntryLike>(a: T, b: T): T {
+  const complete = preferMoreCompleteValue(a.valueJson, b.valueJson);
+  if (complete !== null) {
+    if (complete === a.valueJson) return a;
+    if (complete === b.valueJson) return b;
+  }
+
+  const aNote = typeof a.note === "string" ? a.note.trim() : "";
+  const bNote = typeof b.note === "string" ? b.note.trim() : "";
+  if (aNote && bNote && aNote !== bNote) {
+    if (bNote.startsWith(aNote) && aNote.length < bNote.length) return b;
+    if (aNote.startsWith(bNote) && bNote.length < aNote.length) return a;
+  } else if (!aNote && bNote) {
+    // keep going — notes alone don't decide when values differ by timestamp
+  }
+
+  const aPhotos = Array.isArray(a.photos) ? a.photos.length : 0;
+  const bPhotos = Array.isArray(b.photos) ? b.photos.length : 0;
+
+  const aMs = entryTimestampMs(a);
+  const bMs = entryTimestampMs(b);
+  if (bMs !== aMs) return bMs > aMs ? b : a;
+
+  if (bPhotos !== aPhotos) return bPhotos > aPhotos ? b : a;
+  if (bNote.length !== aNote.length) return bNote.length > aNote.length ? b : a;
+
+  const aText = extractEntryScalarText(a.valueJson) || "";
+  const bText = extractEntryScalarText(b.valueJson) || "";
+  if (bText.length !== aText.length) return bText.length > aText.length ? b : a;
+
+  return b;
+}
+
+/**
+ * Collapse duplicate sectionRef+fieldKey rows (offline sync can create them).
+ * Keeps the most complete / newest value so PDF/report don't show stale "P".
+ */
+export function dedupeInspectionEntries<T extends ProgressEntryLike>(
+  entries: T[] | null | undefined,
+): T[] {
+  if (!entries?.length) return [];
+  const map = new Map<string, T>();
+  for (const entry of entries) {
+    const sectionRef = String(entry.sectionRef || "").trim();
+    const fieldKey = String(entry.fieldKey || "").trim();
+    if (!sectionRef || !fieldKey) continue;
+    const key = entryLookupKey(sectionRef, fieldKey);
+    const existing = map.get(key);
+    map.set(key, existing ? preferInspectionEntry(existing, entry) : entry);
+  }
+  return Array.from(map.values());
+}
+
 /**
  * Merge UUID / synthetic / Overview alias rows into one logical entry under
- * `primarySectionRef`. Photos are unioned; value/note prefer primary then first
- * non-empty alias. Prevents dual-key splits from dropping photos on read/write.
+ * `primarySectionRef`. Photos are unioned; value/note prefer the most complete
+ * (not a stale keystroke prefix) then newest row. Prevents dual-key splits.
  */
 export function mergeEntriesAcrossRefs<T extends ProgressEntryLike>(
   entriesMap: Record<string, T | undefined>,
@@ -188,14 +286,11 @@ export function mergeEntriesAcrossRefs<T extends ProgressEntryLike>(
   }
   if (!found.length) return undefined;
 
+  const preferred = found.reduce((best, row) => preferInspectionEntry(best, row));
   const primaryRow =
     found.find((e) => String(e.sectionRef || "").trim() === primary) || null;
-  const withPhotos = found.find(
-    (e) => Array.isArray(e.photos) && e.photos.some((p) => typeof p === "string" && p.trim()),
-  );
-  const base = primaryRow || withPhotos || found[0]!;
 
-  let valueJson = primaryRow?.valueJson;
+  let valueJson = preferred.valueJson;
   if (!hasMeaningfulEntryValue(valueJson)) {
     for (const e of found) {
       if (hasMeaningfulEntryValue(e.valueJson)) {
@@ -204,10 +299,9 @@ export function mergeEntriesAcrossRefs<T extends ProgressEntryLike>(
       }
     }
   }
-  if (valueJson === undefined) valueJson = base.valueJson;
 
-  let note = primaryRow?.note;
-  if (!note) {
+  let note = preferred.note;
+  if (!(typeof note === "string" && note.trim())) {
     for (const e of found) {
       if (typeof e.note === "string" && e.note.trim()) {
         note = e.note;
@@ -220,13 +314,13 @@ export function mergeEntriesAcrossRefs<T extends ProgressEntryLike>(
   const markedForReview = found.some((e) => !!(e as { markedForReview?: boolean }).markedForReview);
 
   return {
-    ...base,
-    id: primaryRow?.id || base.id,
+    ...preferred,
+    id: primaryRow?.id || preferred.id,
     sectionRef: primary,
     fieldKey: key,
     valueJson,
-    note: note ?? base.note,
-    photos: photos.length ? photos : base.photos ?? null,
+    note: note ?? preferred.note,
+    photos: photos.length ? photos : preferred.photos ?? null,
     ...(markedForReview ? { markedForReview: true } : {}),
   } as T;
 }
@@ -237,7 +331,7 @@ export function normalizeProgressEntriesMap(
   if (!entries) return {};
   if (Array.isArray(entries)) {
     const map: Record<string, ProgressEntryLike> = {};
-    for (const entry of entries) {
+    for (const entry of dedupeInspectionEntries(entries)) {
       const sectionRef = String(entry.sectionRef || "").trim();
       const fieldKey = String(entry.fieldKey || "").trim();
       if (!sectionRef || !fieldKey || isProgressMetaFieldKey(fieldKey)) continue;
@@ -250,7 +344,11 @@ export function normalizeProgressEntriesMap(
     if (!entry) continue;
     const fieldKey = String(entry.fieldKey || "").trim();
     if (isProgressMetaFieldKey(fieldKey)) continue;
-    map[key] = entry;
+    const sectionRef = String(entry.sectionRef || "").trim();
+    const lookup = sectionRef && fieldKey ? entryLookupKey(sectionRef, fieldKey) : key;
+    const existing = map[lookup];
+    map[lookup] = existing ? preferInspectionEntry(existing, entry) : entry;
+    if (key !== lookup) map[key] = map[lookup]!;
   }
   return map;
 }

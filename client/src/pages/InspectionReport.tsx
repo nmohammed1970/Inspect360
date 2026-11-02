@@ -75,6 +75,18 @@ import {
   type FieldOption,
 } from "@shared/fieldOptionColors";
 import { OptionValueBadge } from "@/components/OptionValueBadge";
+import {
+  extractRepeatableCountsFromEntries,
+  listRepeatableInstances,
+  sectionShouldExpandAsInstances,
+} from "@shared/inspectionGallery";
+import {
+  dedupeInspectionEntries,
+  mergeEntriesAcrossRefs,
+  normalizeProgressEntriesMap,
+  preferInspectionEntry,
+} from "@shared/inspectionProgress";
+import { repeatableCountsFromPropertyRoomInstances } from "@shared/propertyRooms";
 
 interface TemplateField {
   id: string;
@@ -802,50 +814,99 @@ export default function InspectionReport() {
     }
   };
 
-  const getEntryValue = (sectionId: string, fieldKey: string, instanceNameOrRef?: string) => {
-    // For repeatable sections, sectionRef includes instance (e.g., "Bedrooms/Bedroom 1"
-    // or property-room "section_bedrooms/{roomId}").
+  const snapshotStructure = (inspection as any)?.templateSnapshotJson as any;
+  const dedupedEntries = useMemo(
+    () => dedupeInspectionEntries(entries as any[]),
+    [entries],
+  );
+  const entriesRecord = useMemo(
+    () => normalizeProgressEntriesMap(dedupedEntries),
+    [dedupedEntries],
+  );
+  const repeatableCounts = useMemo(
+    () => ({
+      ...extractRepeatableCountsFromEntries(dedupedEntries as any[]),
+      ...repeatableCountsFromPropertyRoomInstances(
+        snapshotStructure?.propertyRoomInstances,
+      ),
+    }),
+    [dedupedEntries, snapshotStructure?.propertyRoomInstances],
+  );
+
+  const getEntryValue = (
+    sectionId: string,
+    fieldKey: string,
+    instanceNameOrRef?: string,
+    aliasRefs: string[] = [],
+  ) => {
     const sectionRef =
       !instanceNameOrRef
         ? sectionId
         : instanceNameOrRef.includes("/")
           ? instanceNameOrRef
           : `${sectionId}/${instanceNameOrRef}`;
-    return entries.find(e => e.sectionRef === sectionRef && e.fieldKey === fieldKey);
+    const merged = mergeEntriesAcrossRefs(
+      entriesRecord,
+      fieldKey,
+      sectionRef,
+      aliasRefs,
+    );
+    if (merged) return merged;
+    const matches = dedupedEntries.filter(
+      (e: any) => e.sectionRef === sectionRef && e.fieldKey === fieldKey,
+    );
+    if (!matches.length) return undefined;
+    return matches.reduce((best: any, row: any) => preferInspectionEntry(best, row));
   };
 
-  // Prefer floor-plan propertyRoomInstances; fall back to entry-derived instances.
-  const getRepeatableInstances = (sectionId: string): Array<{ sectionRef: string; title: string }> => {
-    const roomInstances = Array.isArray((inspection as any)?.templateSnapshotJson?.propertyRoomInstances)
-      ? ((inspection as any).templateSnapshotJson.propertyRoomInstances as Array<{
-          sectionRef?: string;
-          title?: string;
-        }>)
-      : [];
-    const fromRooms = roomInstances
-      .filter((r) => String(r.sectionRef || "").startsWith(`${sectionId}/`))
-      .map((r) => ({
-        sectionRef: String(r.sectionRef),
-        title: String(r.title || r.sectionRef?.split("/")[1] || sectionId).trim(),
+  // Same instance refs + labels as Capture / gallery / PDF (UUID ↔ Title N aliases).
+  const getRepeatableInstances = (
+    sectionId: string,
+  ): Array<{ sectionRef: string; title: string; aliasRefs: string[] }> => {
+    const section = sections.find((s) => s.id === sectionId);
+    const force = section ? !section.repeatable : false;
+    const instances = listRepeatableInstances(
+      snapshotStructure,
+      sectionId,
+      repeatableCounts,
+      force,
+    );
+    if (instances.length > 0) {
+      return instances.map((inst) => ({
+        sectionRef: inst.sectionRef,
+        title: inst.sectionLabel,
+        aliasRefs: inst.aliasRefs,
       }));
-    if (fromRooms.length > 0) return fromRooms;
+    }
 
     const instanceMap = new Map<string, string>();
-    entries.forEach((entry: any) => {
-      if (entry.sectionRef.startsWith(`${sectionId}/`)) {
-        const instanceName = entry.sectionRef.split("/")[1];
+    dedupedEntries.forEach((entry: any) => {
+      if (String(entry.sectionRef || "").startsWith(`${sectionId}/`)) {
+        const instanceName = String(entry.sectionRef).split("/")[1];
         if (instanceName) {
           instanceMap.set(entry.sectionRef, instanceName);
         }
       }
     });
     return Array.from(instanceMap.entries())
-      .map(([sectionRef, title]) => ({ sectionRef, title }))
+      .map(([sectionRef, title]) => ({ sectionRef, title, aliasRefs: [] as string[] }))
       .sort((a, b) => {
         const numA = parseInt(a.title.match(/\d+$/)?.[0] || "0", 10);
         const numB = parseInt(b.title.match(/\d+$/)?.[0] || "0", 10);
         return numA - numB;
       });
+  };
+
+  const sectionExpandsAsInstances = (section: TemplateSection) => {
+    const hasInstanceEntries = dedupedEntries.some(
+      (e: any) =>
+        typeof e.sectionRef === "string" &&
+        e.sectionRef.startsWith(`${section.id}/`),
+    );
+    return (
+      sectionShouldExpandAsInstances(section as any, snapshotStructure, repeatableCounts) ||
+      hasInstanceEntries
+    );
   };
 
   // Get check-in entry for comparison
@@ -2005,8 +2066,8 @@ export default function InspectionReport() {
                       </div>
 
                       {/* Table Rows */}
-                      {section.repeatable ? (
-                        // Render repeatable instances
+                      {sectionExpandsAsInstances(section) ? (
+                        // Render repeatable / forced Kitchen-Living instances (same refs as Capture)
                         (() => {
                           const instances = getRepeatableInstances(section.id);
                           if (instances.length === 0 && !editMode) return null;
@@ -2014,6 +2075,7 @@ export default function InspectionReport() {
                           return instances.map((instance) => {
                             const instanceName = instance.title;
                             const instanceSectionRef = instance.sectionRef;
+                            const instanceAliasRefs = instance.aliasRefs || [];
                             // Collect all photos for this instance
                             const instancePhotos: Array<{ field: any, entry: any, fieldIdx: number, photoIdx: number, photo: string }> = [];
 
@@ -2030,7 +2092,12 @@ export default function InspectionReport() {
                                   ) {
                                     return null;
                                   }
-                                  const entry = getEntryValue(section.id, field.id || field.key || field.label, instanceSectionRef);
+                                  const entry = getEntryValue(
+                                    section.id,
+                                    field.id || field.key || field.label,
+                                    instanceSectionRef,
+                                    instanceAliasRefs,
+                                  );
                                   const entryKey = `${instanceSectionRef}-${field.id || field.key || field.label}`;
                                   const photoKey = `photos-${entryKey}`;
                                   const isPhotoExpanded = expandedPhotos[photoKey];

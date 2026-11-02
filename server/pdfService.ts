@@ -23,11 +23,14 @@ import {
   extractRepeatableCountsFromEntries,
   listRepeatableInstances,
   resolveSectionInstanceLabel,
+  sectionShouldExpandAsInstances,
 } from "@shared/inspectionGallery";
 import {
+  dedupeInspectionEntries,
   entryLookupKey,
   mergeEntriesAcrossRefs,
 } from "@shared/inspectionProgress";
+import { repeatableCountsFromPropertyRoomInstances } from "@shared/propertyRooms";
 import { getDefaultCoverLogoDataUrl } from "./reportLogo";
 import {
   optionPillStyle,
@@ -946,15 +949,23 @@ function generateInspectionHTML(
     trademarkHtml = `<div class="cover-trademark"><img src="${sanitizeUrl(branding.trademarkUrl!)}" alt="Certification" class="cover-trademark-img" /></div>`;
   }
 
-  // Build entries map
+  // Collapse offline sectionRef+fieldKey rows (offline sync) so stale keystroke
+  // values like "P" cannot override the full note in the PDF.
+  const dedupedEntries = dedupeInspectionEntries(entries as any[]) as InspectionEntry[];
   const entriesMap = new Map<string, InspectionEntry>();
   const entriesRecord: Record<string, InspectionEntry> = {};
-  entries.forEach((entry) => {
+  dedupedEntries.forEach((entry) => {
     const key = `${entry.sectionRef}-${entry.fieldKey}`;
     entriesMap.set(key, entry);
     entriesRecord[key] = entry;
   });
-  const repeatableCounts = extractRepeatableCountsFromEntries(entries);
+  // Match Capture: entry counts + floor-plan room instances (Kitchen/Living forced expand).
+  const repeatableCounts = {
+    ...extractRepeatableCountsFromEntries(dedupedEntries),
+    ...repeatableCountsFromPropertyRoomInstances(
+      (templateStructure as any)?.propertyRoomInstances,
+    ),
+  };
 
   // Helper function to get rating color based on score
   const getRatingColor = (score: number | null): string => {
@@ -999,7 +1010,7 @@ function generateInspectionHTML(
     }
 
     const instanceMap = new Map<string, string>();
-    entries.forEach((entry) => {
+    dedupedEntries.forEach((entry) => {
       if (entry.sectionRef.startsWith(`${sectionId}/`)) {
         const label =
           resolveSectionInstanceLabel(
@@ -1210,8 +1221,7 @@ function generateInspectionHTML(
       } else if (field.type === "video" && typeof description === "string") {
         descriptionHTML = `<a href="${escapeHtml(description)}" style="color:#00D5CC;">View video</a>`;
       } else if (typeof description === 'string') {
-        const descriptionValue = description.length > 50 ? description.substring(0, 50) + '...' : description;
-        descriptionHTML = escapeHtml(descriptionValue);
+        descriptionHTML = formatText(description);
       } else if (typeof description === 'number' || typeof description === 'boolean') {
         descriptionHTML = escapeHtml(String(description));
       } else {
@@ -1221,10 +1231,10 @@ function generateInspectionHTML(
 
     let rowHTML = `
       <tr>
-        <td style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; color: #00D5CC; font-weight: 500; vertical-align: top; width: 42%; white-space: nowrap;">
+        <td style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; color: #00D5CC; font-weight: 500; vertical-align: top; width: 28%; word-break: break-word;">
           ${pdfText(field.label)}
         </td>
-        <td style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; color: #666;${isSignature ? " width: 58%;" : ""}" ${isSignature ? `colspan="${1 + (sectionHasCondition ? 1 : 0) + (sectionHasCleanliness ? 1 : 0) + 1}"` : ""}>
+        <td style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; color: #666; white-space: normal; overflow-wrap: anywhere; word-break: break-word;${isSignature ? " width: 72%;" : ""}" ${isSignature ? `colspan="${1 + (sectionHasCondition ? 1 : 0) + (sectionHasCleanliness ? 1 : 0) + 1}"` : ""}>
           ${descriptionHTML}
         </td>
         ${!isSignature && sectionHasCondition ? `
@@ -1401,9 +1411,22 @@ function generateInspectionHTML(
     const sectionHasCondition = false;
     const sectionHasCleanliness = false;
 
-    // Check if this is a repeatable section
-    if (section.repeatable) {
-      // Extract all instances for this repeatable section
+    // Expand like Capture/gallery: template.repeatable OR forced Kitchen/Living/etc,
+    // or any entries already stored under sectionId/... instance refs.
+    const hasInstanceEntries = dedupedEntries.some(
+      (e) =>
+        typeof e.sectionRef === "string" &&
+        e.sectionRef.startsWith(`${section.id}/`),
+    );
+    const expandAsInstances =
+      sectionShouldExpandAsInstances(
+        section as any,
+        templateStructure as any,
+        repeatableCounts,
+      ) || hasInstanceEntries;
+
+    if (expandAsInstances) {
+      // Extract all instances for this repeatable / forced room-type section
       const instances = getRepeatableInstances(section.id);
       
       if (instances.length === 0) {

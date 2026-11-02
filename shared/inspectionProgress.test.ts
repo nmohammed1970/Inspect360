@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import {
   computeInspectionCaptureProgress,
+  dedupeInspectionEntries,
   formatRequiredIncompleteMessage,
   isInspectionEntryComplete,
   isProgressMetaFieldKey,
   listRequiredIncompleteFields,
   mergeEntriesAcrossRefs,
   normalizeProgressEntriesMap,
+  preferMoreCompleteValue,
   repeatableCountsFromEntries,
   resolveSectionInstanceRefs,
 } from "./inspectionProgress";
@@ -297,5 +299,60 @@ assert.equal(mergedDual!.id, "primary");
 assert.equal(mergedDual!.valueJson, "Good");
 assert.equal(mergedDual!.note, "Primary note");
 assert.deepEqual(mergedDual!.photos, ["/objects/a.jpg", "/objects/b.jpg"]);
+
+// Stale keystroke prefix must lose to the full overwritten value
+assert.equal(
+  preferMoreCompleteValue("P", "Property is in fair condition"),
+  "Property is in fair condition",
+);
+const wrappedFull = { value: "Property is in fair condition" };
+assert.equal(
+  preferMoreCompleteValue({ value: "P" }, wrappedFull),
+  wrappedFull,
+);
+
+const dedupedNotes = dedupeInspectionEntries([
+  {
+    id: "old-full",
+    sectionRef: "general_overview",
+    fieldKey: "notes",
+    valueJson: "Property is in fair condition",
+    updatedAt: "2026-11-02T10:00:00.000Z",
+  },
+  {
+    id: "new-stale",
+    sectionRef: "general_overview",
+    fieldKey: "notes",
+    valueJson: "P",
+    updatedAt: "2026-11-02T11:00:00.000Z",
+  },
+]);
+assert.equal(dedupedNotes.length, 1);
+assert.equal(dedupedNotes[0]!.valueJson, "Property is in fair condition");
+assert.equal(dedupedNotes[0]!.id, "old-full");
+
+// Alias merge: stale primary "P" must not beat complete alias text
+const mergedPrefix = mergeEntriesAcrossRefs(
+  {
+    "general-notes": {
+      id: "primary-stale",
+      sectionRef: "general",
+      fieldKey: "notes",
+      valueJson: "P",
+      updatedAt: "2026-11-02T12:00:00.000Z",
+    },
+    "general/Overview 1-notes": {
+      id: "alias-full",
+      sectionRef: "general/Overview 1",
+      fieldKey: "notes",
+      valueJson: "Property is in fair condition",
+      updatedAt: "2026-11-02T11:00:00.000Z",
+    },
+  },
+  "notes",
+  "general",
+  ["general/Overview 1"],
+);
+assert.equal(mergedPrefix!.valueJson, "Property is in fair condition");
 
 console.log("inspectionProgress.test.ts: all assertions passed");
