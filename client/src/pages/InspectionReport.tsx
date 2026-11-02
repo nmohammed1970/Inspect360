@@ -2350,6 +2350,10 @@ export default function InspectionReport() {
                                           (inspection as any)?.templateSnapshotJson
                                             ?.aiIncludeRecommendedActions === true
                                         }
+                                        showMaintenanceIssues={
+                                          (inspection as any)?.templateSnapshotJson
+                                            ?.aiIncludeMaintenanceIssues === true
+                                        }
                                       />
                                     )}
                                   </div>

@@ -5,6 +5,7 @@ import {
   isInspectionEntryComplete,
   isProgressMetaFieldKey,
   listRequiredIncompleteFields,
+  mergeEntriesAcrossRefs,
   normalizeProgressEntriesMap,
   repeatableCountsFromEntries,
   resolveSectionInstanceRefs,
@@ -266,5 +267,35 @@ const photosSatisfyRequired = listRequiredIncompleteFields({
   excludeTenantSignatures: true,
 });
 assert.equal(photosSatisfyRequired.length, 0);
+
+// Dual sectionRef keys: photos on synthetic alias + note on UUID primary must merge
+const mergedDual = mergeEntriesAcrossRefs(
+  {
+    "bedrooms/room_a-condition": {
+      id: "primary",
+      sectionRef: "bedrooms/room_a",
+      fieldKey: "condition",
+      valueJson: "Good",
+      note: "Primary note",
+      photos: [],
+    },
+    "bedrooms/Bedroom 1-condition": {
+      id: "alias",
+      sectionRef: "bedrooms/Bedroom 1",
+      fieldKey: "condition",
+      valueJson: null,
+      photos: ["/objects/a.jpg", "/objects/b.jpg"],
+    },
+  },
+  "condition",
+  "bedrooms/room_a",
+  ["bedrooms/Bedroom 1"],
+);
+assert.ok(mergedDual);
+assert.equal(mergedDual!.sectionRef, "bedrooms/room_a");
+assert.equal(mergedDual!.id, "primary");
+assert.equal(mergedDual!.valueJson, "Good");
+assert.equal(mergedDual!.note, "Primary note");
+assert.deepEqual(mergedDual!.photos, ["/objects/a.jpg", "/objects/b.jpg"]);
 
 console.log("inspectionProgress.test.ts: all assertions passed");

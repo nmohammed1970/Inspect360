@@ -8,6 +8,7 @@ import {
   parseCipCountValue,
   parseCipExpandedFieldKey,
   resolveCipInstanceCount,
+  resolveFieldLabelFromTemplateStructure,
   type CustomInspectionPoint,
 } from "./templateCustomInspectionPoints";
 import { fieldAllowsMultiplePhotos } from "./fieldAttachedPhotos";
@@ -73,10 +74,55 @@ export function sectionIdFromRef(sectionRef: string): string {
   return slash > 0 ? ref.slice(0, slash) : ref;
 }
 
+/** Room-type sections Capture may force-expand even when template.repeatable is false. */
+export function isPropertyLayoutRoomSection(
+  section: GalleryTemplateSection | null | undefined,
+): boolean {
+  if (!section) return false;
+  const roomType = matchSectionToRoomType(section as any);
+  return (
+    roomType === "kitchens" ||
+    roomType === "livingRooms" ||
+    roomType === "bedrooms" ||
+    roomType === "bathrooms"
+  );
+}
+
+/**
+ * Whether gallery destination listing should emit per-instance refs.
+ * Matches Capture: template.repeatable OR property-layout room section with
+ * a stored count / property rooms.
+ */
+export function sectionShouldExpandAsInstances(
+  section: GalleryTemplateSection | null | undefined,
+  structure: GalleryTemplateStructure | null | undefined,
+  repeatableCounts: Record<string, number> = {},
+): boolean {
+  if (!section?.id) return false;
+  if (section.repeatable) return true;
+  if (!isPropertyLayoutRoomSection(section)) return false;
+  const raw = Number(repeatableCounts[section.id]);
+  if (Number.isFinite(raw) && raw >= 1) return true;
+  return propertyRoomsForSection(structure, section).length > 0;
+}
+
 /**
  * Human-readable section/instance label for a sectionRef (exact or alias).
  * Used for Section Gallery badges so UUID room paths show as "Bedroom 1".
+ * Also resolves Capture forced-repeatable Kitchen/Living refs
+ * (e.g. section_xxx/Kitchen Overview 1 → "Kitchen Overview 1").
  */
+function looksLikeRoomIdSuffix(instancePart: string): boolean {
+  const part = String(instancePart || "").trim();
+  if (!part) return false;
+  // UUID room ids and opaque ids — never show these as badge text
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(part)) {
+    return true;
+  }
+  if (/^(room_|rm_)/i.test(part)) return true;
+  return false;
+}
+
 export function resolveSectionInstanceLabel(
   structure: GalleryTemplateStructure | null | undefined,
   sectionRef: string,
@@ -89,16 +135,100 @@ export function resolveSectionInstanceLabel(
   const section = sections.find((s) => s.id === sectionId);
   if (!section) return null;
 
-  if (!section.repeatable) {
-    if (ref !== section.id) return null;
-    return (section.title || section.id).trim() || section.id;
+  const sectionTitle = (section.title || section.id).trim() || section.id;
+  const hasInstancePath = ref.includes("/");
+
+  // Plain non-instance ref
+  if (!hasInstancePath) {
+    return sectionTitle;
   }
 
-  const instances = listRepeatableInstances(structure, sectionId, repeatableCounts);
+  // Instance path: expand using the same forced-repeatable rules as assign
+  const force =
+    !section.repeatable && sectionActsAsRepeatableForInstanceRef(section, ref);
+  if (!section.repeatable && !force) {
+    // Unknown instance path on a truly non-repeatable section — use trailing name
+    const part = ref.slice(ref.indexOf("/") + 1).trim();
+    return part || sectionTitle;
+  }
+
+  const instances = listRepeatableInstances(
+    structure,
+    sectionId,
+    repeatableCounts,
+    force,
+  );
   const matched = instances.find(
     (inst) => inst.sectionRef === ref || inst.aliasRefs.includes(ref),
   );
-  return matched?.sectionLabel || null;
+  if (matched?.sectionLabel) return matched.sectionLabel;
+
+  const instancePart = ref.slice(ref.indexOf("/") + 1).trim();
+  if (!instancePart) return sectionTitle;
+
+  // Exact section-title N → prefer layout/property-room label when available
+  const titleNumMatch = instancePart.match(
+    new RegExp(`^${escapeRegExp(sectionTitle)}\\s+(\\d+)$`, "i"),
+  );
+  if (titleNumMatch) {
+    const idx = Math.floor(Number(titleNumMatch[1]));
+    const inst = instances[idx - 1];
+    if (inst?.sectionLabel) return inst.sectionLabel;
+    if (Number.isFinite(idx) && idx >= 1) {
+      return numberedRoomInstanceTitle(null, sectionTitle, idx - 1);
+    }
+  }
+
+  // Loose "Kitchen Overview 1" while section title is "Kitchen": prefer the
+  // same sectionLabel destinations/Capture use (room title or "Kitchen 1"),
+  // so badges and Assign never disagree on vocabulary.
+  const looseNum = instancePart.match(/^(.+)\s+(\d+)$/);
+  if (looseNum && !looksLikeRoomIdSuffix(instancePart)) {
+    const idx = Math.floor(Number(looseNum[2]));
+    const inst = instances[idx - 1];
+    if (inst?.sectionLabel) return inst.sectionLabel;
+    if (Number.isFinite(idx) && idx >= 1) {
+      return numberedRoomInstanceTitle(instancePart, sectionTitle, idx - 1);
+    }
+  }
+
+  if (!looksLikeRoomIdSuffix(instancePart)) {
+    return instancePart;
+  }
+
+  // Opaque room id with no matched instance — fall back to section title + index
+  // is unavailable; use section title alone rather than raw UUID.
+  return sectionTitle;
+}
+
+/**
+ * Human label for a gallery assignment badge (section pool or point).
+ * Never returns raw `sectionId/…` paths when a readable name can be derived.
+ */
+export function resolveGalleryAssignmentLabel(
+  structure: GalleryTemplateStructure | null | undefined,
+  sectionRef: string,
+  fieldKey: string,
+  repeatableCounts: Record<string, number> = {},
+): string {
+  const ref = String(sectionRef || "").trim();
+  const key = String(fieldKey || "").trim();
+  const sectionLabel =
+    resolveSectionInstanceLabel(structure, ref, repeatableCounts) ||
+    (ref.includes("/") ? ref.slice(ref.indexOf("/") + 1).trim() : ref) ||
+    ref;
+
+  if (!key || isSectionGalleryFieldKey(key)) {
+    return sectionLabel;
+  }
+
+  const fieldLabel =
+    resolveFieldLabelFromTemplateStructure(structure as any, key) || key;
+  return formatDestinationLabel({
+    sectionLabel,
+    fieldLabel,
+    fieldKey: key,
+  });
 }
 
 export type GalleryTemplateField = {
@@ -309,14 +439,46 @@ function propertyRoomsForSection(
  * Repeatable instance refs shared by Capture UI and gallery destinations so
  * sectionRef keys stay identical (photos show on the field after assign).
  */
+/**
+ * Capture forces Kitchen/Living (and bed/bath) repeatable via property layout
+ * even when the frozen template left them non-repeatable. When the client sends
+ * an instance-style sectionRef (`sectionId/...`), treat those room-type sections
+ * as repeatable for gallery assign validation only.
+ */
+export function sectionActsAsRepeatableForInstanceRef(
+  section: GalleryTemplateSection | null | undefined,
+  sectionRef: string,
+): boolean {
+  if (!section) return false;
+  if (section.repeatable) return true;
+  if (!String(sectionRef || "").includes("/")) return false;
+  const roomType = matchSectionToRoomType(section as any);
+  return (
+    roomType === "kitchens" ||
+    roomType === "livingRooms" ||
+    roomType === "bedrooms" ||
+    roomType === "bathrooms"
+  );
+}
+
 export function listRepeatableInstances(
   structure: GalleryTemplateStructure | null | undefined,
   sectionId: string,
   repeatableCounts: Record<string, number> = {},
+  /** When true, also expand Kitchen/Living/etc that Capture forced repeatable. */
+  forceRoomTypeRepeatable = false,
 ): RepeatableInstanceRef[] {
   const sections = Array.isArray(structure?.sections) ? structure!.sections! : [];
   const section = sections.find((s) => s.id === sectionId);
-  if (!section?.repeatable) return [];
+  if (!section) return [];
+  if (!section.repeatable && !forceRoomTypeRepeatable) return [];
+  if (
+    !section.repeatable &&
+    forceRoomTypeRepeatable &&
+    !sectionActsAsRepeatableForInstanceRef(section, `${sectionId}/x`)
+  ) {
+    return [];
+  }
 
   const title = (section.title || section.id).trim() || section.id;
   const propertyRooms = propertyRoomsForSection(structure, section);
@@ -331,17 +493,103 @@ export function listRepeatableInstances(
     const room = propertyRooms[i];
     const synthetic = `${section.id}/${title} ${i + 1}`;
     const sectionRef = room?.sectionRef || synthetic;
+    const sectionLabel = numberedRoomInstanceTitle(room?.title, title, i);
     const aliasRefs: string[] = [];
-    if (sectionRef !== synthetic) aliasRefs.push(synthetic);
-    if (room?.sectionRef && room.sectionRef !== sectionRef) aliasRefs.push(room.sectionRef);
+    const pushAlias = (ref: string | null | undefined) => {
+      const r = String(ref || "").trim();
+      if (!r || r === sectionRef || aliasRefs.includes(r)) return;
+      aliasRefs.push(r);
+    };
+    pushAlias(synthetic);
+    pushAlias(room?.sectionRef);
+    // Display-title paths Capture/gallery may have stored historically
+    // (e.g. "Kitchen Overview" / "Kitchen Overview 1" vs UUID / "Kitchen 1").
+    pushAlias(`${section.id}/${sectionLabel}`);
+    if (!/\s+\d+\s*$/.test(sectionLabel)) {
+      pushAlias(`${section.id}/${sectionLabel} ${i + 1}`);
+    }
     out.push({
       index: i,
       sectionRef,
-      sectionLabel: numberedRoomInstanceTitle(room?.title, title, i),
+      sectionLabel,
       aliasRefs,
     });
   }
   return out;
+}
+
+/**
+ * Resolve the canonical (primary) instance ref + aliases for any sectionRef
+ * that belongs to a repeatable / forced-repeatable room instance.
+ * Used to stop dual-key splits (UUID vs Title N vs Overview N).
+ */
+export function resolveInstanceRefFamily(
+  structure: GalleryTemplateStructure | null | undefined,
+  sectionRef: string,
+  repeatableCounts: Record<string, number> = {},
+): { primary: string; aliasRefs: string[]; allRefs: string[] } | null {
+  const ref = String(sectionRef || "").trim();
+  if (!ref) return null;
+
+  const sectionId = sectionIdFromRef(ref);
+  const sections = Array.isArray(structure?.sections) ? structure!.sections! : [];
+  const section = sections.find((s) => s.id === sectionId);
+  if (!section) {
+    return { primary: ref, aliasRefs: [], allRefs: [ref] };
+  }
+
+  const force =
+    !section.repeatable &&
+    sectionActsAsRepeatableForInstanceRef(
+      section,
+      ref.includes("/") ? ref : `${sectionId}/x`,
+    );
+  if (!section.repeatable && !force) {
+    return { primary: section.id, aliasRefs: [], allRefs: [section.id] };
+  }
+
+  const instances = listRepeatableInstances(
+    structure,
+    sectionId,
+    repeatableCounts,
+    force,
+  );
+
+  const matched = instances.find(
+    (inst) => inst.sectionRef === ref || inst.aliasRefs.includes(ref),
+  );
+  if (matched) {
+    const allRefs = [matched.sectionRef, ...matched.aliasRefs].filter(
+      (r, i, arr) => r && arr.indexOf(r) === i,
+    );
+    return {
+      primary: matched.sectionRef,
+      aliasRefs: allRefs.filter((r) => r !== matched.sectionRef),
+      allRefs,
+    };
+  }
+
+  // Loose "Kitchen Overview 1" → instance index N
+  if (ref.includes("/")) {
+    const part = ref.slice(ref.indexOf("/") + 1).trim();
+    const loose = part.match(/^(.+)\s+(\d+)$/);
+    if (loose) {
+      const idx = Math.floor(Number(loose[2]));
+      const inst = instances[idx - 1];
+      if (inst && Number.isFinite(idx) && idx >= 1) {
+        const allRefs = [inst.sectionRef, ...inst.aliasRefs, ref].filter(
+          (r, i, arr) => r && arr.indexOf(r) === i,
+        );
+        return {
+          primary: inst.sectionRef,
+          aliasRefs: allRefs.filter((r) => r !== inst.sectionRef),
+          allRefs,
+        };
+      }
+    }
+  }
+
+  return { primary: ref, aliasRefs: [], allRefs: [ref] };
 }
 
 /**
@@ -365,9 +613,15 @@ export function listPhotoDestinations(
       (f) => isAssignablePhotoField(f) && !!(f.id || f.key),
     );
     const title = (section.title || section.id).trim() || section.id;
+    const expand = sectionShouldExpandAsInstances(section, structure, repeatableCounts);
 
-    if (section.repeatable) {
-      const instances = listRepeatableInstances(structure, section.id, repeatableCounts);
+    if (expand) {
+      const instances = listRepeatableInstances(
+        structure,
+        section.id,
+        repeatableCounts,
+        !section.repeatable,
+      );
       for (const inst of instances) {
         for (const field of photoFields) {
           pushPhotoDestination(destinations, {
@@ -429,34 +683,56 @@ export function assertSectionGalleryDestination(
   const section = sections.find((s) => s.id === sectionId);
   if (!section) return null;
 
-  if (section.repeatable) {
-    const instances = listRepeatableInstances(structure, sectionId, repeatableCounts);
+  if (sectionActsAsRepeatableForInstanceRef(section, ref)) {
+    const instances = listRepeatableInstances(
+      structure,
+      sectionId,
+      repeatableCounts,
+      !section.repeatable,
+    );
     const matched = instances.find(
       (inst) => inst.sectionRef === ref || inst.aliasRefs.includes(ref),
     );
     if (matched) {
       return {
         sectionId,
-        sectionRef: ref,
+        sectionRef: matched.sectionRef,
         sectionLabel: matched.sectionLabel,
         fieldKey: SECTION_GALLERY_FIELD_KEY,
         fieldLabel: "Section Gallery",
         fieldType: "photo_array",
       };
     }
-    // Synthetic Title N for a valid in-range instance
+    // Synthetic Title N for a valid in-range instance (section title or room title)
     const title = (section.title || section.id).trim() || section.id;
-    const titleNumMatch = ref
-      .slice(ref.indexOf("/") + 1)
-      .trim()
-      .match(new RegExp(`^${escapeRegExp(title)}\\s+(\\d+)$`, "i"));
+    const instancePart = ref.includes("/") ? ref.slice(ref.indexOf("/") + 1).trim() : "";
+    const titleNumMatch = instancePart.match(
+      new RegExp(`^${escapeRegExp(title)}\\s+(\\d+)$`, "i"),
+    );
     if (titleNumMatch) {
       const idx = Math.floor(Number(titleNumMatch[1]));
       const inst = instances[idx - 1];
       if (inst) {
         return {
           sectionId,
-          sectionRef: ref,
+          sectionRef: inst.sectionRef,
+          sectionLabel: inst.sectionLabel,
+          fieldKey: SECTION_GALLERY_FIELD_KEY,
+          fieldLabel: "Section Gallery",
+          fieldType: "photo_array",
+        };
+      }
+    }
+    // Property rooms often use display titles like "Kitchen Overview 1" while the
+    // template section title is just "Kitchen" — accept in-range "… N" refs.
+    const looseNum = instancePart.match(/^(.+)\s+(\d+)$/);
+    if (looseNum) {
+      const idx = Math.floor(Number(looseNum[2]));
+      const inst = instances[idx - 1];
+      if (inst && Number.isFinite(idx) && idx >= 1) {
+        return {
+          sectionId,
+          sectionRef: inst.sectionRef,
           sectionLabel: inst.sectionLabel,
           fieldKey: SECTION_GALLERY_FIELD_KEY,
           fieldLabel: "Section Gallery",
@@ -503,12 +779,16 @@ export function assertDestinationValid(
     }
   }
 
+  const ref = String(sectionRef || "").trim();
+  const familyForList = resolveInstanceRefFamily(structure, ref, repeatableCounts);
   const dest = listPhotoDestinations(structure, repeatableCounts, countsForList).find(
-    (d) => d.sectionRef === sectionRef && d.fieldKey === fieldKey,
+    (d) =>
+      d.fieldKey === fieldKey &&
+      (d.sectionRef === ref ||
+        (familyForList && d.sectionRef === familyForList.primary)),
   );
   if (dest) return dest;
 
-  const ref = String(sectionRef || "").trim();
   const sections = Array.isArray(structure?.sections) ? structure!.sections! : [];
 
   // CIP expanded keys: resolve directly from template (works for non-repeatable sections too)
@@ -522,14 +802,15 @@ export function assertDestinationValid(
       const cip = cips.find((c) => c.id === cipParsed.cipId);
       const baseField = (cip?.fields || []).find((f) => fieldKeyOf(f) === cipParsed.fieldId);
       if (cip && baseField && isAssignablePhotoField(baseField)) {
-        const slash = ref.indexOf("/");
+        const family = resolveInstanceRefFamily(structure, ref, repeatableCounts);
+        const primaryRef = family?.primary || ref;
         const sectionLabel =
-          slash > 0
-            ? ref.slice(slash + 1).trim() || (section.title || sectionId)
-            : (section.title || sectionId).trim() || sectionId;
+          resolveSectionInstanceLabel(structure, primaryRef, repeatableCounts) ||
+          (section.title || sectionId).trim() ||
+          sectionId;
         return {
           sectionId,
-          sectionRef: ref,
+          sectionRef: primaryRef,
           sectionLabel,
           fieldKey,
           fieldLabel:
@@ -547,32 +828,44 @@ export function assertDestinationValid(
   if (!sectionId || !instancePart) return null;
 
   const section = sections.find((s) => s.id === sectionId);
-  if (!section?.repeatable) return null;
+  if (!sectionActsAsRepeatableForInstanceRef(section, ref)) return null;
 
-  const sectionTitle = (section.title || section.id).trim() || section.id;
+  const sectionTitle = (section!.title || section!.id).trim() || section!.id;
   const titleNumMatch = instancePart.match(
     new RegExp(`^${escapeRegExp(sectionTitle)}\\s+(\\d+)$`, "i"),
   );
+  // e.g. section title "Kitchen" but Capture sends "Kitchen Overview 1"
+  const looseTitleNumMatch = titleNumMatch
+    ? null
+    : instancePart.match(/^(.+)\s+(\d+)$/);
 
-  const field = (section.fields || []).find((f) => fieldKeyOf(f) === fieldKey);
+  const field = (section!.fields || []).find((f) => fieldKeyOf(f) === fieldKey);
   if (!field || !isAssignablePhotoField(field)) return null;
 
+  const forceRoomType = !section!.repeatable;
   // Capture often sends synthetic "{Title} N" while destinations use property-room
   // UUID paths. Accept the client sectionRef when it names a valid instance so
   // entry keys match the Capture UI (photos actually appear on the field).
-  if (titleNumMatch) {
-    const instanceIndex = Math.floor(Number(titleNumMatch[1]));
+  const numberedMatch = titleNumMatch || looseTitleNumMatch;
+  if (numberedMatch) {
+    const instanceIndex = Math.floor(Number(numberedMatch[numberedMatch.length - 1]));
     if (!Number.isFinite(instanceIndex) || instanceIndex < 1 || instanceIndex > 50) {
       return null;
     }
 
-    const instances = listRepeatableInstances(structure, sectionId, repeatableCounts);
+    const instances = listRepeatableInstances(
+      structure,
+      sectionId,
+      repeatableCounts,
+      forceRoomType,
+    );
     const inst = instances[instanceIndex - 1];
     if (!inst) return null;
 
+    // Same display vocabulary as Capture / listPhotoDestinations.
     return {
       sectionId,
-      sectionRef: ref,
+      sectionRef: inst.sectionRef,
       sectionLabel: inst.sectionLabel,
       fieldKey,
       fieldLabel: (field.label || fieldKey).trim() || fieldKey,
@@ -582,16 +875,33 @@ export function assertDestinationValid(
 
   // UUID / custom room path — accept when it matches a known instance or any
   // in-range property-room style ref for this repeatable section.
-  const instances = listRepeatableInstances(structure, sectionId, repeatableCounts);
+  const instances = listRepeatableInstances(
+    structure,
+    sectionId,
+    repeatableCounts,
+    forceRoomType,
+  );
   const matchedInst = instances.find(
     (inst) => inst.sectionRef === ref || inst.aliasRefs.includes(ref),
   );
   if (!matchedInst && instances.length > 0) {
-    // Unknown room path: still allow if field is assignable (legacy room ids).
+    // Legacy unknown room id: canonicalize into the family when possible.
+    const family = resolveInstanceRefFamily(structure, ref, repeatableCounts);
+    const fallbackInst =
+      (family &&
+        instances.find(
+          (inst) =>
+            inst.sectionRef === family.primary ||
+            inst.aliasRefs.includes(family.primary),
+        )) ||
+      null;
     return {
       sectionId,
-      sectionRef: ref,
-      sectionLabel: instancePart,
+      sectionRef: fallbackInst?.sectionRef || family?.primary || ref,
+      sectionLabel:
+        fallbackInst?.sectionLabel ||
+        resolveSectionInstanceLabel(structure, ref, repeatableCounts) ||
+        instancePart,
       fieldKey,
       fieldLabel: (field.label || fieldKey).trim() || fieldKey,
       fieldType: destinationFieldType(field),
@@ -601,7 +911,7 @@ export function assertDestinationValid(
 
   return {
     sectionId,
-    sectionRef: ref,
+    sectionRef: matchedInst!.sectionRef,
     sectionLabel: matchedInst?.sectionLabel || instancePart,
     fieldKey,
     fieldLabel: (field.label || fieldKey).trim() || fieldKey,

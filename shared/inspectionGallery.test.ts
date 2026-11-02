@@ -10,6 +10,8 @@ import {
   listPhotoDestinations,
   matchesSectionScope,
   normalizeObjectUrl,
+  resolveGalleryAssignmentLabel,
+  resolveInstanceRefFamily,
   resolveSectionInstanceLabel,
 } from "./inspectionGallery";
 
@@ -148,8 +150,8 @@ assert.ok(
     section_bedrooms: 2,
   }),
 );
-// Synthetic "Title N" from Capture is accepted and keeps that sectionRef so
-// photos land on the same entry key Capture reads.
+// Synthetic "Title N" from Capture is accepted but canonicalizes to the primary
+// UUID room ref so entries/gallery never split across dual keys.
 const mappedBedroom = assertDestinationValid(
   withRooms,
   "section_bedrooms/Bedrooms 1",
@@ -157,7 +159,8 @@ const mappedBedroom = assertDestinationValid(
   { section_bedrooms: 2 },
 );
 assert.ok(mappedBedroom);
-assert.equal(mappedBedroom!.sectionRef, "section_bedrooms/Bedrooms 1");
+assert.equal(mappedBedroom!.sectionRef, "section_bedrooms/room-abc");
+assert.equal(mappedBedroom!.sectionLabel, "Master Bedroom");
 assert.equal(
   assertDestinationValid(withRooms, "section_bedrooms/Bedrooms 9", "field_floor", {
     section_bedrooms: 2,
@@ -212,6 +215,118 @@ assert.ok(
     "field_general_photos",
     {},
   ),
+);
+
+// Property layout forces Kitchen repeatable on Capture even when template left it
+// non-repeatable — gallery assign must accept the same Kitchen Overview N refs.
+const kitchenForcedRepeatable = {
+  sections: [
+    {
+      id: "section_1783023224044",
+      title: "Kitchen",
+      // intentionally NOT repeatable in frozen template
+      fields: [
+        { id: "field_alarms_photos", label: "Alarms photos", type: "photo_array" },
+      ],
+    },
+  ],
+};
+const overviewDest = assertDestinationValid(
+  kitchenForcedRepeatable,
+  "section_1783023224044/Kitchen Overview 1",
+  "field_alarms_photos",
+  {},
+);
+assert.ok(overviewDest, "Kitchen forced-repeatable + Overview title mismatch must assign");
+// Same vocabulary as destinations/Capture: "Kitchen 1" when no property-room title
+assert.equal(overviewDest!.sectionLabel, "Kitchen 1");
+// Loose Overview input must canonicalize to the primary Title N / UUID ref
+assert.equal(overviewDest!.sectionRef, "section_1783023224044/Kitchen 1");
+assert.ok(
+  assertDestinationValid(
+    kitchenForcedRepeatable,
+    "section_1783023224044/Kitchen 1",
+    "field_alarms_photos",
+    {},
+  ),
+);
+const overviewPool = assertSectionGalleryDestination(
+  kitchenForcedRepeatable,
+  "section_1783023224044/Kitchen Overview 1",
+  {},
+);
+assert.equal(overviewPool?.sectionLabel, "Kitchen 1");
+assert.equal(overviewPool?.sectionRef, "section_1783023224044/Kitchen 1");
+
+// Dual keys: Overview / Title N resolve to the same primary family
+const kitchenFamily = resolveInstanceRefFamily(
+  kitchenForcedRepeatable,
+  "section_1783023224044/Kitchen Overview 1",
+  { section_1783023224044: 1 },
+);
+assert.equal(kitchenFamily?.primary, "section_1783023224044/Kitchen 1");
+assert.ok(kitchenFamily?.allRefs.includes("section_1783023224044/Kitchen Overview 1"));
+assert.equal(
+  resolveInstanceRefFamily(
+    kitchenForcedRepeatable,
+    "section_1783023224044/Kitchen 1",
+    { section_1783023224044: 1 },
+  )?.primary,
+  "section_1783023224044/Kitchen 1",
+);
+
+// Forced-repeatable Kitchen labels must be human names, not raw section paths
+assert.equal(
+  resolveSectionInstanceLabel(
+    kitchenForcedRepeatable,
+    "section_1783023224044/Kitchen Overview 1",
+    { section_1783023224044: 1 },
+  ),
+  "Kitchen 1",
+);
+assert.equal(
+  resolveSectionInstanceLabel(
+    kitchenForcedRepeatable,
+    "section_1783023224044/Kitchen 1",
+    { section_1783023224044: 1 },
+  ),
+  "Kitchen 1",
+);
+assert.equal(
+  resolveGalleryAssignmentLabel(
+    kitchenForcedRepeatable,
+    "section_1783023224044/Kitchen Overview 1",
+    "field_alarms_photos",
+    { section_1783023224044: 1 },
+  ),
+  "Kitchen 1 → Alarms photos",
+);
+assert.equal(
+  resolveGalleryAssignmentLabel(
+    kitchenForcedRepeatable,
+    "section_1783023224044/Kitchen Overview 1",
+    SECTION_GALLERY_FIELD_KEY,
+    { section_1783023224044: 1 },
+  ),
+  "Kitchen 1",
+);
+
+// With a layout count, destinations expand Kitchen even when template.repeatable is false
+const forcedKitchenDests = listPhotoDestinations(kitchenForcedRepeatable, {
+  section_1783023224044: 1,
+});
+assert.ok(
+  forcedKitchenDests.some(
+    (d) =>
+      d.sectionRef === "section_1783023224044/Kitchen 1" &&
+      d.fieldKey === "field_alarms_photos" &&
+      d.sectionLabel === "Kitchen 1",
+  ),
+  "forced kitchen destinations use human sectionLabel",
+);
+assert.ok(
+  !forcedKitchenDests.some((d) => d.sectionRef === "section_1783023224044"),
+  "forced kitchen should not emit bare section id destination when expanded",
 );
 
 // Count caps property-room destinations to what capture UI shows

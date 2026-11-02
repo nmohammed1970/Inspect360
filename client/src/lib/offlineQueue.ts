@@ -55,6 +55,16 @@ export type QueuedEntry =
       timestamp: number;
       synced: boolean;
       attempts: number;
+    }
+  | {
+      type: "gallery_register";
+      id: string;
+      inspectionId: string;
+      images: Array<{ objectUrl: string }>;
+      assign?: { sectionRef: string; fieldKey: string } | null;
+      timestamp: number;
+      synced: boolean;
+      attempts: number;
     };
 
 const QUEUE_KEY = "inspect360_offline_queue";
@@ -178,6 +188,51 @@ export class OfflineQueue {
     return queuedEntry;
   }
 
+  /** Queue gallery register+assign for retry (online failure or after offline upload). */
+  enqueueGalleryRegister(entry: {
+    inspectionId: string;
+    images: Array<{ objectUrl: string }>;
+    assign?: { sectionRef: string; fieldKey: string } | null;
+  }) {
+    const objectUrls = entry.images
+      .map((i) => String(i.objectUrl || "").trim())
+      .filter(Boolean)
+      .sort()
+      .join(",");
+    const assignKey = entry.assign
+      ? `${entry.assign.sectionRef}::${entry.assign.fieldKey}`
+      : "";
+    // Dedupe pending identical register jobs
+    const existing = this.queue.find(
+      (q) =>
+        q.type === "gallery_register" &&
+        !q.synced &&
+        q.inspectionId === entry.inspectionId &&
+        q.images
+          .map((i) => i.objectUrl)
+          .sort()
+          .join(",") === objectUrls &&
+        (q.assign
+          ? `${q.assign.sectionRef}::${q.assign.fieldKey}`
+          : "") === assignKey,
+    );
+    if (existing) return existing;
+
+    const queuedEntry: QueuedEntry = {
+      type: "gallery_register",
+      id: nanoid(),
+      inspectionId: entry.inspectionId,
+      images: entry.images,
+      assign: entry.assign || null,
+      timestamp: Date.now(),
+      synced: false,
+      attempts: 0,
+    };
+    this.queue.push(queuedEntry);
+    this.saveQueue();
+    return queuedEntry;
+  }
+
   // Legacy method for backward compatibility
   enqueue(entry: Omit<Extract<QueuedEntry, { type: "inspection_entry" }>, "id" | "offlineId" | "timestamp" | "synced" | "attempts" | "type">) {
     return this.enqueueInspectionEntry(entry);
@@ -191,7 +246,9 @@ export class OfflineQueue {
     return this.queue.filter((e) => !e.synced).length;
   }
 
-  getPendingCountByType(type: "inspection_entry" | "asset" | "asset_update" | "maintenance" | "note_update"): number {
+  getPendingCountByType(
+    type: "inspection_entry" | "asset" | "asset_update" | "maintenance" | "note_update" | "gallery_register",
+  ): number {
     return this.queue.filter((e) => e.type === type && !e.synced).length;
   }
 
@@ -222,10 +279,28 @@ export class OfflineQueue {
   async syncAll(apiRequest: (method: string, url: string, body?: any) => Promise<any>): Promise<{
     success: number;
     failed: number;
-    details: { inspectionEntries: number; assets: number; assetUpdates: number; maintenance: number; noteUpdates: number };
+    details: {
+      inspectionEntries: number;
+      assets: number;
+      assetUpdates: number;
+      maintenance: number;
+      noteUpdates: number;
+      galleryRegisters: number;
+    };
   }> {
     if (this.isSyncing) {
-      return { success: 0, failed: 0, details: { inspectionEntries: 0, assets: 0, assetUpdates: 0, maintenance: 0, noteUpdates: 0 } };
+      return {
+        success: 0,
+        failed: 0,
+        details: {
+          inspectionEntries: 0,
+          assets: 0,
+          assetUpdates: 0,
+          maintenance: 0,
+          noteUpdates: 0,
+          galleryRegisters: 0,
+        },
+      };
     }
 
     this.isSyncing = true;
@@ -233,7 +308,14 @@ export class OfflineQueue {
 
     let successCount = 0;
     let failedCount = 0;
-    const details = { inspectionEntries: 0, assets: 0, assetUpdates: 0, maintenance: 0, noteUpdates: 0 };
+    const details = {
+      inspectionEntries: 0,
+      assets: 0,
+      assetUpdates: 0,
+      maintenance: 0,
+      noteUpdates: 0,
+      galleryRegisters: 0,
+    };
 
     for (const entry of pending) {
       try {
@@ -305,7 +387,66 @@ export class OfflineQueue {
             photos: photos,
             offlineId: entry.offlineId,
           });
+
+          // Mirror mobile: after offline photos land on /objects/…, register+assign
+          // into the gallery so recovery does not depend solely on listGallery backfill.
+          const galleryUrls = photos
+            .map((u) => {
+              if (!u || typeof u !== "string") return null;
+              if (u.startsWith("/objects/")) return u.split("?")[0];
+              if (u.includes("/objects/")) {
+                try {
+                  if (u.startsWith("http://") || u.startsWith("https://")) {
+                    return new URL(u).pathname.split("?")[0];
+                  }
+                } catch {
+                  /* fall through */
+                }
+                return `/objects/${u.split("/objects/")[1]?.split("?")[0] || ""}`;
+              }
+              return null;
+            })
+            .filter((u): u is string => !!u && u.startsWith("/objects/"));
+          if (galleryUrls.length && entry.sectionRef && entry.fieldKey) {
+            try {
+              await apiRequest(
+                "POST",
+                `/api/inspections/${entry.inspectionId}/gallery/register`,
+                {
+                  images: galleryUrls.map((objectUrl) => ({ objectUrl })),
+                  assign: {
+                    sectionRef: entry.sectionRef,
+                    fieldKey: entry.fieldKey,
+                  },
+                },
+              );
+            } catch (galleryErr) {
+              console.warn(
+                "[OfflineQueue] Gallery register/assign after entry sync failed, queueing:",
+                galleryErr,
+              );
+              this.enqueueGalleryRegister({
+                inspectionId: entry.inspectionId,
+                images: galleryUrls.map((objectUrl) => ({ objectUrl })),
+                assign: {
+                  sectionRef: entry.sectionRef,
+                  fieldKey: entry.fieldKey,
+                },
+              });
+            }
+          }
+
           details.inspectionEntries++;
+        } else if (entry.type === "gallery_register") {
+          await apiRequest(
+            "POST",
+            `/api/inspections/${entry.inspectionId}/gallery/register`,
+            {
+              images: entry.images,
+              assign: entry.assign || null,
+            },
+          );
+          details.galleryRegisters++;
         } else if (entry.type === "asset") {
           await apiRequest("POST", "/api/asset-inventory/quick", {
             ...entry.payload,

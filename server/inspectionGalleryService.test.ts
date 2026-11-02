@@ -99,6 +99,14 @@ assert.equal(
   null,
 );
 
+// Register+assign must fail closed when destination is invalid (never store Unassigned
+// while the caller asked to attach to a field). Shared validation is the gate.
+assert.equal(
+  assertDestinationValid(snapshot, "section_a", "not_a_real_field", {}),
+  null,
+  "invalid fieldKey rejected so register+assign can throw instead of soft-unassign",
+);
+
 // Exclusive reassignment model: one active assignment per image (client/server clear priors).
 // Scope match uses aliases so UUID room paths and Title N stay in sync.
 assert.equal(
