@@ -63,8 +63,11 @@ assert.deepEqual(
     includeTenancies: false,
     includeCompliance: false,
     includeMaintenance: true,
+    includeHmoCompliance: false,
   },
 );
+assert.equal(isCompanyModuleEnabled({}, "hmo_compliance"), false);
+assert.equal(isCompanyModuleEnabled({ hmoComplianceEnabled: true }, "hmo_compliance"), true);
 
 assert.deepEqual(
   normalizeCompanyModuleFlags({ tenanciesEnabled: false, rentalsEnabled: true }),

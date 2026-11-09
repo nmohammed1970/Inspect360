@@ -38,5 +38,6 @@ export function useCompanyModules() {
     tenanciesEnabled: isEnabled('tenancies'),
     complianceEnabled: isEnabled('compliance'),
     maintenanceEnabled: isEnabled('maintenance'),
+    hmoComplianceEnabled: isEnabled('hmo_compliance'),
   };
 }

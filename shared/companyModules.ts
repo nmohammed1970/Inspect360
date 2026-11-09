@@ -8,10 +8,17 @@
  *   auto-link; inspections continue. Maintenance is a separate toggle.
  * - Maintenance OFF → hide requests, work orders, inspection Log Maintenance, tenant
  *   maintenance; inspections/compliance continue.
+ * - HMO Compliance OFF → hide HMO Intelligence nav/tabs/APIs; generic compliance docs continue.
  * Disabling never deletes rows; re-enable restores access to existing data.
  */
 
-export const COMPANY_MODULE_KEYS = ["rentals", "tenancies", "compliance", "maintenance"] as const;
+export const COMPANY_MODULE_KEYS = [
+  "rentals",
+  "tenancies",
+  "compliance",
+  "maintenance",
+  "hmo_compliance",
+] as const;
 
 export type CompanyModuleKey = (typeof COMPANY_MODULE_KEYS)[number];
 
@@ -20,6 +27,8 @@ export type CompanyModuleFlags = {
   tenanciesEnabled?: boolean | null;
   complianceEnabled?: boolean | null;
   maintenanceEnabled?: boolean | null;
+  /** Opt-in HMO Compliance Intelligence (default OFF). */
+  hmoComplianceEnabled?: boolean | null;
 };
 
 const FLAG_BY_KEY: Record<CompanyModuleKey, keyof CompanyModuleFlags> = {
@@ -27,6 +36,7 @@ const FLAG_BY_KEY: Record<CompanyModuleKey, keyof CompanyModuleFlags> = {
   tenancies: "tenanciesEnabled",
   compliance: "complianceEnabled",
   maintenance: "maintenanceEnabled",
+  hmo_compliance: "hmoComplianceEnabled",
 };
 
 function flagOn(value: boolean | null | undefined): boolean {
@@ -35,7 +45,8 @@ function flagOn(value: boolean | null | undefined): boolean {
 
 /**
  * Whether a company module is enabled for an organization.
- * Missing/null flags default to enabled (backward compatible).
+ * Missing/null flags default to enabled (backward compatible) except
+ * `hmo_compliance`, which is opt-in (must be explicitly true).
  * Rentals requires Tenancies — if Tenancies is OFF, Rentals is OFF.
  */
 export function isCompanyModuleEnabled(
@@ -45,6 +56,9 @@ export function isCompanyModuleEnabled(
   if (!org) return false;
   if (key === "rentals") {
     return flagOn(org.rentalsEnabled) && flagOn(org.tenanciesEnabled);
+  }
+  if (key === "hmo_compliance") {
+    return org.hmoComplianceEnabled === true;
   }
   return flagOn(org[FLAG_BY_KEY[key]]);
 }
@@ -57,17 +71,20 @@ export function normalizeCompanyModuleFlags(input: {
   tenanciesEnabled?: boolean;
   complianceEnabled?: boolean;
   maintenanceEnabled?: boolean;
+  hmoComplianceEnabled?: boolean;
 }): {
   rentalsEnabled?: boolean;
   tenanciesEnabled?: boolean;
   complianceEnabled?: boolean;
   maintenanceEnabled?: boolean;
+  hmoComplianceEnabled?: boolean;
 } {
   const out: {
     rentalsEnabled?: boolean;
     tenanciesEnabled?: boolean;
     complianceEnabled?: boolean;
     maintenanceEnabled?: boolean;
+    hmoComplianceEnabled?: boolean;
   } = {};
 
   if (typeof input.tenanciesEnabled === "boolean") {
@@ -78,6 +95,9 @@ export function normalizeCompanyModuleFlags(input: {
   }
   if (typeof input.maintenanceEnabled === "boolean") {
     out.maintenanceEnabled = input.maintenanceEnabled;
+  }
+  if (typeof input.hmoComplianceEnabled === "boolean") {
+    out.hmoComplianceEnabled = input.hmoComplianceEnabled;
   }
   if (typeof input.rentalsEnabled === "boolean" || typeof input.tenanciesEnabled === "boolean") {
     const tenanciesOn =
@@ -99,6 +119,7 @@ export type ReportModuleSurfaces = {
   includeTenancies: boolean;
   includeCompliance: boolean;
   includeMaintenance: boolean;
+  includeHmoCompliance: boolean;
 };
 
 export function reportModuleSurfaces(
@@ -108,6 +129,7 @@ export function reportModuleSurfaces(
     includeTenancies: isCompanyModuleEnabled(org, "tenancies"),
     includeCompliance: isCompanyModuleEnabled(org, "compliance"),
     includeMaintenance: isCompanyModuleEnabled(org, "maintenance"),
+    includeHmoCompliance: isCompanyModuleEnabled(org, "hmo_compliance"),
   };
 }
 
@@ -134,5 +156,10 @@ export const COMPANY_MODULE_META: Record<
     label: "Maintenance",
     description:
       "Manage maintenance requests, work orders, and logging issues from inspections. Turning this off also hides maintenance in the tenant portal.",
+  },
+  hmo_compliance: {
+    label: "HMO Compliance",
+    description:
+      "HMO Compliance Intelligence: licence upload, extraction, assessments, findings, remediation cases, and portfolio oversight. Opt-in; turning off hides HMO screens without deleting data.",
   },
 };

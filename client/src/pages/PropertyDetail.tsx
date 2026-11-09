@@ -4,6 +4,7 @@ import {
   PropertyExpensesPanel,
   PropertyRentCollectionPanel,
 } from "@/components/PropertyFinancePanels";
+import { HmoPropertyPanel } from "@/components/hmo/HmoPropertyPanel";
 import { useState, useEffect, useMemo } from "react";
 import { useRoute, Link, useSearch } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -53,6 +54,7 @@ import {
   CookingPot,
   Sofa,
   FileText,
+  ShieldAlert,
 } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { PropertyFormDialog } from "@/components/PropertyFormDialog";
@@ -187,7 +189,7 @@ export default function PropertyDetail() {
   const propertyId = params?.id;
   const searchParams = useSearch();
   const urlTab = new URLSearchParams(searchParams).get("tab");
-  const { rentalsEnabled, tenanciesEnabled, complianceEnabled, maintenanceEnabled } = useCompanyModules();
+  const { rentalsEnabled, tenanciesEnabled, complianceEnabled, maintenanceEnabled, hmoComplianceEnabled } = useCompanyModules();
   const propertyTabs = useMemo(() => {
     const tabs = new Set([
       "overview",
@@ -198,13 +200,14 @@ export default function PropertyDetail() {
     if (maintenanceEnabled) tabs.add("maintenance");
     if (tenanciesEnabled) tabs.add("tenants");
     if (complianceEnabled) tabs.add("compliance-schedule");
+    if (hmoComplianceEnabled) tabs.add("hmo");
     if (rentalsEnabled) {
       tabs.add("deposit");
       tabs.add("rent-collection");
       tabs.add("expenses");
     }
     return tabs;
-  }, [rentalsEnabled, tenanciesEnabled, complianceEnabled, maintenanceEnabled]);
+  }, [rentalsEnabled, tenanciesEnabled, complianceEnabled, maintenanceEnabled, hmoComplianceEnabled]);
   const resolvedTab = (() => {
     const requested =
       urlTab === "compliance" ? "compliance-schedule" : urlTab;
@@ -770,6 +773,12 @@ export default function PropertyDetail() {
               <span>Compliance Documents</span>
             </TabsTrigger>
           )}
+          {hmoComplianceEnabled && (
+            <TabsTrigger value="hmo" data-testid="tab-hmo" className="shrink-0 gap-1.5">
+              <ShieldAlert className="h-4 w-4 shrink-0" />
+              <span>HMO</span>
+            </TabsTrigger>
+          )}
           {maintenanceEnabled && (
           <TabsTrigger value="maintenance" data-testid="tab-maintenance" className="shrink-0 gap-1.5">
             <Wrench className="h-4 w-4 shrink-0" />
@@ -1238,6 +1247,12 @@ export default function PropertyDetail() {
             entityId={propertyId}
           />
         </TabsContent>
+
+        {hmoComplianceEnabled && (
+        <TabsContent value="hmo" className="space-y-6" data-testid="tab-content-hmo">
+          {propertyId && <HmoPropertyPanel propertyId={propertyId} />}
+        </TabsContent>
+        )}
 
         {/* Compliance Schedule Tab */}
         <TabsContent value="compliance-schedule" className="space-y-6">

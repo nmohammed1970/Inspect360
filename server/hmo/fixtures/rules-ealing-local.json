@@ -1,0 +1,13 @@
+{
+  "ruleCode": "EALING-HMO-LOCAL-ROOM",
+  "jurisdiction": "England",
+  "authorityId": "ealing",
+  "classification": "local_standard",
+  "status": "APPROVED",
+  "requirements": {
+    "onePersonAged10OrAboveM2": 6.51,
+    "localNotes": "London Borough of Ealing HMO licensing standards — apply as local overlay where stricter than national baseline",
+    "consultationOnly": false,
+    "citation": "Ealing HMO licensing standards"
+  }
+}

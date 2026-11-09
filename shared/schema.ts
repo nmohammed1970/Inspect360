@@ -239,6 +239,8 @@ export const organizations = pgTable("organizations", {
   tenanciesEnabled: boolean("tenancies_enabled").notNull().default(true),
   complianceEnabled: boolean("compliance_enabled").notNull().default(true),
   maintenanceEnabled: boolean("maintenance_enabled").notNull().default(true),
+  /** HMO Compliance Intelligence — opt-in (default OFF). */
+  hmoComplianceEnabled: boolean("hmo_compliance_enabled").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -3723,3 +3725,7 @@ export type Invoice = typeof invoices.$inferSelect;
 export type InsertInvoice = typeof invoices.$inferInsert;
 export type CreditNote = typeof creditNotes.$inferSelect;
 export type InsertCreditNote = typeof creditNotes.$inferInsert;
+
+/** HMO Compliance Intelligence tables + types */
+export * from "./hmoSchema";
+

@@ -43,7 +43,7 @@ export function AppSidebar() {
   const { user } = useAuth();
   const [location] = useLocation();
   const { isMobile, setOpenMobile } = useSidebar();
-  const { complianceEnabled, maintenanceEnabled } = useCompanyModules();
+  const { complianceEnabled, maintenanceEnabled, hmoComplianceEnabled } = useCompanyModules();
 
   const { data: organization } = useQuery<Organization>({
     queryKey: ["/api/organizations", user?.organizationId],
@@ -110,6 +110,12 @@ export function AppSidebar() {
       roles: ["owner", "compliance"],
     },
     {
+      title: "HMO Compliance",
+      url: "/hmo",
+      icon: Shield,
+      roles: ["owner", "compliance", "clerk"],
+    },
+    {
       title: "Maintenance",
       url: "/maintenance",
       icon: Wrench,
@@ -156,6 +162,7 @@ export function AppSidebar() {
   const filteredMainMenu = mainMenuItems.filter((item) => {
     if (!item.roles.includes(user?.role || "")) return false;
     if (item.url === "/compliance" && !complianceEnabled) return false;
+    if (item.url === "/hmo" && !hmoComplianceEnabled) return false;
     if (
       !maintenanceEnabled &&
       (item.url === "/maintenance" ||

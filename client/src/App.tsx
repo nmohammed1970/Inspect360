@@ -72,6 +72,9 @@ import CommunityModeration from "@/pages/CommunityModeration";
 import MyFeedback from "@/pages/MyFeedback";
 import BulkImport from "@/pages/BulkImport";
 import DisputeResolution from "@/pages/DisputeResolution";
+import HmoDashboard from "@/pages/HmoDashboard";
+import HmoCaseDetail from "@/pages/HmoCaseDetail";
+import HmoEvidencePublic from "@/pages/HmoEvidencePublic";
 import { Loader2 } from "lucide-react";
 import { PWAInstallPrompt } from "@/components/PWAInstallPrompt";
 import { UserProfileMenu } from "@/components/UserProfileMenu";
@@ -129,6 +132,7 @@ function AppContent() {
     "/admin/quotations",
     "/admin/credit-requests",
     "/tenant/login",
+    "/hmo/evidence",
   ];
 
   // Check if current route is a protected route
@@ -418,6 +422,7 @@ function AppContent() {
             )}
           </Route>
           <Route path="/tenant/login" component={TenantLogin} />
+          <Route path="/hmo/evidence/:token" component={HmoEvidencePublic} />
           <Route component={NotFound} />
         </Switch>
         <PWAInstallPrompt />
@@ -600,6 +605,21 @@ function AppContent() {
                   {() => (
                     <CompanyModuleRoute module="compliance">
                       <Compliance />
+                    </CompanyModuleRoute>
+                  )}
+                </Route>
+                <Route path="/hmo/evidence/:token" component={HmoEvidencePublic} />
+                <Route path="/hmo/cases/:id">
+                  {() => (
+                    <CompanyModuleRoute module="hmo_compliance">
+                      <HmoCaseDetail />
+                    </CompanyModuleRoute>
+                  )}
+                </Route>
+                <Route path="/hmo">
+                  {() => (
+                    <CompanyModuleRoute module="hmo_compliance">
+                      <HmoDashboard />
                     </CompanyModuleRoute>
                   )}
                 </Route>

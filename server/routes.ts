@@ -2127,13 +2127,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Access denied" });
       }
 
-      const { rentalsEnabled, tenanciesEnabled, complianceEnabled, maintenanceEnabled } = req.body;
+      const {
+        rentalsEnabled,
+        tenanciesEnabled,
+        complianceEnabled,
+        maintenanceEnabled,
+        hmoComplianceEnabled,
+      } = req.body;
       // Tenancies OFF forces Rentals OFF (rent is tied to tenant assignments).
       const normalized = normalizeCompanyModuleFlags({
         rentalsEnabled: typeof rentalsEnabled === "boolean" ? rentalsEnabled : undefined,
         tenanciesEnabled: typeof tenanciesEnabled === "boolean" ? tenanciesEnabled : undefined,
         complianceEnabled: typeof complianceEnabled === "boolean" ? complianceEnabled : undefined,
         maintenanceEnabled: typeof maintenanceEnabled === "boolean" ? maintenanceEnabled : undefined,
+        hmoComplianceEnabled:
+          typeof hmoComplianceEnabled === "boolean" ? hmoComplianceEnabled : undefined,
       });
 
       const organization = await storage.updateOrganization(organizationId, normalized);
@@ -21054,6 +21062,8 @@ ${optionalNotes || "No details provided."}`;
   registerCreditRequestRoutes(app, isAuthenticated, isAdminAuthenticated);
   const { registerReapitRoutes } = await import("./reapitRoutes");
   registerReapitRoutes(app, isAuthenticated);
+  const { registerHmoRoutes } = await import("./hmo/routes");
+  registerHmoRoutes(app);
 
   // Admin Login
   app.post("/api/admin/login", async (req, res) => {

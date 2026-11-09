@@ -64,7 +64,12 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
 // Use JSON parser for all routes except Stripe webhook which needs raw body
 // Increase limit for transcribe-base64 (base64 audio can be ~35MB for 25MB audio)
+// Skip JSON/urlencoded parsers for multipart so multer can read the stream (HMO evidence uploads, etc.)
 app.use((req, res, next) => {
+  const contentType = String(req.headers["content-type"] || "");
+  if (contentType.includes("multipart/form-data")) {
+    return next();
+  }
   if (req.originalUrl === '/api/webhooks/stripe' || req.originalUrl === '/api/webhooks/reapit') {
     next();
   } else if (req.path === '/api/audio/transcribe-base64' || req.path === '/api/objects/upload-audio-base64') {
@@ -73,7 +78,13 @@ app.use((req, res, next) => {
     express.json()(req, res, next);
   }
 });
-app.use(express.urlencoded({ extended: false }));
+app.use((req, res, next) => {
+  const contentType = String(req.headers["content-type"] || "");
+  if (contentType.includes("multipart/form-data")) {
+    return next();
+  }
+  return express.urlencoded({ extended: false })(req, res, next);
+});
 
 const SENSITIVE_LOG_KEYS = new Set([
   "apikey",

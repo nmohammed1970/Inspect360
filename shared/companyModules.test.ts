@@ -67,6 +67,31 @@ assert.equal(
   "maintenance is independent of tenancies",
 );
 
+assert.equal(
+  isCompanyModuleEnabled({}, "hmo_compliance"),
+  false,
+  "hmo_compliance missing flag defaults OFF (opt-in)",
+);
+assert.equal(
+  isCompanyModuleEnabled({ hmoComplianceEnabled: null }, "hmo_compliance"),
+  false,
+  "hmo_compliance null defaults OFF",
+);
+assert.equal(
+  isCompanyModuleEnabled({ hmoComplianceEnabled: false }, "hmo_compliance"),
+  false,
+);
+assert.equal(
+  isCompanyModuleEnabled({ hmoComplianceEnabled: true }, "hmo_compliance"),
+  true,
+  "hmo_compliance true is ON",
+);
+assert.equal(
+  isCompanyModuleEnabled({ hmoComplianceEnabled: true, complianceEnabled: false }, "hmo_compliance"),
+  true,
+  "hmo_compliance is independent of generic compliance module",
+);
+
 assert.deepEqual(
   normalizeCompanyModuleFlags({ tenanciesEnabled: false, rentalsEnabled: true }),
   { tenanciesEnabled: false, rentalsEnabled: false },
@@ -79,6 +104,10 @@ assert.deepEqual(
 assert.deepEqual(
   normalizeCompanyModuleFlags({ maintenanceEnabled: false }),
   { maintenanceEnabled: false },
+);
+assert.deepEqual(
+  normalizeCompanyModuleFlags({ hmoComplianceEnabled: true }),
+  { hmoComplianceEnabled: true },
 );
 
 console.log("companyModules.test.ts: ok");

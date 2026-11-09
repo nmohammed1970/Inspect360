@@ -22,6 +22,7 @@ export function CompanyModulesSettings({ className }: CompanyModulesSettingsProp
   const [tenanciesEnabled, setTenanciesEnabled] = useState(true);
   const [complianceEnabled, setComplianceEnabled] = useState(true);
   const [maintenanceEnabled, setMaintenanceEnabled] = useState(true);
+  const [hmoComplianceEnabled, setHmoComplianceEnabled] = useState(false);
 
   const { data: user } = useQuery<User>({
     queryKey: ["/api/auth/user"],
@@ -38,6 +39,7 @@ export function CompanyModulesSettings({ className }: CompanyModulesSettingsProp
       setTenanciesEnabled(organization.tenanciesEnabled ?? true);
       setComplianceEnabled(organization.complianceEnabled ?? true);
       setMaintenanceEnabled(organization.maintenanceEnabled ?? true);
+      setHmoComplianceEnabled(organization.hmoComplianceEnabled === true);
     }
   }, [organization]);
 
@@ -52,6 +54,7 @@ export function CompanyModulesSettings({ className }: CompanyModulesSettingsProp
           tenanciesEnabled,
           complianceEnabled,
           maintenanceEnabled,
+          hmoComplianceEnabled,
         },
       );
       return response.json();
@@ -131,6 +134,17 @@ export function CompanyModulesSettings({ className }: CompanyModulesSettingsProp
             checked={maintenanceEnabled}
             onCheckedChange={setMaintenanceEnabled}
             data-testid="toggle-module-maintenance"
+          />
+        </div>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border rounded-lg min-w-0">
+          <div className="flex-1 min-w-0">
+            <Label className="text-base font-medium">{COMPANY_MODULE_META.hmo_compliance.label}</Label>
+            <p className="text-sm text-muted-foreground mt-1">{COMPANY_MODULE_META.hmo_compliance.description}</p>
+          </div>
+          <Switch
+            checked={hmoComplianceEnabled}
+            onCheckedChange={setHmoComplianceEnabled}
+            data-testid="toggle-module-hmo-compliance"
           />
         </div>
       </div>
