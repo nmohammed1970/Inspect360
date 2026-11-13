@@ -893,7 +893,10 @@ export default function Billing() {
                         {(plan.smsPerYear || 0) > 0 && (
                           <li className="flex gap-2">
                             <Check className="h-4 w-4 text-primary shrink-0 mt-0.5" />
-                            {plan.smsPerYear} SMS credits / year
+                            {billingCycle === "yearly"
+                              ? plan.smsPerYear
+                              : Math.max(1, Math.floor((plan.smsPerYear || 0) / 12))}{" "}
+                            SMS credits / {billingCycle === "yearly" ? "year" : "month"}
                           </li>
                         )}
                       </ul>

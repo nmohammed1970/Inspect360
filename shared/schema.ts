@@ -120,12 +120,13 @@ export const registerUserSchema = insertUserSchema.pick({
   role: true,
 }).extend({
   /** Company / organization display name → organizations.name (duplicates allowed). */
-  companyName: z.string().min(1, "Company name is required").max(160),
+  companyName: z.string().trim().min(1, "Company name is required").max(160),
   /** Optional; ignored on register — server derives username from email + companyName. */
   username: z.string().optional(),
-  firstName: z.string().optional(),
-  lastName: z.string().optional(),
-  countryCode: z.string().length(2).optional(), // ISO 3166-1 alpha-2
+  firstName: z.string().trim().min(1, "First name is required").max(100),
+  lastName: z.string().trim().min(1, "Last name is required").max(100),
+  email: z.string().trim().email("Enter a valid email address"),
+  countryCode: z.string().trim().length(2, "Country is required"), // ISO 3166-1 alpha-2
   password: z.string().min(MIN_PASSWORD_LENGTH, `Password must be at least ${MIN_PASSWORD_LENGTH} characters`),
 });
 
