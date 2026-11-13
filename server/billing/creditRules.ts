@@ -1,4 +1,7 @@
+import { eq, sql } from "drizzle-orm";
+import { creditBatches, creditLedger } from "@shared/schema";
 import { storage } from "../storage";
+import { db } from "../db";
 import { SubscriptionService } from "../subscriptionService";
 import { billingNowUtc } from "@shared/billingClock";
 import * as catalog from "./catalogService";
@@ -100,6 +103,84 @@ export async function grantPlanIncludedCredits(input: {
     });
   }
   return { inspection: inspQty, sms: smsQty, skipped: false };
+}
+
+/**
+ * Zero out remaining credits from trial-bonus batches (metadata.trial === true).
+ * Also clears mistaken plan-SMS backfills (grantKey backfill-sms:*) that were issued
+ * during trial before that path was restricted to paid/active only.
+ * Called when the subscription leaves trial and plan credits are granted.
+ */
+export async function expireTrialCredits(organizationId: string): Promise<number> {
+  const batches = await storage.getCreditBatchesByOrganization(organizationId);
+  let expired = 0;
+  for (const b of batches) {
+    const meta = (b.metadataJson || {}) as Record<string, unknown>;
+    const grantKey = typeof meta.grantKey === "string" ? meta.grantKey : "";
+    const isTrialBonus = meta.trial === true;
+    const isMistakenTrialSmsBackfill =
+      batchKind(b) === "sms" && grantKey.startsWith("backfill-sms:");
+    if (!isTrialBonus && !isMistakenTrialSmsBackfill) continue;
+    if ((b.remainingQuantity || 0) <= 0) continue;
+    await storage.expireCreditBatch(b.id);
+    expired += 1;
+  }
+  return expired;
+}
+
+/** Stable grant key for a paid subscription period (shared by invoice.paid + subscription.updated). */
+export function planPeriodGrantKey(stripeSubscriptionId: string, periodStart: Date): string {
+  const ts = Math.floor(new Date(periodStart).getTime() / 1000);
+  return `plan_period:${stripeSubscriptionId}:${ts}`;
+}
+
+export function planSmsBackfillGrantKey(stripeSubscriptionId: string): string {
+  return `backfill-sms:${stripeSubscriptionId}`;
+}
+
+/** True if this org already received non-trial plan SMS for the Stripe subscription. */
+export async function hasPlanSmsGrantForSubscription(
+  organizationId: string,
+  stripeSubscriptionId: string,
+): Promise<boolean> {
+  const batches = await storage.getCreditBatchesByOrganization(organizationId);
+  const backfillKey = planSmsBackfillGrantKey(stripeSubscriptionId);
+  const periodPrefix = `plan_period:${stripeSubscriptionId}:`;
+  return batches.some((b: any) => {
+    if (batchKind(b) !== "sms") return false;
+    const meta = (b.metadataJson || b.metadata || {}) as Record<string, unknown>;
+    if (meta.trial === true) return false;
+    const grantKey = typeof meta.grantKey === "string" ? meta.grantKey : "";
+    if (grantKey === backfillKey) return true;
+    if (grantKey.startsWith(periodPrefix)) return true;
+    if (meta.planInclusion === true && meta.trial !== true) return true;
+    return false;
+  });
+}
+
+/**
+ * While still trialing, expire any plan-SMS backfill batches that should never
+ * have been issued (trial = bonus only). Safe no-op when none exist.
+ */
+export async function expireMistakenTrialPlanSmsBackfill(
+  organizationId: string,
+  stripeSubscriptionId: string | null | undefined,
+): Promise<number> {
+  if (!stripeSubscriptionId) return 0;
+  const batches = await storage.getCreditBatchesByOrganization(organizationId);
+  const backfillKey = planSmsBackfillGrantKey(stripeSubscriptionId);
+  let expired = 0;
+  for (const b of batches) {
+    if (batchKind(b) !== "sms") continue;
+    const meta = (b.metadataJson || {}) as Record<string, unknown>;
+    if (meta.trial === true) continue;
+    const grantKey = typeof meta.grantKey === "string" ? meta.grantKey : "";
+    if (grantKey !== backfillKey) continue;
+    if ((b.remainingQuantity || 0) <= 0) continue;
+    await storage.expireCreditBatch(b.id);
+    expired += 1;
+  }
+  return expired;
 }
 
 export async function grantPdfCredits(input: {
@@ -216,39 +297,80 @@ export async function consumeKindCredits(input: {
     return;
   }
 
-  const batches = await storage.getCreditBatchesByOrganization(input.organizationId);
-  const now = billingNowUtc().getTime();
-  const smsBatches = batches
-    .filter((b) => batchKind(b as any) === "sms")
-    .filter((b) => (b.remainingQuantity || 0) > 0)
-    .filter((b) => !b.expiresAt || new Date(b.expiresAt).getTime() > now)
-    .sort((a, b) => {
-      const ae = a.expiresAt ? new Date(a.expiresAt).getTime() : Number.MAX_SAFE_INTEGER;
-      const be = b.expiresAt ? new Date(b.expiresAt).getTime() : Number.MAX_SAFE_INTEGER;
-      return ae - be;
-    });
+  await db.transaction(async (tx) => {
+    const now = billingNowUtc();
+    const locked = await tx.execute(sql`
+      SELECT id, remaining_quantity, credit_kind, metadata_json, expires_at, granted_at
+      FROM ${creditBatches}
+      WHERE organization_id = ${input.organizationId}
+        AND remaining_quantity > 0
+        AND (expires_at IS NULL OR expires_at >= ${now})
+      FOR UPDATE
+    `);
 
-  let remaining = input.quantity;
-  for (const batch of smsBatches) {
-    if (remaining <= 0) break;
-    const take = Math.min(remaining, batch.remainingQuantity);
-    await storage.updateCreditBatch(batch.id, {
-      remainingQuantity: batch.remainingQuantity - take,
-    });
-    await storage.createCreditLedgerEntry({
-      organizationId: input.organizationId,
-      source: "consumption",
-      quantity: -take,
-      batchId: batch.id,
-      notes: input.notes || `SMS credits consumed`,
-      linkedEntityType: input.linkedEntityType,
-      linkedEntityId: input.linkedEntityId,
-    });
-    remaining -= take;
-  }
-  if (remaining > 0) {
-    throw new Error(`Insufficient SMS credits after lock: short ${remaining}`);
-  }
+    const rows = (locked.rows || []) as Array<{
+      id: string;
+      remaining_quantity: number;
+      credit_kind: string | null;
+      metadata_json: any;
+      expires_at: Date | string | null;
+      granted_at: Date | string;
+    }>;
+
+    const smsBatches = rows
+      .filter((row) =>
+        batchKind({
+          creditKind: row.credit_kind,
+          metadataJson: row.metadata_json,
+        }) === "sms",
+      )
+      .map((row) => ({
+        id: row.id,
+        remainingQuantity: Number(row.remaining_quantity) || 0,
+        expiresAt: row.expires_at,
+        grantedAt: row.granted_at,
+      }))
+      .sort((a, b) => {
+        const ae = a.expiresAt ? new Date(a.expiresAt).getTime() : Number.MAX_SAFE_INTEGER;
+        const be = b.expiresAt ? new Date(b.expiresAt).getTime() : Number.MAX_SAFE_INTEGER;
+        if (ae !== be) return ae - be;
+        return new Date(a.grantedAt).getTime() - new Date(b.grantedAt).getTime();
+      });
+
+    let remaining = input.quantity;
+    let available = 0;
+    for (const batch of smsBatches) available += batch.remainingQuantity;
+    if (available < input.quantity) {
+      throw new Error(
+        `Insufficient sms credits: need ${input.quantity}, have ${available}`,
+      );
+    }
+
+    for (const batch of smsBatches) {
+      if (remaining <= 0) break;
+      const take = Math.min(remaining, batch.remainingQuantity);
+      await tx
+        .update(creditBatches)
+        .set({
+          remainingQuantity: batch.remainingQuantity - take,
+          updatedAt: new Date(),
+        })
+        .where(eq(creditBatches.id, batch.id));
+      await tx.insert(creditLedger).values({
+        organizationId: input.organizationId,
+        source: "consumption" as any,
+        quantity: -take,
+        batchId: batch.id,
+        notes: input.notes || "SMS credits consumed",
+        linkedEntityType: input.linkedEntityType,
+        linkedEntityId: input.linkedEntityId,
+      });
+      remaining -= take;
+    }
+    if (remaining > 0) {
+      throw new Error(`Insufficient SMS credits after lock: short ${remaining}`);
+    }
+  });
 }
 
 export async function refundCredits(input: {

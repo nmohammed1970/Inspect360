@@ -24,7 +24,6 @@ import {
   Users,
   Receipt,
   Zap,
-  Sparkles,
   CreditCard,
   MessageSquare,
   Check,
@@ -339,22 +338,41 @@ export default function Billing() {
     }
   }
 
-  async function toggleHmo(enabled: boolean) {
-    setAddonBusy("hmo");
-    try {
-      await apiRequest("POST", "/api/billing/v2/addons/hmo", { enabled });
-      toast({ title: enabled ? "HMO add-on enabled" : "HMO add-on disabled" });
-      refetchV2();
-    } catch (e: any) {
-      toast({ title: "Failed", description: e.message, variant: "destructive" });
-    } finally {
-      setAddonBusy(null);
-    }
-  }
-
   async function startCheckout(planCode: string) {
     setCheckoutBusy(planCode);
     try {
+      // Existing subscribers change in-place (proration). New Checkout would fail / duplicate.
+      const canChangeInPlace =
+        !!v2?.subscription?.stripeSubscriptionId &&
+        !!v2.subscription.planCode &&
+        v2.subscription.planCode !== "pending" &&
+        (v2.subscription.status === "active" || v2.subscription.status === "trialing");
+
+      if (canChangeInPlace) {
+        const res = await apiRequest("POST", "/api/billing/v2/change-plan", {
+          planCode,
+          cycle: billingCycle,
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || "Plan change failed");
+        await Promise.all([refetchV2(), refetchBalance()]);
+        if (data.mode === "upgrade_pending_payment") {
+          toast({
+            title: "Upgrade payment processing",
+            description:
+              "Your current plan stays active until the upgrade charge succeeds. If it fails, nothing changes.",
+          });
+        } else if (data.mode === "downgrade_scheduled") {
+          toast({
+            title: "Downgrade scheduled",
+            description: "Your new plan takes effect at the end of the current billing period.",
+          });
+        } else {
+          toast({ title: "Plan updated" });
+        }
+        return;
+      }
+
       const res = await apiRequest("POST", "/api/billing/v2/checkout", {
         planCode,
         cycle: billingCycle,
@@ -366,7 +384,7 @@ export default function Billing() {
       if (data.url) window.location.href = data.url;
     } catch (e: any) {
       toast({
-        title: "Checkout failed",
+        title: "Plan change failed",
         description: e.message || "Try again later",
         variant: "destructive",
       });
@@ -449,6 +467,9 @@ export default function Billing() {
         ? "Yearly"
         : null;
   const currentPlanCode = hasActivePlan ? v2?.subscription?.planCode : null;
+  const pendingPlanCode = (v2?.subscription?.pendingPlanCode as string | undefined) || null;
+  const pendingCycle = (v2?.subscription?.pendingCycle as string | undefined) || null;
+  const hasPendingUpgrade = Boolean(pendingPlanCode);
 
   const moduleRows: ModuleRow[] = useMemo(
     () =>
@@ -552,6 +573,14 @@ export default function Billing() {
                         Payment issue — update your payment method in Manage billing.
                       </p>
                     )}
+                    {hasPendingUpgrade ? (
+                      <p className="text-sm text-amber-700 dark:text-amber-400">
+                        Upgrade to {planLabel(pendingPlanCode)}
+                        {pendingCycle ? ` (${pendingCycle})` : ""} is awaiting payment. Your
+                        current plan stays active until it succeeds; if payment fails, nothing
+                        changes.
+                      </p>
+                    ) : null}
                   </>
                 ) : checkoutIncomplete ? (
                   <>
@@ -788,7 +817,17 @@ export default function Billing() {
                 const isCurrent =
                   currentPlanCode === plan.code &&
                   (v2?.subscription?.status === "active" ||
-                    v2?.subscription?.status === "trialing");
+                    v2?.subscription?.status === "trialing") &&
+                  (v2?.subscription?.cycle || billingCycle) === billingCycle;
+                const isPendingTarget = pendingPlanCode === plan.code;
+                const planCta = (() => {
+                  if (isCurrent) return "Current plan";
+                  if (isPendingTarget || hasPendingUpgrade) {
+                    return isPendingTarget ? "Payment pending" : "Upgrade pending";
+                  }
+                  if (hasActivePlan) return "Switch plan";
+                  return "Start trial";
+                })();
                 return (
                   <Card
                     key={plan.code}
@@ -796,6 +835,7 @@ export default function Billing() {
                       "flex flex-col",
                       plan.popular && "border-primary border-2",
                       isCurrent && "ring-2 ring-primary/40",
+                      isPendingTarget && "ring-2 ring-amber-500/40",
                     )}
                   >
                     <CardHeader className="pb-3">
@@ -803,6 +843,11 @@ export default function Billing() {
                         <CardTitle className="text-xl">{plan.name}</CardTitle>
                         <div className="flex flex-wrap gap-1 justify-end">
                           {isCurrent ? <Badge variant="secondary">Current</Badge> : null}
+                          {isPendingTarget ? (
+                            <Badge variant="outline" className="border-amber-500/40 text-amber-800 dark:text-amber-400">
+                              Pending
+                            </Badge>
+                          ) : null}
                           {plan.popular ? <Badge>Most popular</Badge> : null}
                         </div>
                       </div>
@@ -865,16 +910,18 @@ export default function Billing() {
                       ) : (
                         <Button
                           className="w-full"
-                          variant={isCurrent ? "outline" : "default"}
-                          disabled={checkoutBusy === plan.code || isCurrent}
+                          variant={isCurrent || isPendingTarget ? "outline" : "default"}
+                          disabled={
+                            checkoutBusy === plan.code ||
+                            isCurrent ||
+                            hasPendingUpgrade
+                          }
                           onClick={() => startCheckout(plan.code)}
                         >
                           {checkoutBusy === plan.code ? (
                             <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : isCurrent ? (
-                            "Current plan"
                           ) : (
-                            "Start trial"
+                            planCta
                           )}
                         </Button>
                       )}
@@ -971,30 +1018,34 @@ export default function Billing() {
           )}
         </section>
 
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div
+          className={cn(
+            "grid gap-6",
+            limits?.plan?.allowsPropertyPacks ? "lg:grid-cols-2" : "lg:grid-cols-1",
+          )}
+        >
           {/* Auto top-up — inspection only */}
           <Card className="shadow-none">
-            <CardHeader className="space-y-1">
-              <div className="flex items-center gap-2">
-                <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
-                  <Zap className="h-4 w-4 text-primary" />
-                </span>
-                <CardTitle className="text-lg">Auto top-up</CardTitle>
-              </div>
-              <CardDescription>
-                Automatically buy <span className="font-medium text-foreground">inspection</span>{" "}
-                credits when balance falls to 5 or below (max 3/month). SMS packs are buy-as-needed
-                above.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex items-center justify-between rounded-lg border bg-muted/30 px-3 py-2">
-                <span className="text-sm font-medium">Status</span>
+            <CardHeader className="space-y-2 pb-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="flex items-start gap-3 min-w-0">
+                  <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                    <Zap className="h-4 w-4 text-primary" />
+                  </span>
+                  <div className="min-w-0 space-y-1">
+                    <CardTitle className="text-lg">Auto top-up</CardTitle>
+                    <CardDescription className="text-sm leading-relaxed max-w-xl">
+                      When inspection credits fall to 5 or below, buy the pack you select
+                      automatically. Limited to 3 purchases per month. SMS packs stay manual.
+                    </CardDescription>
+                  </div>
+                </div>
                 <Badge
                   variant="outline"
                   className={cn(
+                    "shrink-0",
                     v2?.settings?.autoTopupEnabled
-                      ? "bg-emerald-500/15 text-emerald-700 border-emerald-500/25"
+                      ? "bg-emerald-500/15 text-emerald-700 border-emerald-500/25 dark:text-emerald-400"
                       : "text-muted-foreground",
                   )}
                 >
@@ -1003,123 +1054,115 @@ export default function Billing() {
                     : "Off"}
                 </Badge>
               </div>
-
-              <div className="space-y-2">
-                {autoTopupPacks.map((p) => {
-                  const selected =
-                    !!v2?.settings?.autoTopupEnabled &&
-                    v2?.settings?.autoTopupPackCode === p.code;
-                  return (
-                    <button
-                      key={p.code}
-                      type="button"
-                      disabled={autoBusy}
-                      onClick={() => saveAutoTopup(true, p.code)}
-                      className={cn(
-                        "w-full text-left rounded-lg border px-3 py-3 transition-colors",
-                        "hover:border-primary/40 hover:bg-muted/40 disabled:opacity-60",
-                        selected && "border-primary bg-primary/5 ring-1 ring-primary/30",
-                      )}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="font-medium text-sm">{p.name}</p>
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            {p.quantity} inspection credits
-                          </p>
-                        </div>
-                        <div className="text-right shrink-0">
-                          <p className="text-sm font-semibold tabular-nums">
-                            {formatGbp(p.amountMinor)}
-                          </p>
-                          {selected ? (
-                            <p className="text-[11px] text-primary font-medium mt-0.5">Selected</p>
-                          ) : null}
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-2">
+                  Choose a pack
+                </p>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {autoTopupPacks.map((p) => {
+                    const selected =
+                      !!v2?.settings?.autoTopupEnabled &&
+                      v2?.settings?.autoTopupPackCode === p.code;
+                    return (
+                      <button
+                        key={p.code}
+                        type="button"
+                        disabled={autoBusy}
+                        onClick={() => saveAutoTopup(true, p.code)}
+                        className={cn(
+                          "relative text-left rounded-xl border px-4 py-3.5 transition-colors",
+                          "hover:border-primary/40 hover:bg-muted/30 disabled:opacity-60",
+                          selected
+                            ? "border-primary bg-primary/5 ring-1 ring-primary/25"
+                            : "border-border bg-background",
+                        )}
+                      >
+                        {selected ? (
+                          <span className="absolute top-2.5 right-2.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                            <Check className="h-3 w-3" />
+                          </span>
+                        ) : null}
+                        <p className="font-medium text-sm pr-6 leading-snug">{p.name}</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {p.quantity} inspection credits
+                        </p>
+                        <p className="text-base font-semibold tabular-nums mt-3">
+                          {formatGbp(p.amountMinor)}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+                {autoTopupPacks.length === 0 ? (
+                  <p className="text-sm text-muted-foreground rounded-lg border border-dashed px-4 py-6 text-center">
+                    No inspection top-up packs available yet.
+                  </p>
+                ) : null}
               </div>
 
-              <Button
-                variant="ghost"
-                size="sm"
-                className="w-full"
-                disabled={autoBusy || !v2?.settings?.autoTopupEnabled}
-                onClick={() => saveAutoTopup(false, null)}
-              >
-                Turn off auto top-up
-              </Button>
+              {v2?.settings?.autoTopupEnabled ? (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/20 px-3 py-2.5">
+                  <p className="text-sm text-muted-foreground">
+                    Auto top-up is active for the selected pack.
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={autoBusy}
+                    onClick={() => saveAutoTopup(false, null)}
+                  >
+                    {autoBusy ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                    Turn off
+                  </Button>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Select a pack above to turn auto top-up on.
+                </p>
+              )}
             </CardContent>
           </Card>
 
-          {/* Add-ons */}
-          <Card className="shadow-none">
-            <CardHeader className="space-y-1">
-              <div className="flex items-center gap-2">
-                <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
-                  <Sparkles className="h-4 w-4 text-primary" />
-                </span>
-                <CardTitle className="text-lg">Add-ons</CardTitle>
-              </div>
-              <CardDescription>
-                Optional extras billed through your Stripe subscription.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="rounded-lg border px-3 py-3 space-y-3">
-                <div className="flex items-start justify-between gap-3">
+          {/* Property packs only — HMO is a company module, not a billing add-on */}
+          {limits?.plan?.allowsPropertyPacks ? (
+            <Card className="shadow-none">
+              <CardHeader className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
+                    <Building2 className="h-4 w-4 text-primary" />
+                  </span>
+                  <CardTitle className="text-lg">Property packs</CardTitle>
+                </div>
+                <CardDescription>
+                  Add +10 properties (and included inspections) to your subscription.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-start justify-between gap-3 rounded-xl border px-4 py-3.5">
                   <div>
-                    <p className="font-medium text-sm">HMO Compliance</p>
+                    <p className="font-medium text-sm">+10 properties</p>
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      {v2?.subscription?.hmoAddon ? "Enabled on this subscription" : "Not enabled"}
+                      Billed through your Stripe subscription
                     </p>
                   </div>
                   <Button
                     size="sm"
-                    variant={v2?.subscription?.hmoAddon ? "outline" : "default"}
-                    disabled={addonBusy === "hmo"}
-                    onClick={() => toggleHmo(!v2?.subscription?.hmoAddon)}
+                    variant="outline"
+                    disabled={addonBusy === "packs"}
+                    onClick={() => buyPacks(1)}
                   >
-                    {addonBusy === "hmo" ? (
+                    {addonBusy === "packs" ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : v2?.subscription?.hmoAddon ? (
-                      "Disable"
                     ) : (
-                      "Enable"
+                      "Add pack"
                     )}
                   </Button>
                 </div>
-
-                {limits?.plan?.allowsPropertyPacks ? (
-                  <>
-                    <Separator />
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="font-medium text-sm">+10 properties</p>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          Adds property capacity and included inspections
-                        </p>
-                      </div>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={addonBusy === "packs"}
-                        onClick={() => buyPacks(1)}
-                      >
-                        {addonBusy === "packs" ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          "Add pack"
-                        )}
-                      </Button>
-                    </div>
-                  </>
-                ) : null}
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          ) : null}
         </div>
 
         {/* Invoices */}

@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
 import {
+  companyModuleAccessFromPlan,
+  companyModuleLockMessage,
   companyModulesLockedByAiPlan,
   isAiInspectionsPlanCode,
   isCommunityEnabled,
   isCompanyModuleEnabled,
   isPropertyManagementPlanCode,
+  MODULE_ADDON_REQUIRED_MESSAGE,
+  MODULE_NOT_ON_PLAN_MESSAGE,
   normalizeCompanyModuleFlags,
   PROPERTY_BUNDLE_UPGRADE_MESSAGE,
 } from "./companyModules";
@@ -143,8 +147,46 @@ assert.equal(
 assert.equal(
   companyModulesLockedByAiPlan("pm_essentials", "active"),
   false,
-  "PM plan does not lock",
+  "PM plan does not lock every module",
 );
+
+const essentialsAccess = companyModuleAccessFromPlan(
+  {
+    compliance: true,
+    work_orders: false,
+    tenant_portal: true,
+    hmo: "addon",
+  },
+  { hmoAddon: false },
+);
+assert.equal(essentialsAccess?.tenancies.allowed, true, "Essentials includes tenant portal");
+assert.equal(essentialsAccess?.rentals.allowed, true, "tenant portal also covers rentals");
+assert.equal(essentialsAccess?.compliance.allowed, true);
+assert.equal(essentialsAccess?.maintenance.allowed, false, "work orders are not on Essentials");
+assert.equal(essentialsAccess?.hmo_compliance.allowed, false);
+assert.equal(essentialsAccess?.hmo_compliance.reason, "addon");
+assert.equal(
+  companyModuleLockMessage(essentialsAccess?.maintenance),
+  MODULE_NOT_ON_PLAN_MESSAGE,
+);
+assert.equal(
+  companyModuleLockMessage(essentialsAccess?.hmo_compliance),
+  MODULE_ADDON_REQUIRED_MESSAGE,
+);
+assert.equal(
+  companyModuleAccessFromPlan(
+    { compliance: true, work_orders: false, tenant_portal: true, hmo: "addon" },
+    { hmoAddon: true },
+  )?.hmo_compliance.allowed,
+  true,
+  "purchased HMO add-on can be enabled",
+);
+assert.equal(
+  companyModuleAccessFromPlan({}) ,
+  null,
+  "empty module map has no per-module lock",
+);
+assert.equal(companyModuleAccessFromPlan(null), null);
 assert.equal(
   isCompanyModuleEnabled(
     {

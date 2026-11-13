@@ -25,7 +25,7 @@ export const SEED_PLANS = [
       compliance: true,
       evidence_portal: true,
       work_orders: false,
-      tenant_portal: false,
+      tenant_portal: true,
       hmo: "addon",
     },
   },

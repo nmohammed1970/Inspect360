@@ -308,6 +308,12 @@ assert(isLockedApiPath("/api/comparisons/1"), "comparisons locked");
 assert(isLockedApiPath("/api/maintenance"), "maintenance locked");
 assert(isLockedApiPath("/api/work-orders"), "work orders locked");
 assert(isLockedApiPath("/api/analytics/work-orders"), "analytics locked");
+assert(isLockedApiPath("/api/compliance"), "compliance locked");
+assert(isLockedApiPath("/api/contacts/1"), "contacts locked");
+assert(isLockedApiPath("/api/hmo/cases"), "hmo locked");
+assert(isLockedApiPath("/api/tenants/active"), "tenants locked");
+assert(isLockedApiPath("/api/asset-inventory"), "asset inventory locked");
+assert(isLockedApiPath("/api/marketplace/checkout"), "marketplace checkout locked");
 assert(isLockedApiPath("/api/tenant/maintenance-requests"), "tenant maintenance locked");
 assert(isLockedApiPath("/api/reapit/connection"), "reapit connector locked");
 assert(isLockedApiPath("/api/reapit/sync"), "reapit sync locked");
@@ -319,6 +325,14 @@ assert(!isLockedApiPath("/api/billing/inspection-balance"), "billing open");
 assert(!isLockedApiPath("/api/entitlement"), "entitlement open");
 assert(!isLockedApiPath("/api/admin/instances"), "admin open");
 assert(!isLockedApiPath("/api/marketplace/modules"), "marketplace browse open");
+assert(
+  isLockedApiPath("/api/marketplace/modules/abc/purchase"),
+  "marketplace purchase locked",
+);
+assert(
+  isLockedApiPath("/api/marketplace/modules/abc/toggle"),
+  "marketplace toggle locked",
+);
 assert(isLockedAppPath("/inspections/1/report"), "inspection page locked");
 assert(!isLockedAppPath("/dashboard"), "dashboard page open");
 assert(!isLockedAppPath("/reports"), "reports hub open");

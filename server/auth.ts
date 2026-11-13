@@ -835,6 +835,9 @@ export async function isAuthenticated(req: any, res: any, next: any) {
         }
 
         const requestPath = String(req.originalUrl || req.path || "").split("?")[0];
+        const method = String(req.method || "GET").toUpperCase();
+        const isSafeMethod = ["GET", "HEAD", "OPTIONS"].includes(method);
+
         if (organization && isLockedApiPath(requestPath)) {
           try {
             const access = await getOrganizationAccessStatus(organization.id);
@@ -858,21 +861,39 @@ export async function isAuthenticated(req: any, res: any, next: any) {
           }
         }
 
-        // Payment failure read-only: view OK, mutations blocked (except billing portal)
+        // Billing subscription gate: canceled / unpaid / read_only cannot use paid APIs.
+        // past_due keeps access during the payment-failure grace window.
         if (organization) {
           try {
             const { isSelfServeEnabled } = await import("./billing/catalogService");
-            const { isOrgReadOnly } = await import("./billing/planLimits");
-            if (
-              (await isSelfServeEnabled()) &&
-              (await isOrgReadOnly(organization.id)) &&
-              !["GET", "HEAD", "OPTIONS"].includes(String(req.method || "").toUpperCase()) &&
-              !requestPath.startsWith("/api/billing/v2/portal")
-            ) {
-              return res.status(403).json({
-                code: "BILLING_READ_ONLY",
-                message: "Account is read-only due to payment failure. Update billing to continue.",
-              });
+            const {
+              getOrgBillingStatus,
+              isBillingPaidAccessBlocked,
+              stripPlanCompanyModules,
+            } = await import("./billing/planLimits");
+            if (await isSelfServeEnabled()) {
+              const billingStatus = await getOrgBillingStatus(organization.id);
+              if (isBillingPaidAccessBlocked(billingStatus)) {
+                // Keep modules off so requireCompanyModule / UI stay consistent.
+                try {
+                  await stripPlanCompanyModules(organization.id);
+                } catch {
+                  /* best-effort */
+                }
+                const blockAllMutations = billingStatus === "read_only";
+                if (
+                  !isSafeMethod &&
+                  !requestPath.startsWith("/api/billing") &&
+                  (blockAllMutations || isLockedApiPath(requestPath))
+                ) {
+                  return res.status(403).json({
+                    code: blockAllMutations ? "BILLING_READ_ONLY" : "BILLING_INACTIVE",
+                    message: blockAllMutations
+                      ? "Account is read-only due to payment failure. Update billing to continue."
+                      : "Your subscription is inactive. Update billing to continue.",
+                  });
+                }
+              }
             }
           } catch {
             /* billing tables may be absent in older envs */

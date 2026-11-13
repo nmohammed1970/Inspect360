@@ -148,15 +148,173 @@ export async function isModuleAvailableOnPlan(
   return { available: false, planName: plan.name };
 }
 
+async function resolveStripePriceId(input: {
+  lookupKey: string;
+  planName: string;
+  planCode: string;
+  cycle: "monthly" | "yearly";
+  amountMinor: number;
+}): Promise<string> {
+  const stripe = await getUncachableStripeClient();
+  const lookup = await stripe.prices.list({ lookup_keys: [input.lookupKey], limit: 1 });
+  if (lookup.data[0]?.id) return lookup.data[0].id;
+  const product = await stripe.products.create({
+    name: `${input.planName} (${input.cycle})`,
+    metadata: { planCode: input.planCode },
+  });
+  const created = await stripe.prices.create({
+    product: product.id,
+    currency: "gbp",
+    unit_amount: input.amountMinor,
+    recurring: { interval: input.cycle === "yearly" ? "year" : "month" },
+    lookup_key: input.lookupKey,
+    tax_behavior: "exclusive",
+  });
+  return created.id;
+}
+
+/** Apply a paid upgrade that was held in pending_* until the proration invoice succeeded. */
+export async function finalizePendingUpgrade(organizationId: string): Promise<boolean> {
+  const [sub] = await db
+    .select()
+    .from(billingSubscriptions)
+    .where(eq(billingSubscriptions.organizationId, organizationId))
+    .limit(1);
+  if (!sub?.pendingPlanCode) return false;
+
+  const [updated] = await db
+    .update(billingSubscriptions)
+    .set({
+      planCode: sub.pendingPlanCode,
+      cycle: (sub.pendingCycle as "monthly" | "yearly") || sub.cycle,
+      amountMinorFrozen: sub.pendingAmountMinor ?? sub.amountMinorFrozen,
+      priceVersionId: sub.pendingPriceVersionId || sub.priceVersionId,
+      pendingPlanCode: null,
+      pendingCycle: null,
+      pendingAmountMinor: null,
+      pendingPriceVersionId: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(billingSubscriptions.organizationId, organizationId))
+    .returning();
+
+  await catalog.writeBillingAudit({
+    actorType: "system",
+    organizationId,
+    action: "plan.upgrade_confirmed",
+    before: { planCode: sub.planCode, cycle: sub.cycle },
+    after: {
+      planCode: updated?.planCode,
+      cycle: updated?.cycle,
+      amountMinorFrozen: updated?.amountMinorFrozen,
+    },
+  });
+
+  try {
+    await applyPlanModulesToOrg(organizationId);
+  } catch (e) {
+    console.warn("[billing] applyPlanModules after upgrade confirm failed:", e);
+  }
+  return true;
+}
+
+/**
+ * Proration invoice failed — keep local old plan and roll Stripe subscription
+ * back to the previous price so the customer is not left on the higher tier unpaid.
+ */
+export async function revertPendingUpgrade(organizationId: string): Promise<boolean> {
+  const [sub] = await db
+    .select()
+    .from(billingSubscriptions)
+    .where(eq(billingSubscriptions.organizationId, organizationId))
+    .limit(1);
+  if (!sub?.pendingPlanCode || !sub.stripeSubscriptionId) return false;
+
+  const previousCycle = (sub.cycle === "monthly" ? "monthly" : "yearly") as "monthly" | "yearly";
+  const [previousPlan] = await db
+    .select()
+    .from(billingPlans)
+    .where(eq(billingPlans.code, sub.planCode))
+    .limit(1);
+
+  try {
+    const { stripeLookupForPlan } = await import("./catalogSeed");
+    const lookupKey = stripeLookupForPlan(sub.planCode, previousCycle);
+    const stripePriceId = await resolveStripePriceId({
+      lookupKey,
+      planName: previousPlan?.name || sub.planCode,
+      planCode: sub.planCode,
+      cycle: previousCycle,
+      amountMinor: sub.amountMinorFrozen || 0,
+    });
+    const stripe = await getUncachableStripeClient();
+    const stripeSub = await stripe.subscriptions.retrieve(sub.stripeSubscriptionId);
+    const itemId = stripeSub.items.data[0]?.id;
+    if (itemId) {
+      await stripe.subscriptions.update(sub.stripeSubscriptionId, {
+        items: [{ id: itemId, price: stripePriceId }],
+        proration_behavior: "none",
+        metadata: {
+          organizationId,
+          planCode: sub.planCode,
+          cycle: previousCycle,
+          billingV2: "true",
+          upgradePending: "false",
+        },
+      });
+    }
+  } catch (err) {
+    console.error("[billing] Failed to revert Stripe price after upgrade payment failure:", err);
+  }
+
+  await db
+    .update(billingSubscriptions)
+    .set({
+      pendingPlanCode: null,
+      pendingCycle: null,
+      pendingAmountMinor: null,
+      pendingPriceVersionId: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(billingSubscriptions.organizationId, organizationId));
+
+  await catalog.writeBillingAudit({
+    actorType: "system",
+    organizationId,
+    action: "plan.upgrade_reverted",
+    before: {
+      pendingPlanCode: sub.pendingPlanCode,
+      pendingCycle: sub.pendingCycle,
+    },
+    after: { planCode: sub.planCode, cycle: sub.cycle },
+  });
+  return true;
+}
+
 export async function changePlan(input: {
   organizationId: string;
   userId: string;
   planCode: string;
   cycle: "monthly" | "yearly";
-}): Promise<{ mode: "upgrade" | "downgrade_scheduled"; subscription: any }> {
+}): Promise<{
+  mode: "upgrade_pending_payment" | "downgrade_scheduled";
+  subscription: any;
+}> {
   const { sub, plan: currentPlan } = await getPlanForOrg(input.organizationId);
   if (!sub?.stripeSubscriptionId) {
     const err: any = new Error("No active Stripe subscription");
+    err.status = 400;
+    throw err;
+  }
+  if (sub.pendingPlanCode) {
+    const err: any = new Error(
+      "An upgrade payment is already pending. Wait for it to complete or fail before changing plan again.",
+    );
+    err.status = 409;
+    throw err;
+  }
+  if (sub.planCode === input.planCode && sub.cycle === input.cycle) {
+    const err: any = new Error("You are already on this plan");
     err.status = 400;
     throw err;
   }
@@ -221,67 +379,80 @@ export async function changePlan(input: {
     return { mode: "downgrade_scheduled", subscription: updated };
   }
 
-  const stripe = await getUncachableStripeClient();
-  const lookup = await stripe.prices.list({ lookup_keys: [price.stripeLookupKey], limit: 1 });
-  let stripePriceId = lookup.data[0]?.id;
-  if (!stripePriceId) {
-    const product = await stripe.products.create({
-      name: `${nextPlan.name} (${input.cycle})`,
-      metadata: { planCode: nextPlan.code },
-    });
-    const created = await stripe.prices.create({
-      product: product.id,
-      currency: "gbp",
-      unit_amount: price.amountMinor,
-      recurring: { interval: input.cycle === "yearly" ? "year" : "month" },
-      lookup_key: price.stripeLookupKey,
-      tax_behavior: "exclusive",
-    });
-    stripePriceId = created.id;
-  }
-
-  const stripeSub = await stripe.subscriptions.retrieve(sub.stripeSubscriptionId);
-  const itemId = stripeSub.items.data[0]?.id;
-  if (!itemId) {
-    const err: any = new Error("Stripe subscription has no items");
-    err.status = 500;
-    throw err;
-  }
-  await stripe.subscriptions.update(sub.stripeSubscriptionId, {
-    items: [{ id: itemId, price: stripePriceId }],
-    proration_behavior: "always_invoice",
-    metadata: {
-      organizationId: input.organizationId,
-      planCode: input.planCode,
-      cycle: input.cycle,
-      billingV2: "true",
-    },
-  });
-
-  const [updated] = await db
+  // Mark pending upgrade locally BEFORE Stripe change; planCode stays on the old plan
+  // until the proration invoice is paid (or we revert on failure).
+  const [pendingRow] = await db
     .update(billingSubscriptions)
     .set({
-      planCode: input.planCode,
-      cycle: input.cycle,
-      priceVersionId: published.id,
-      amountMinorFrozen: price.amountMinor,
-      scheduledPlanCode: null,
-      scheduledCycle: null,
+      pendingPlanCode: input.planCode,
+      pendingCycle: input.cycle,
+      pendingAmountMinor: price.amountMinor,
+      pendingPriceVersionId: published.id,
       updatedAt: new Date(),
     })
     .where(eq(billingSubscriptions.organizationId, input.organizationId))
     .returning();
 
+  try {
+    const stripePriceId = await resolveStripePriceId({
+      lookupKey: price.stripeLookupKey,
+      planName: nextPlan.name,
+      planCode: nextPlan.code,
+      cycle: input.cycle,
+      amountMinor: price.amountMinor,
+    });
+    const stripe = await getUncachableStripeClient();
+    const stripeSub = await stripe.subscriptions.retrieve(sub.stripeSubscriptionId);
+    const itemId = stripeSub.items.data[0]?.id;
+    if (!itemId) {
+      const err: any = new Error("Stripe subscription has no items");
+      err.status = 500;
+      throw err;
+    }
+    await stripe.subscriptions.update(sub.stripeSubscriptionId, {
+      items: [{ id: itemId, price: stripePriceId }],
+      proration_behavior: "always_invoice",
+      payment_behavior: "error_if_incomplete",
+      metadata: {
+        organizationId: input.organizationId,
+        planCode: input.planCode,
+        cycle: input.cycle,
+        billingV2: "true",
+        upgradePending: "true",
+        previousPlanCode: sub.planCode,
+        previousCycle: sub.cycle,
+      },
+    });
+  } catch (err) {
+    // Clear pending and roll Stripe back to the previous price if the update stuck.
+    try {
+      await revertPendingUpgrade(input.organizationId);
+    } catch (revertErr) {
+      console.error("[billing] revert after failed upgrade threw:", revertErr);
+      await db
+        .update(billingSubscriptions)
+        .set({
+          pendingPlanCode: null,
+          pendingCycle: null,
+          pendingAmountMinor: null,
+          pendingPriceVersionId: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(billingSubscriptions.organizationId, input.organizationId));
+    }
+    throw err;
+  }
+
   await catalog.writeBillingAudit({
     actorType: "user",
     actorId: input.userId,
     organizationId: input.organizationId,
-    action: "plan.upgraded",
+    action: "plan.upgrade_pending_payment",
     before: { planCode: currentPlan?.code, cycle: sub.cycle },
-    after: { planCode: input.planCode, cycle: input.cycle },
+    after: { planCode: input.planCode, cycle: input.cycle, pending: true },
   });
 
-  return { mode: "upgrade", subscription: updated };
+  return { mode: "upgrade_pending_payment", subscription: pendingRow };
 }
 
 export async function addPropertyPacks(input: {
@@ -501,6 +672,36 @@ export async function setHmoAddon(input: {
   return updated;
 }
 
+/** Billing statuses that keep paid product access (past_due = payment-failure grace). */
+export const BILLING_PAID_ACCESS_STATUSES = new Set([
+  "active",
+  "trialing",
+  "past_due",
+]);
+
+/** Canceled / failed / locked — must not keep plan company modules or paid mutations. */
+export function isBillingPaidAccessBlocked(
+  status: string | null | undefined,
+): boolean {
+  if (!status) return false;
+  return (
+    status === "canceled" ||
+    status === "read_only" ||
+    status === "incomplete_expired" ||
+    status === "unpaid"
+  );
+}
+
+export async function stripPlanCompanyModules(organizationId: string): Promise<void> {
+  await storage.updateOrganization(organizationId, {
+    complianceEnabled: false,
+    maintenanceEnabled: false,
+    tenanciesEnabled: false,
+    rentalsEnabled: false,
+    hmoComplianceEnabled: false,
+  } as any);
+}
+
 /** Map catalog plan modulesJson → organization company-module flags. */
 export async function applyPlanModulesToOrg(
   organizationId: string,
@@ -508,6 +709,18 @@ export async function applyPlanModulesToOrg(
 ) {
   const { plan, sub } = await getPlanForOrg(organizationId);
   if (!plan) return;
+
+  // Canceled / read_only / unpaid: strip plan modules — do not leave paid features on.
+  if (isBillingPaidAccessBlocked(sub?.status)) {
+    await stripPlanCompanyModules(organizationId);
+    return;
+  }
+
+  // Only apply module entitlements while the subscription is in good standing (or grace).
+  if (sub?.status && !BILLING_PAID_ACCESS_STATUSES.has(sub.status)) {
+    return;
+  }
+
   const modules = (plan.modulesJson || {}) as Record<string, boolean | "addon">;
   const hmoOn =
     opts?.forceHmo === true ||
@@ -555,4 +768,11 @@ export async function cancelAtPeriodEnd(organizationId: string, userId: string) 
 export async function isOrgReadOnly(organizationId: string): Promise<boolean> {
   const sub = await getOrgBillingSubscription(organizationId);
   return sub?.status === "read_only";
+}
+
+export async function getOrgBillingStatus(
+  organizationId: string,
+): Promise<string | null> {
+  const sub = await getOrgBillingSubscription(organizationId);
+  return sub?.status ?? null;
 }

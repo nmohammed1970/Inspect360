@@ -4,6 +4,7 @@ import type { Organization } from "@shared/schema";
 import {
   companyModulesLockedByAiPlan,
   isCompanyModuleEnabled,
+  type CompanyModuleAccess,
   type CompanyModuleKey,
 } from "@shared/companyModules";
 import { apiRequest } from "@/lib/queryClient";
@@ -13,6 +14,7 @@ type BillingSubscriptionResponse = {
     planCode?: string | null;
     status?: string | null;
   } | null;
+  companyModuleAccess?: Record<CompanyModuleKey, CompanyModuleAccess> | null;
 };
 
 /**
@@ -44,6 +46,7 @@ export function useCompanyModules() {
   const planCode = billingSub?.subscription?.planCode ?? null;
   const planStatus = billingSub?.subscription?.status ?? null;
   const lockedByAiPlan = companyModulesLockedByAiPlan(planCode, planStatus);
+  const companyModuleAccess = billingSub?.companyModuleAccess ?? null;
 
   const billingReady = billingFetched || billingError;
   const ready = !!user?.organizationId && isFetched && !isLoading && billingReady;
@@ -60,6 +63,7 @@ export function useCompanyModules() {
     isReady: ready,
     isCompanyModuleEnabled: isEnabled,
     lockedByAiPlan,
+    companyModuleAccess,
     planCode,
     planStatus,
     rentalsEnabled: isEnabled("rentals"),

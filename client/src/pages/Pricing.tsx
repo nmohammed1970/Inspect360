@@ -185,6 +185,13 @@ export default function Pricing() {
     }
   }
 
+  const { data: billingSub } = useQuery<{ subscription: any }>({
+    queryKey: ["/api/billing/v2/subscription"],
+    queryFn: async () => (await apiRequest("GET", "/api/billing/v2/subscription")).json(),
+    enabled: isAuthenticated,
+    retry: false,
+  });
+
   async function startCheckout(planCode: string) {
     if (!isAuthenticated) {
       window.location.href = `/auth?returnUrl=${encodeURIComponent(`/pricing?tab=${tab === "ai_inspections" ? "ai" : "pm"}&billing=${cycle}`)}`;
@@ -192,6 +199,34 @@ export default function Pricing() {
     }
     setCheckoutBusy(planCode);
     try {
+      const sub = billingSub?.subscription;
+      const canChangeInPlace =
+        !!sub?.stripeSubscriptionId &&
+        !!sub.planCode &&
+        sub.planCode !== "pending" &&
+        (sub.status === "active" || sub.status === "trialing");
+
+      if (canChangeInPlace) {
+        const res = await apiRequest("POST", "/api/billing/v2/change-plan", {
+          planCode,
+          cycle,
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || "Plan change failed");
+        toast({
+          title:
+            data.mode === "downgrade_scheduled"
+              ? "Downgrade scheduled"
+              : "Upgrade payment processing",
+          description:
+            data.mode === "downgrade_scheduled"
+              ? "Takes effect at the end of your billing period."
+              : "Your current plan stays active until the upgrade charge succeeds.",
+        });
+        window.location.href = "/billing";
+        return;
+      }
+
       const res = await apiRequest("POST", "/api/billing/v2/checkout", {
         planCode,
         cycle,
@@ -203,7 +238,7 @@ export default function Pricing() {
       if (data.url) window.location.href = data.url;
     } catch (e: any) {
       toast({
-        title: "Checkout failed",
+        title: "Plan change failed",
         description: e.message || "Try again later",
         variant: "destructive",
       });
@@ -257,6 +292,14 @@ export default function Pricing() {
           {plans.map((plan) => {
             const price = plan.prices?.find((p) => p.cycle === cycle) || plan.prices?.[0];
             const amount = price?.amountMinor ?? 0;
+            const sub = billingSub?.subscription;
+            const hasLiveSub =
+              !!sub?.stripeSubscriptionId &&
+              !!sub.planCode &&
+              sub.planCode !== "pending" &&
+              (sub.status === "active" || sub.status === "trialing");
+            const isCurrent =
+              hasLiveSub && sub.planCode === plan.code && (sub.cycle || cycle) === cycle;
             return (
               <Card
                 key={plan.code}
@@ -322,15 +365,24 @@ export default function Pricing() {
                   ) : (
                     <Button
                       className="w-full"
-                      disabled={checkoutBusy === plan.code}
+                      variant={isCurrent ? "outline" : "default"}
+                      disabled={
+                        checkoutBusy === plan.code ||
+                        isCurrent ||
+                        Boolean(sub?.pendingPlanCode)
+                      }
                       onClick={() => startCheckout(plan.code)}
                     >
                       {checkoutBusy === plan.code ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : isAuthenticated ? (
-                        "Start trial"
-                      ) : (
+                      ) : !isAuthenticated ? (
                         "Sign in to subscribe"
+                      ) : isCurrent ? (
+                        "Current plan"
+                      ) : hasLiveSub ? (
+                        "Switch plan"
+                      ) : (
+                        "Start trial"
                       )}
                     </Button>
                   )}

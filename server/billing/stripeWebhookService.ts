@@ -6,7 +6,11 @@ import {
 } from "@shared/billingCatalogSchema";
 import * as catalog from "./catalogService";
 import { applyCheckoutCompletedFromStripe } from "./subscriptionLifecycle";
-import { grantPlanIncludedCredits } from "./creditRules";
+import {
+  expireTrialCredits,
+  grantPlanIncludedCredits,
+  planPeriodGrantKey,
+} from "./creditRules";
 
 /**
  * Idempotent Stripe webhook processing for self-serve billing (billingV2).
@@ -159,22 +163,52 @@ async function handleInvoicePaid(invoice: any): Promise<boolean> {
     console.error("[Stripe Webhook] AI plan company-module lock failed:", lockErr);
   }
 
-  // Renewals only — initial plan credits are granted on checkout.session.completed
-  if (invoice.billing_reason === "subscription_cycle" && sub.planCode !== "pending") {
+  const amountPaid = Number(invoice.amount_paid || 0);
+  const reason = String(invoice.billing_reason || "");
+
+  // Confirm pending upgrade only after the proration / update invoice is paid.
+  if (sub.pendingPlanCode && (reason === "subscription_update" || amountPaid > 0)) {
+    try {
+      const { finalizePendingUpgrade } = await import("./planLimits");
+      await finalizePendingUpgrade(sub.organizationId);
+      // Re-load after finalize so credit grant uses the new plan
+      const refreshed = await findSubByStripe(invoice);
+      if (refreshed) Object.assign(sub, refreshed);
+    } catch (e) {
+      console.error("[billing] finalizePendingUpgrade failed:", e);
+    }
+  }
+
+  // Paid invoices only (skip $0 trial invoices). Grant plan credits and expire trial bonus.
+  const shouldGrantPlanCredits =
+    sub.planCode !== "pending" &&
+    amountPaid > 0 &&
+    (reason === "subscription_cycle" ||
+      reason === "subscription_create" ||
+      reason === "subscription_update" ||
+      !reason);
+
+  if (shouldGrantPlanCredits) {
+    const stripeSubId =
+      typeof invoice.subscription === "string"
+        ? invoice.subscription
+        : invoice.subscription?.id || sub.stripeSubscriptionId || sub.organizationId;
+    const planCycle = (sub.cycle === "monthly" ? "monthly" : "yearly") as "monthly" | "yearly";
     const expiresAt =
-      sub.cycle === "yearly"
+      planCycle === "yearly"
         ? periodEnd
         : (() => {
             const d = new Date();
             d.setMonth(d.getMonth() + 3);
             return d;
           })();
+    await expireTrialCredits(sub.organizationId);
     await grantPlanIncludedCredits({
       organizationId: sub.organizationId,
       planCode: sub.planCode,
-      cycle: (sub.cycle === "monthly" ? "monthly" : "yearly") as "monthly" | "yearly",
+      cycle: planCycle,
       expiresAt: expiresAt || null,
-      grantKey: `invoice:${invoice.id}`,
+      grantKey: planPeriodGrantKey(stripeSubId, periodStart),
     });
   }
 
@@ -198,6 +232,43 @@ async function handleInvoicePaid(invoice: any): Promise<boolean> {
 async function handlePaymentFailed(invoice: any): Promise<boolean> {
   const sub = await findSubByStripe(invoice);
   if (!sub) return false;
+
+  const reason = String(invoice.billing_reason || "");
+  const wasPendingUpgrade = Boolean(sub.pendingPlanCode);
+  // Upgrade proration failed → roll Stripe + clear pending; keep the old local plan.
+  // Do not treat this as subscription past_due / read_only — the base plan is still paid.
+  const onlyUpgradeProrationFailed =
+    wasPendingUpgrade && (reason === "subscription_update" || reason === "");
+
+  if (wasPendingUpgrade) {
+    try {
+      const { revertPendingUpgrade } = await import("./planLimits");
+      await revertPendingUpgrade(sub.organizationId);
+    } catch (e) {
+      console.error("[billing] revertPendingUpgrade failed:", e);
+    }
+  }
+
+  if (onlyUpgradeProrationFailed) {
+    const keepStatus =
+      sub.status === "trialing" || sub.status === "active" ? sub.status : "active";
+    await db
+      .update(billingSubscriptions)
+      .set({
+        status: keepStatus,
+        updatedAt: new Date(),
+      })
+      .where(eq(billingSubscriptions.organizationId, sub.organizationId));
+    await catalog.writeBillingAudit({
+      actorType: "system",
+      organizationId: sub.organizationId,
+      action: "invoice.payment_failed_upgrade_reverted",
+      entityType: "invoice",
+      entityId: invoice.id,
+    });
+    return true;
+  }
+
   const firstFail = sub.firstPaymentFailureAt || new Date();
   await db
     .update(billingSubscriptions)
@@ -223,6 +294,12 @@ async function handleSubscriptionChange(stripeSub: any, eventType: string): Prom
         updatedAt: new Date(),
       })
       .where(eq(billingSubscriptions.organizationId, sub.organizationId));
+    try {
+      const { stripPlanCompanyModules } = await import("./planLimits");
+      await stripPlanCompanyModules(sub.organizationId);
+    } catch (e) {
+      console.warn("[billing] strip modules on cancel failed:", e);
+    }
     return true;
   }
 
@@ -235,7 +312,17 @@ async function handleSubscriptionChange(stripeSub: any, eventType: string): Prom
     incomplete: "incomplete",
     incomplete_expired: "canceled",
   };
-  const mapped = statusMap[stripeSub.status] || sub.status;
+  let mapped = statusMap[stripeSub.status] || sub.status;
+  // While an upgrade proration is outstanding, do not let Stripe's transient
+  // incomplete/past_due status flip the org into payment-failure / read_only.
+  // invoice.payment_failed (revert) or invoice.paid (finalize) owns that path.
+  if (
+    sub.pendingPlanCode &&
+    (mapped === "past_due" || mapped === "incomplete" || mapped === "unpaid")
+  ) {
+    mapped =
+      sub.status === "trialing" || sub.status === "active" ? sub.status : "active";
+  }
   const periodStart = stripeSub.current_period_start
     ? new Date(stripeSub.current_period_start * 1000)
     : sub.periodStart;
@@ -254,19 +341,45 @@ async function handleSubscriptionChange(stripeSub: any, eventType: string): Prom
     })
     .where(eq(billingSubscriptions.organizationId, sub.organizationId));
 
-  // If checkout webhook was missed but Stripe activated the sub, grant plan credits once
   if (
-    (mapped === "trialing" || mapped === "active") &&
+    mapped === "canceled" ||
+    mapped === "read_only" ||
+    mapped === "incomplete_expired" ||
+    mapped === "unpaid"
+  ) {
+    try {
+      const { stripPlanCompanyModules } = await import("./planLimits");
+      await stripPlanCompanyModules(sub.organizationId);
+    } catch (e) {
+      console.warn("[billing] strip modules on status change failed:", e);
+    }
+  }
+
+  // Only when leaving trial / incomplete → active (renewals are handled by invoice.paid).
+  // Idempotent with invoice.paid via the same planPeriodGrantKey.
+  if (
+    mapped === "active" &&
+    sub.status !== "active" &&
     sub.planCode &&
     sub.planCode !== "pending" &&
     stripeSub.id
   ) {
+    await expireTrialCredits(sub.organizationId);
+    const start = periodStart || new Date();
+    const expiresAt =
+      sub.cycle === "yearly"
+        ? periodEnd
+        : (() => {
+            const d = new Date();
+            d.setMonth(d.getMonth() + 3);
+            return d;
+          })();
     await grantPlanIncludedCredits({
       organizationId: sub.organizationId,
       planCode: sub.planCode,
       cycle: (sub.cycle === "monthly" ? "monthly" : "yearly") as "monthly" | "yearly",
-      expiresAt: periodEnd || sub.trialEnd || null,
-      grantKey: `sub_activate:${stripeSub.id}`,
+      expiresAt: expiresAt || null,
+      grantKey: planPeriodGrantKey(String(stripeSub.id), start),
     });
   }
   return true;
@@ -287,6 +400,12 @@ export async function applyPaymentFailureReadOnly(): Promise<number> {
       .update(billingSubscriptions)
       .set({ status: "read_only", updatedAt: new Date() })
       .where(eq(billingSubscriptions.organizationId, row.organizationId));
+    try {
+      const { stripPlanCompanyModules } = await import("./planLimits");
+      await stripPlanCompanyModules(row.organizationId);
+    } catch (e) {
+      console.warn("[billing] strip modules on read_only failed:", e);
+    }
     n++;
   }
   return n;

@@ -62,25 +62,35 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
-// Use JSON parser for all routes except Stripe webhook which needs raw body
-// Increase limit for transcribe-base64 (base64 audio can be ~35MB for 25MB audio)
-// Skip JSON/urlencoded parsers for multipart so multer can read the stream (HMO evidence uploads, etc.)
+/** Paths that must keep the raw request body for signature verification. */
+function isRawBodyWebhookPath(req: { originalUrl?: string; url?: string; path?: string }): boolean {
+  const pathOnly = String(req.originalUrl || req.url || req.path || "").split("?")[0];
+  return (
+    pathOnly === "/api/billing/webhook" ||
+    pathOnly === "/api/webhooks/stripe" || // legacy Stripe dashboard URL
+    pathOnly === "/api/webhooks/reapit"
+  );
+}
+
+// Use JSON parser for all routes except signed webhooks (need raw body) and multipart.
+// Increase limit for transcribe-base64 (base64 audio can be ~35MB for 25MB audio).
 app.use((req, res, next) => {
   const contentType = String(req.headers["content-type"] || "");
   if (contentType.includes("multipart/form-data")) {
     return next();
   }
-  if (req.originalUrl === '/api/webhooks/stripe' || req.originalUrl === '/api/webhooks/reapit') {
-    next();
-  } else if (req.path === '/api/audio/transcribe-base64' || req.path === '/api/objects/upload-audio-base64') {
-    express.json({ limit: '35mb' })(req, res, next);
-  } else {
-    express.json()(req, res, next);
+  if (isRawBodyWebhookPath(req)) {
+    // Route-level express.raw() will parse the body for signature verify.
+    return next();
   }
+  if (req.path === "/api/audio/transcribe-base64" || req.path === "/api/objects/upload-audio-base64") {
+    return express.json({ limit: "35mb" })(req, res, next);
+  }
+  return express.json()(req, res, next);
 });
 app.use((req, res, next) => {
   const contentType = String(req.headers["content-type"] || "");
-  if (contentType.includes("multipart/form-data")) {
+  if (contentType.includes("multipart/form-data") || isRawBodyWebhookPath(req)) {
     return next();
   }
   return express.urlencoded({ extended: false })(req, res, next);

@@ -74,7 +74,23 @@ check(!adminOnly(false), "non-admin cannot publish");
 check(lockPayload("CREDITS_EXPIRED").code === "CREDITS_EXPIRED", "credits lock code");
 check(lockPayload("TRIAL_EXPIRED").code === "TRIAL_EXPIRED", "trial lock code");
 check(isLockedApiPath("/api/properties"), "properties path locked when expired");
+check(isLockedApiPath("/api/compliance"), "compliance path locked when expired");
+check(isLockedApiPath("/api/hmo/cases"), "hmo path locked when expired");
 check(!isLockedApiPath("/api/billing/v2/portal"), "portal not in locked prefixes");
+check(!isLockedApiPath("/api/marketplace/modules"), "marketplace browse stays open");
+
+function isBillingPaidAccessBlocked(status: string | null | undefined) {
+  return (
+    status === "canceled" ||
+    status === "read_only" ||
+    status === "incomplete_expired" ||
+    status === "unpaid"
+  );
+}
+check(isBillingPaidAccessBlocked("canceled"), "canceled blocks paid access");
+check(isBillingPaidAccessBlocked("read_only"), "read_only blocks paid access");
+check(!isBillingPaidAccessBlocked("past_due"), "past_due keeps grace access");
+check(!isBillingPaidAccessBlocked("active"), "active allowed");
 
 // --- Price version freeze (req #5) ---
 check(

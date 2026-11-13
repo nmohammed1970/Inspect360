@@ -30,6 +30,12 @@ export const PROPERTY_PLAN_REQUIRED_MODULES: readonly CompanyModuleKey[] = COMPA
 export const PROPERTY_BUNDLE_UPGRADE_MESSAGE =
   "Please upgrade your plan to Property Management to unlock these.";
 
+export const MODULE_NOT_ON_PLAN_MESSAGE =
+  "This module isn't included in your current plan.";
+
+export const MODULE_ADDON_REQUIRED_MESSAGE =
+  "This module is an add-on on your plan. Add it from Billing to turn it on.";
+
 const AI_PLAN_ACTIVE_STATUSES = new Set([
   "trialing",
   "active",
@@ -191,6 +197,58 @@ export function normalizeCompanyModuleFlags(input: {
 
 export function companyModuleFlagField(key: CompanyModuleKey): keyof CompanyModuleFlags {
   return FLAG_BY_KEY[key];
+}
+
+export type CatalogModuleFlag = boolean | "addon";
+
+export type CompanyModuleAccessReason = "included" | "not_included" | "addon";
+
+export type CompanyModuleAccess = {
+  allowed: boolean;
+  reason: CompanyModuleAccessReason;
+};
+
+/**
+ * Which Internal Modules a catalog plan lets the org turn on.
+ * null = no per-module restriction (no plan, or an empty module map such as Enterprise).
+ * `tenant_portal` covers Tenancies and Rentals. `work_orders` is Maintenance. `hmo` is HMO Compliance.
+ */
+export function companyModuleAccessFromPlan(
+  modules: Record<string, CatalogModuleFlag> | null | undefined,
+  opts?: { hmoAddon?: boolean },
+): Record<CompanyModuleKey, CompanyModuleAccess> | null {
+  if (!modules || Object.keys(modules).length === 0) return null;
+
+  const flag = (
+    value: CatalogModuleFlag | undefined,
+    addonActive = false,
+  ): CompanyModuleAccess => {
+    if (value === true) return { allowed: true, reason: "included" };
+    if (value === "addon") {
+      return addonActive
+        ? { allowed: true, reason: "included" }
+        : { allowed: false, reason: "addon" };
+    }
+    return { allowed: false, reason: "not_included" };
+  };
+
+  const tenantPortal = flag(modules.tenant_portal);
+  return {
+    tenancies: tenantPortal,
+    rentals: tenantPortal,
+    compliance: flag(modules.compliance),
+    maintenance: flag(modules.work_orders),
+    hmo_compliance: flag(modules.hmo, !!opts?.hmoAddon),
+  };
+}
+
+export function companyModuleLockMessage(
+  access: CompanyModuleAccess | null | undefined,
+): string | null {
+  if (!access || access.allowed) return null;
+  return access.reason === "addon"
+    ? MODULE_ADDON_REQUIRED_MESSAGE
+    : MODULE_NOT_ON_PLAN_MESSAGE;
 }
 
 /** Which report surfaces to include for an org (disabled modules stay hidden). */

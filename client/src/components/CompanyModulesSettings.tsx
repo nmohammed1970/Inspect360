@@ -13,7 +13,9 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
   COMPANY_MODULE_META,
+  companyModuleLockMessage,
   PROPERTY_BUNDLE_UPGRADE_MESSAGE,
+  type CompanyModuleKey,
 } from "@shared/companyModules";
 import type { Organization, User } from "@shared/schema";
 import { useCompanyModules } from "@/hooks/useCompanyModules";
@@ -28,12 +30,14 @@ function LockedSwitch({
   checked,
   disabled,
   locked,
+  lockMessage,
   onCheckedChange,
   testId,
 }: {
   checked: boolean;
   disabled?: boolean;
   locked: boolean;
+  lockMessage?: string | null;
   onCheckedChange: (on: boolean) => void;
   testId: string;
 }) {
@@ -56,7 +60,7 @@ function LockedSwitch({
         </span>
       </TooltipTrigger>
       <TooltipContent side="left" className="max-w-xs">
-        {PROPERTY_BUNDLE_UPGRADE_MESSAGE}
+        {lockMessage || PROPERTY_BUNDLE_UPGRADE_MESSAGE}
       </TooltipContent>
     </Tooltip>
   );
@@ -68,7 +72,16 @@ function LockedSwitch({
  */
 export function CompanyModulesSettings({ className }: CompanyModulesSettingsProps) {
   const { toast } = useToast();
-  const { lockedByAiPlan } = useCompanyModules();
+  const { lockedByAiPlan, companyModuleAccess, isLoading: modulesLoading } = useCompanyModules();
+
+  const lockFor = (key: CompanyModuleKey): { locked: boolean; message: string | null } => {
+    if (lockedByAiPlan) {
+      return { locked: true, message: PROPERTY_BUNDLE_UPGRADE_MESSAGE };
+    }
+    const access = companyModuleAccess?.[key];
+    if (!access || access.allowed) return { locked: false, message: null };
+    return { locked: true, message: companyModuleLockMessage(access) };
+  };
   const [rentalsEnabled, setRentalsEnabled] = useState(true);
   const [tenanciesEnabled, setTenanciesEnabled] = useState(true);
   const [complianceEnabled, setComplianceEnabled] = useState(true);
@@ -94,12 +107,18 @@ export function CompanyModulesSettings({ className }: CompanyModulesSettingsProp
       setHmoComplianceEnabled(false);
       return;
     }
-    setRentalsEnabled(organization.rentalsEnabled ?? true);
-    setTenanciesEnabled(organization.tenanciesEnabled ?? true);
-    setComplianceEnabled(organization.complianceEnabled ?? true);
-    setMaintenanceEnabled(organization.maintenanceEnabled ?? true);
-    setHmoComplianceEnabled(organization.hmoComplianceEnabled === true);
-  }, [organization, lockedByAiPlan]);
+    const blocked = (key: CompanyModuleKey) =>
+      !!companyModuleAccess && !companyModuleAccess[key].allowed;
+    setTenanciesEnabled(blocked("tenancies") ? false : (organization.tenanciesEnabled ?? true));
+    setRentalsEnabled(blocked("rentals") ? false : (organization.rentalsEnabled ?? true));
+    setComplianceEnabled(blocked("compliance") ? false : (organization.complianceEnabled ?? true));
+    setMaintenanceEnabled(
+      blocked("maintenance") ? false : (organization.maintenanceEnabled ?? true),
+    );
+    setHmoComplianceEnabled(
+      blocked("hmo_compliance") ? false : organization.hmoComplianceEnabled === true,
+    );
+  }, [organization, lockedByAiPlan, companyModuleAccess]);
 
   const updateCompanyModulesMutation = useMutation({
     mutationFn: async () => {
@@ -137,6 +156,12 @@ export function CompanyModulesSettings({ className }: CompanyModulesSettingsProp
     },
   });
 
+  const tenanciesLock = lockFor("tenancies");
+  const rentalsLock = lockFor("rentals");
+  const complianceLock = lockFor("compliance");
+  const maintenanceLock = lockFor("maintenance");
+  const hmoLock = lockFor("hmo_compliance");
+
   if (orgLoading) {
     return <div className="text-center py-8 text-muted-foreground text-sm">Loading...</div>;
   }
@@ -163,10 +188,15 @@ export function CompanyModulesSettings({ className }: CompanyModulesSettingsProp
               <p className="text-sm text-muted-foreground mt-1">
                 {COMPANY_MODULE_META.tenancies.description}
               </p>
+              {tenanciesLock.message && !lockedByAiPlan && (
+                <p className="text-xs text-muted-foreground mt-1">{tenanciesLock.message}</p>
+              )}
             </div>
             <LockedSwitch
               checked={tenanciesEnabled}
-              locked={lockedByAiPlan}
+              locked={tenanciesLock.locked}
+              lockMessage={tenanciesLock.message}
+              disabled={modulesLoading}
               onCheckedChange={(on) => {
                 setTenanciesEnabled(on);
                 if (!on) setRentalsEnabled(false);
@@ -180,7 +210,10 @@ export function CompanyModulesSettings({ className }: CompanyModulesSettingsProp
               <p className="text-sm text-muted-foreground mt-1">
                 {COMPANY_MODULE_META.rentals.description}
               </p>
-              {!lockedByAiPlan && !tenanciesEnabled && (
+              {rentalsLock.message && !lockedByAiPlan && (
+                <p className="text-xs text-muted-foreground mt-1">{rentalsLock.message}</p>
+              )}
+              {!rentalsLock.locked && !tenanciesEnabled && (
                 <p className="text-xs text-muted-foreground mt-1">
                   Enable Tenancies first to turn Rentals on.
                 </p>
@@ -188,8 +221,9 @@ export function CompanyModulesSettings({ className }: CompanyModulesSettingsProp
             </div>
             <LockedSwitch
               checked={tenanciesEnabled && rentalsEnabled}
-              locked={lockedByAiPlan}
-              disabled={!tenanciesEnabled}
+              locked={rentalsLock.locked}
+              lockMessage={rentalsLock.message}
+              disabled={modulesLoading || !tenanciesEnabled}
               onCheckedChange={setRentalsEnabled}
               testId="toggle-module-rentals"
             />
@@ -200,10 +234,15 @@ export function CompanyModulesSettings({ className }: CompanyModulesSettingsProp
               <p className="text-sm text-muted-foreground mt-1">
                 {COMPANY_MODULE_META.compliance.description}
               </p>
+              {complianceLock.message && !lockedByAiPlan && (
+                <p className="text-xs text-muted-foreground mt-1">{complianceLock.message}</p>
+              )}
             </div>
             <LockedSwitch
               checked={complianceEnabled}
-              locked={lockedByAiPlan}
+              locked={complianceLock.locked}
+              lockMessage={complianceLock.message}
+              disabled={modulesLoading}
               onCheckedChange={setComplianceEnabled}
               testId="toggle-module-compliance"
             />
@@ -214,10 +253,15 @@ export function CompanyModulesSettings({ className }: CompanyModulesSettingsProp
               <p className="text-sm text-muted-foreground mt-1">
                 {COMPANY_MODULE_META.maintenance.description}
               </p>
+              {maintenanceLock.message && !lockedByAiPlan && (
+                <p className="text-xs text-muted-foreground mt-1">{maintenanceLock.message}</p>
+              )}
             </div>
             <LockedSwitch
               checked={maintenanceEnabled}
-              locked={lockedByAiPlan}
+              locked={maintenanceLock.locked}
+              lockMessage={maintenanceLock.message}
+              disabled={modulesLoading}
               onCheckedChange={setMaintenanceEnabled}
               testId="toggle-module-maintenance"
             />
@@ -230,10 +274,15 @@ export function CompanyModulesSettings({ className }: CompanyModulesSettingsProp
               <p className="text-sm text-muted-foreground mt-1">
                 {COMPANY_MODULE_META.hmo_compliance.description}
               </p>
+              {hmoLock.message && !lockedByAiPlan && (
+                <p className="text-xs text-muted-foreground mt-1">{hmoLock.message}</p>
+              )}
             </div>
             <LockedSwitch
               checked={hmoComplianceEnabled}
-              locked={lockedByAiPlan}
+              locked={hmoLock.locked}
+              lockMessage={hmoLock.message}
+              disabled={modulesLoading}
               onCheckedChange={setHmoComplianceEnabled}
               testId="toggle-module-hmo-compliance"
             />
@@ -242,7 +291,7 @@ export function CompanyModulesSettings({ className }: CompanyModulesSettingsProp
         <Button
           variant="brand"
           onClick={() => updateCompanyModulesMutation.mutate()}
-          disabled={updateCompanyModulesMutation.isPending || lockedByAiPlan}
+          disabled={updateCompanyModulesMutation.isPending || lockedByAiPlan || modulesLoading}
           data-testid="button-save-company-modules"
           title={lockedByAiPlan ? PROPERTY_BUNDLE_UPGRADE_MESSAGE : undefined}
         >

@@ -9,7 +9,7 @@ export const EXPIRY_WARNING_DAYS = 5;
 export const MAX_TRIAL_EXTENSION_DAYS = 365;
 export const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
-/** Backend paths that require an active trial or paid credits. */
+/** Backend paths that require an active trial or paid credits / live subscription. */
 export const LOCKED_API_PREFIXES = [
   "/api/properties",
   "/api/blocks",
@@ -19,6 +19,15 @@ export const LOCKED_API_PREFIXES = [
   "/api/maintenance",
   "/api/work-orders",
   "/api/analytics",
+  "/api/compliance",
+  "/api/contacts",
+  "/api/hmo",
+  "/api/tenants",
+  "/api/asset-inventory",
+  "/api/inventory-templates",
+  "/api/inventory-items",
+  "/api/completion-checklists",
+  "/api/marketplace/checkout",
   "/api/tenant/maintenance-chats",
   "/api/tenant/maintenance-chat",
   "/api/tenant/maintenance-requests",
@@ -116,7 +125,13 @@ function isStillValid(expiresAt: Date | string | null | undefined, now: Date): b
 
 export function isLockedApiPath(path: string): boolean {
   const bare = path.split("?")[0];
-  return LOCKED_API_PREFIXES.some((prefix) => bare === prefix || bare.startsWith(`${prefix}/`));
+  if (LOCKED_API_PREFIXES.some((prefix) => bare === prefix || bare.startsWith(`${prefix}/`))) {
+    return true;
+  }
+  // Marketplace browse stays open; purchase/toggle/deactivate require paid access.
+  return /^\/api\/marketplace\/(modules|bundles)\/[^/]+\/(purchase|toggle|deactivate)/.test(
+    bare,
+  );
 }
 
 /**

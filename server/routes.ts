@@ -1858,12 +1858,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // AI Inspections plans keep Internal Modules forced OFF in DB + responses.
       try {
-        const { enforceAiPlanCompanyModuleLocks } = await import(
-          "./billing/companyModulePlanLocks"
-        );
+        const {
+          enforceAiPlanCompanyModuleLocks,
+          enforceDisallowedCompanyModules,
+        } = await import("./billing/companyModulePlanLocks");
         await enforceAiPlanCompanyModuleLocks(organizationId);
+        await enforceDisallowedCompanyModules(organizationId);
       } catch (lockErr) {
-        console.error("[organizations] AI plan module lock failed:", lockErr);
+        console.error("[organizations] plan module lock failed:", lockErr);
       }
 
       const organization = await storage.getOrganization(organizationId);
@@ -2148,10 +2150,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const {
         getCompanyModulePlanContext,
         enforceAiPlanCompanyModuleLocks,
+        enforceDisallowedCompanyModules,
       } = await import("./billing/companyModulePlanLocks");
       const {
         PROPERTY_BUNDLE_UPGRADE_MESSAGE,
         aiPlanForcedCompanyModuleFlags,
+        companyModuleLockMessage,
+        COMPANY_MODULE_META,
       } = await import("@shared/companyModules");
       const plan = await getCompanyModulePlanContext(organizationId);
       if (plan.locked) {
@@ -2182,6 +2187,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         maintenanceEnabled,
         hmoComplianceEnabled,
       } = req.body;
+
+      if (plan.companyModuleAccess) {
+        const attempted: Array<[keyof typeof plan.companyModuleAccess, unknown, string]> = [
+          ["tenancies", tenanciesEnabled, COMPANY_MODULE_META.tenancies.label],
+          ["rentals", rentalsEnabled, COMPANY_MODULE_META.rentals.label],
+          ["compliance", complianceEnabled, COMPANY_MODULE_META.compliance.label],
+          ["maintenance", maintenanceEnabled, COMPANY_MODULE_META.maintenance.label],
+          ["hmo_compliance", hmoComplianceEnabled, COMPANY_MODULE_META.hmo_compliance.label],
+        ];
+        const denied = attempted.filter(
+          ([key, value]) => value === true && !plan.companyModuleAccess![key].allowed,
+        );
+        if (denied.length > 0) {
+          const message =
+            companyModuleLockMessage(plan.companyModuleAccess[denied[0][0]]) ||
+            PROPERTY_BUNDLE_UPGRADE_MESSAGE;
+          return res.status(403).json({
+            message: `${denied.map(([, , label]) => label).join(", ")}: ${message}`,
+            code: "MODULE_NOT_ON_PLAN",
+          });
+        }
+      }
       // Tenancies OFF forces Rentals OFF (rent is tied to tenant assignments).
       const normalized = normalizeCompanyModuleFlags({
         rentalsEnabled: typeof rentalsEnabled === "boolean" ? rentalsEnabled : undefined,
@@ -2193,8 +2220,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       const organization = await storage.updateOrganization(organizationId, normalized);
+      await enforceDisallowedCompanyModules(organizationId);
+      const refreshed = await storage.getOrganization(organizationId);
 
-      res.json(organization);
+      res.json(refreshed ?? organization);
     } catch (error) {
       console.error("Error updating company modules:", error);
       res.status(500).json({ message: "Failed to update company modules" });
@@ -24058,27 +24087,53 @@ ${optionalNotes || "No details provided."}`;
     }
   });
 
-  // Stripe webhook handler
-  app.post("/api/billing/webhook", async (req, res) => {
-    const sig = req.headers["stripe-signature"] as string;
+  // Stripe webhook handler — raw body required for signature verification.
+  // Canonical: /api/billing/webhook. Legacy alias: /api/webhooks/stripe.
+  const stripeWebhookRaw = express.raw({ type: "application/json" });
+  app.post(["/api/billing/webhook", "/api/webhooks/stripe"], stripeWebhookRaw, async (req, res) => {
+    const sig = req.headers["stripe-signature"] as string | undefined;
 
     let event: any;
     try {
-      // Verify webhook signature if secret is configured
       const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
-      if (webhookSecret && sig) {
+      const rawBody = Buffer.isBuffer(req.body)
+        ? req.body
+        : typeof req.body === "string"
+          ? Buffer.from(req.body, "utf8")
+          : null;
+
+      if (webhookSecret) {
+        if (!sig) {
+          console.error("[Stripe Webhook] Missing stripe-signature header");
+          return res.status(400).json({ message: "Missing stripe-signature header" });
+        }
+        if (!rawBody) {
+          console.error(
+            "[Stripe Webhook] Raw body missing — JSON middleware likely consumed it before verify",
+          );
+          return res.status(400).json({ message: "Webhook raw body unavailable" });
+        }
         const stripe = await getUncachableStripeClient();
         try {
-          event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+          event = stripe.webhooks.constructEvent(rawBody, sig, webhookSecret);
           console.log(`[Stripe Webhook] Signature verified for event: ${event.type}`);
         } catch (err: any) {
           console.error(`[Stripe Webhook] Signature verification failed:`, err.message);
           return res.status(400).json({ message: "Webhook signature verification failed" });
         }
+      } else if (process.env.NODE_ENV === "production") {
+        console.error("[Stripe Webhook] STRIPE_WEBHOOK_SECRET is not configured");
+        return res.status(500).json({ message: "Webhook not configured" });
       } else {
-        // In development without webhook secret, accept raw body
-        event = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-        console.log(`[Stripe Webhook] Received event (unverified): ${event.type}`);
+        // Local/dev only: allow unsigned payloads (e.g. manual curl) when secret unset.
+        const parsed =
+          rawBody != null
+            ? JSON.parse(rawBody.toString("utf8"))
+            : typeof req.body === "string"
+              ? JSON.parse(req.body)
+              : req.body;
+        event = parsed;
+        console.log(`[Stripe Webhook] Received event (unverified, no secret): ${event?.type}`);
       }
 
       console.log(`[Stripe Webhook] Processing event: ${event.type}`);

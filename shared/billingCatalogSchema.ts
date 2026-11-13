@@ -154,6 +154,11 @@ export const billingSubscriptions = pgTable(
     firstPaymentFailureAt: timestamp("first_payment_failure_at"),
     scheduledPlanCode: varchar("scheduled_plan_code", { length: 64 }),
     scheduledCycle: varchar("scheduled_cycle", { length: 16 }),
+    /** Upgrade awaiting proration invoice payment — local planCode stays old until paid. */
+    pendingPlanCode: varchar("pending_plan_code", { length: 64 }),
+    pendingCycle: varchar("pending_cycle", { length: 16 }),
+    pendingAmountMinor: integer("pending_amount_minor"),
+    pendingPriceVersionId: varchar("pending_price_version_id"),
     amountMinorFrozen: integer("amount_minor_frozen"),
     currency: varchar("currency", { length: 3 }).notNull().default("GBP"),
     createdAt: timestamp("created_at").defaultNow(),

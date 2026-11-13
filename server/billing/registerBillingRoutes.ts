@@ -13,6 +13,7 @@ import * as catalog from "./catalogService";
 import * as subscriptionLifecycle from "./subscriptionLifecycle";
 import * as creditRules from "./creditRules";
 import * as planLimits from "./planLimits";
+import type { CompanyModuleAccess, CompanyModuleKey } from "@shared/companyModules";
 import { applyPaymentFailureReadOnly } from "./stripeWebhookService";
 import { blockIfBillingReadOnly } from "./readOnlyGuard";
 
@@ -70,11 +71,18 @@ export function registerBillingCatalogRoutes(app: Express) {
   app.get("/api/billing/v2/subscription", isAuthenticated, async (req: any, res) => {
     try {
       const orgId = req.user.organizationId as string;
+      let companyModuleAccess: Record<CompanyModuleKey, CompanyModuleAccess> | null = null;
       try {
-        const { enforceAiPlanCompanyModuleLocks } = await import("./companyModulePlanLocks");
+        const {
+          enforceAiPlanCompanyModuleLocks,
+          enforceDisallowedCompanyModules,
+          getCompanyModulePlanContext,
+        } = await import("./companyModulePlanLocks");
         await enforceAiPlanCompanyModuleLocks(orgId);
+        await enforceDisallowedCompanyModules(orgId);
+        companyModuleAccess = (await getCompanyModulePlanContext(orgId)).companyModuleAccess;
       } catch (lockErr) {
-        console.error("[billing/v2/subscription] AI plan module lock failed:", lockErr);
+        console.error("[billing/v2/subscription] plan module lock failed:", lockErr);
       }
       const [sub] = await db
         .select()
@@ -82,44 +90,63 @@ export function registerBillingCatalogRoutes(app: Express) {
         .where(eq(billingSubscriptions.organizationId, orgId))
         .limit(1);
 
-      // Backfill missing plan SMS if checkout never granted it (Essentials = 100/year).
-      // Only fills SMS when balance is 0 — does not re-grant inspections.
+      // Trial = bonus only. Never grant plan SMS while trialing/incomplete.
+      // Self-heal orgs that already received the old mistaken backfill during trial.
+      if (sub?.status === "trialing" && sub.stripeSubscriptionId) {
+        try {
+          await creditRules.expireMistakenTrialPlanSmsBackfill(
+            orgId,
+            sub.stripeSubscriptionId,
+          );
+        } catch (e) {
+          console.warn("[billing] trial SMS backfill cleanup skipped:", e);
+        }
+      }
+
+      // Paid-only repair: if checkout/webhook never granted plan SMS after activation,
+      // grant once (idempotent). Does not re-fill when the customer simply spent SMS.
       if (
         sub &&
+        sub.status === "active" &&
         sub.planCode &&
         sub.planCode !== "pending" &&
-        sub.stripeSubscriptionId &&
-        (sub.status === "trialing" ||
-          sub.status === "active" ||
-          sub.status === "incomplete")
+        sub.stripeSubscriptionId
       ) {
         try {
-          const current = await creditRules.getBalances(orgId);
-          if (current.sms === 0) {
-            const [plan] = await db
-              .select()
-              .from(billingPlans)
-              .where(eq(billingPlans.code, sub.planCode))
-              .limit(1);
-            const smsQty =
-              sub.cycle === "yearly"
-                ? plan?.smsPerYear || 0
-                : (plan?.smsPerYear || 0) > 0
-                  ? Math.max(1, Math.floor((plan?.smsPerYear || 0) / 12))
-                  : 0;
-            if (smsQty > 0) {
-              await creditRules.grantPdfCredits({
-                organizationId: orgId,
-                kind: "sms",
-                quantity: smsQty,
-                source: "plan_inclusion",
-                expiresAt: sub.periodEnd || sub.trialEnd || null,
-                metadata: {
-                  grantKey: `backfill-sms:${sub.stripeSubscriptionId}`,
-                  planCode: sub.planCode,
-                  planInclusion: true,
-                },
-              });
+          const alreadyHasPlanSms = await creditRules.hasPlanSmsGrantForSubscription(
+            orgId,
+            sub.stripeSubscriptionId,
+          );
+          if (!alreadyHasPlanSms) {
+            const current = await creditRules.getBalances(orgId);
+            if (current.sms === 0) {
+              const [plan] = await db
+                .select()
+                .from(billingPlans)
+                .where(eq(billingPlans.code, sub.planCode))
+                .limit(1);
+              const smsQty =
+                sub.cycle === "yearly"
+                  ? plan?.smsPerYear || 0
+                  : (plan?.smsPerYear || 0) > 0
+                    ? Math.max(1, Math.floor((plan?.smsPerYear || 0) / 12))
+                    : 0;
+              if (smsQty > 0) {
+                await creditRules.grantPdfCredits({
+                  organizationId: orgId,
+                  kind: "sms",
+                  quantity: smsQty,
+                  source: "plan_inclusion",
+                  expiresAt: sub.periodEnd || null,
+                  metadata: {
+                    grantKey: creditRules.planSmsBackfillGrantKey(sub.stripeSubscriptionId),
+                    planCode: sub.planCode,
+                    cycle: sub.cycle,
+                    planInclusion: true,
+                    backfill: true,
+                  },
+                });
+              }
             }
           }
         } catch (e) {
@@ -138,6 +165,7 @@ export function registerBillingCatalogRoutes(app: Express) {
         settings: settings ?? null,
         balances,
         selfServeEnabled: await catalog.isSelfServeEnabled(),
+        companyModuleAccess,
       });
     } catch (error) {
       console.error("[billing] v2 subscription failed:", error);

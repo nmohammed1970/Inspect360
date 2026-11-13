@@ -10,7 +10,7 @@ import {
 } from "@shared/billingCatalogSchema";
 import { storage as appStorage } from "../storage";
 import * as catalog from "./catalogService";
-import { grantPdfCredits, grantPlanIncludedCredits } from "./creditRules";
+import { grantPdfCredits } from "./creditRules";
 
 function requireUrl(url: string, label: string) {
   if (!url || !/^https?:\/\//i.test(url)) {
@@ -113,6 +113,27 @@ export async function createCheckoutSession(input: {
 }) {
   requireUrl(input.successUrl, "successUrl");
   requireUrl(input.cancelUrl, "cancelUrl");
+
+  // Existing paid/trial subscribers must change plan in-place — a second Checkout
+  // session creates a duplicate Stripe subscription and often fails payment.
+  const [existingSub] = await db
+    .select()
+    .from(billingSubscriptions)
+    .where(eq(billingSubscriptions.organizationId, input.organizationId))
+    .limit(1);
+  if (
+    existingSub?.stripeSubscriptionId &&
+    (existingSub.status === "active" || existingSub.status === "trialing") &&
+    existingSub.planCode &&
+    existingSub.planCode !== "pending"
+  ) {
+    const err: any = new Error(
+      "You already have an active subscription. Use change-plan to upgrade or downgrade.",
+    );
+    err.status = 409;
+    err.code = "USE_CHANGE_PLAN";
+    throw err;
+  }
 
   const [plan] = await db
     .select()
@@ -475,16 +496,8 @@ export async function applyCheckoutCompletedFromStripe(session: any) {
         },
       });
 
-    // Grant plan-included inspections + SMS (e.g. Essentials yearly = 75 insp + 100 SMS).
-    // Idempotent via grantKey so retries / invoice.paid renewals do not double-grant.
-    await grantPlanIncludedCredits({
-      organizationId: orgId,
-      planCode,
-      cycle,
-      expiresAt: cycle === "yearly" ? null : trialEnd,
-      grantKey: `checkout:${session.id}`,
-    });
-
+    // Trial start: ONLY trial-bonus credits (config-driven). Plan inclusion is granted
+    // when Stripe bills after trial ends (invoice.paid / subscription → active).
     // AI Inspections plans cannot use Property Internal Modules — force them OFF.
     try {
       const { enforceAiPlanCompanyModuleLocks } = await import("./companyModulePlanLocks");
@@ -493,27 +506,43 @@ export async function applyCheckoutCompletedFromStripe(session: any) {
       console.error("[Checkout] AI plan company-module lock failed:", lockErr);
     }
 
-    // Small trial bonus on top of plan inclusion (config-driven; 0 disables)
     const inspBonus = Number(await catalog.getConfigValue("trial_inspection_credits", "0"));
     const smsBonus = Number(await catalog.getConfigValue("trial_sms_credits", "0"));
-    if (inspBonus > 0) {
+    const existingBatches = await appStorage.getCreditBatchesByOrganization(orgId);
+    const hasGrantKey = (key: string) =>
+      existingBatches.some((b: any) => {
+        const meta = (b.metadataJson || {}) as Record<string, unknown>;
+        return meta.grantKey === key;
+      });
+
+    if (inspBonus > 0 && !hasGrantKey(`trial:${session.id}:inspection`)) {
       await grantPdfCredits({
         organizationId: orgId,
         kind: "inspection",
         quantity: inspBonus,
         source: "plan_inclusion",
         expiresAt: trialEnd,
-        metadata: { trial: true, sessionId: session.id, bonus: true },
+        metadata: {
+          trial: true,
+          sessionId: session.id,
+          bonus: true,
+          grantKey: `trial:${session.id}:inspection`,
+        },
       });
     }
-    if (smsBonus > 0) {
+    if (smsBonus > 0 && !hasGrantKey(`trial:${session.id}:sms`)) {
       await grantPdfCredits({
         organizationId: orgId,
         kind: "sms",
         quantity: smsBonus,
         source: "plan_inclusion",
         expiresAt: trialEnd,
-        metadata: { trial: true, sessionId: session.id, bonus: true },
+        metadata: {
+          trial: true,
+          sessionId: session.id,
+          bonus: true,
+          grantKey: `trial:${session.id}:sms`,
+        },
       });
     }
 
