@@ -56,20 +56,20 @@ export default function HmoEvidencePublic() {
 
   return (
     <div className={`${pagePad} max-w-lg mx-auto`} data-testid="hmo-evidence-public">
-      <Card>
-        <CardHeader>
-          <CardTitle>Upload evidence</CardTitle>
-          <CardDescription>
-            This is a secure one-off link. You only upload the requested document — you cannot see
-            other property information.
+      <Card className="shadow-none">
+        <CardHeader className="space-y-2">
+          <CardTitle className="text-xl">Upload evidence</CardTitle>
+          <CardDescription className="text-sm leading-relaxed">
+            This is a secure one-off link from your property manager. Upload only the requested
+            document — you cannot see other property information.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-5">
           {isLoading && <p className="text-sm text-muted-foreground">Checking your link…</p>}
           {error && (
-            <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2.5">
+            <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3">
               <p className="text-sm font-medium text-rose-900">Link unavailable</p>
-              <p className="text-sm text-rose-800 mt-1">
+              <p className="text-sm text-rose-800 mt-1 leading-relaxed">
                 {(error as Error).message || "This evidence link is invalid or has expired."}
               </p>
             </div>
@@ -77,12 +77,14 @@ export default function HmoEvidencePublic() {
           {data && !submitted && (
             <>
               {data.requestTemplate && (
-                <div className="rounded-lg border bg-muted/40 px-3 py-2.5">
-                  <p className="text-xs font-medium text-muted-foreground mb-1">What is needed</p>
-                  <p className="text-sm whitespace-pre-wrap">{data.requestTemplate}</p>
+                <div className="rounded-xl border bg-muted/40 px-4 py-3 space-y-1">
+                  <p className="text-sm font-medium">What is needed</p>
+                  <p className="text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed">
+                    {data.requestTemplate}
+                  </p>
                 </div>
               )}
-              <p className="text-xs text-muted-foreground">
+              <p className="text-sm text-muted-foreground">
                 Link expires {formatHmoDate(data.expiryAt)}
                 {data.expiryAt
                   ? ` · ${new Date(data.expiryAt).toLocaleTimeString([], {
@@ -136,11 +138,11 @@ export default function HmoEvidencePublic() {
             </>
           )}
           {submitted && (
-            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-3 space-y-2">
-              <p className="text-sm font-medium text-emerald-900">Thank you</p>
-              <p className="text-sm text-emerald-800">
-                Your file was received. The property team will review it and may contact you if
-                anything else is needed.
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-4 space-y-1">
+              <p className="text-sm font-semibold text-emerald-900">Thank you — file received</p>
+              <p className="text-sm text-emerald-800 leading-relaxed">
+                The property team will review it and may contact you if anything else is needed.
+                You can close this page.
               </p>
             </div>
           )}

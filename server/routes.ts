@@ -388,7 +388,7 @@ function detectImageMimeType(buffer: Buffer): string {
     Array.from(buffer.slice(0, 8)).map(b => `0x${b.toString(16).padStart(2, '0')}`).join(' '));
   return 'image/jpeg';
 }
-import { setupAuth, isAuthenticated, requireRole, requireCompanyModule, hashPassword, comparePasswords, consumeAuthRateLimit } from "./auth";
+import { setupAuth, isAuthenticated, isAdminAuthenticated, requireRole, requireCompanyModule, hashPassword, comparePasswords, consumeAuthRateLimit } from "./auth";
 import { isCompanyModuleEnabled, normalizeCompanyModuleFlags, reportModuleSurfaces } from "@shared/companyModules";
 import { validateNewPassword } from "@shared/passwordPolicy";
 import {
@@ -455,7 +455,6 @@ function safeErrorLog(message: string, error: any): void {
 }
 import { devRouter } from "./devRoutes";
 import { sendInspectionCompleteEmail, sendTeamWorkOrderNotification, sendContractorWorkOrderNotification, sendComparisonReportToFinance } from "./resend";
-import { DEFAULT_TEMPLATES } from "./defaultTemplates";
 import { generateInspectionPDF } from "./pdfService";
 import {
   buildInspectionPdfCacheKey,
@@ -1743,23 +1742,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.error("Warning: Failed to record trial creation:", auditError);
       }
 
-      // Create default inspection templates (Check In and Check Out)
+      // Create default inspection templates from platform catalog
       // Use defensive error handling so org creation succeeds even if template seeding fails
       try {
-        for (const template of DEFAULT_TEMPLATES) {
-          await storage.createInspectionTemplate({
-            organizationId: organization.id,
-            name: template.name,
-            description: template.description,
-            scope: template.scope,
-            version: 1,
-            isActive: true,
-            structureJson: template.structureJson,
-            categoryId: template.categoryId,
-            createdBy: userId,
-          });
-        }
-        console.log(`✓ Created ${DEFAULT_TEMPLATES.length} default templates for organization ${organization.id}`);
+        const { seedOrganizationFromCatalog } = await import("./platformTemplatesService");
+        const created = await seedOrganizationFromCatalog(organization.id, userId);
+        console.log(`✓ Created ${created} catalog templates for organization ${organization.id}`);
       } catch (templateError) {
         // Log the error but don't fail the entire organization creation
         console.error("Warning: Failed to create default templates, but organization was created successfully:", templateError);
@@ -1866,6 +1854,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await storage.getUser(userId);
       if (!user?.organizationId || user.organizationId !== organizationId) {
         return res.status(403).json({ message: "Access denied" });
+      }
+
+      // AI Inspections plans keep Internal Modules forced OFF in DB + responses.
+      try {
+        const { enforceAiPlanCompanyModuleLocks } = await import(
+          "./billing/companyModulePlanLocks"
+        );
+        await enforceAiPlanCompanyModuleLocks(organizationId);
+      } catch (lockErr) {
+        console.error("[organizations] AI plan module lock failed:", lockErr);
       }
 
       const organization = await storage.getOrganization(organizationId);
@@ -2101,8 +2099,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         checkInApprovalPeriodDays
       } = req.body;
 
+      const currentOrg = await storage.getOrganization(organizationId);
+      const {
+        getCompanyModulePlanContext,
+      } = await import("./billing/companyModulePlanLocks");
+      const { isCompanyModuleEnabled } = await import("@shared/companyModules");
+      const plan = await getCompanyModulePlanContext(organizationId);
+      const tenanciesOn = isCompanyModuleEnabled(currentOrg, "tenancies", {
+        planCode: plan.planCode,
+        planStatus: plan.planStatus,
+      });
+
+      // Community follows Tenancies — never persist Community ON while Tenancies is OFF
+      let communityEnabled =
+        typeof tenantPortalCommunityEnabled === "boolean"
+          ? tenantPortalCommunityEnabled
+          : undefined;
+      if (communityEnabled === true && !tenanciesOn) {
+        communityEnabled = false;
+      }
+
       const organization = await storage.updateOrganization(organizationId, {
-        tenantPortalCommunityEnabled: typeof tenantPortalCommunityEnabled === 'boolean' ? tenantPortalCommunityEnabled : undefined,
+        tenantPortalCommunityEnabled: communityEnabled,
         tenantPortalComparisonEnabled: typeof tenantPortalComparisonEnabled === 'boolean' ? tenantPortalComparisonEnabled : undefined,
         tenantPortalChatbotEnabled: typeof tenantPortalChatbotEnabled === 'boolean' ? tenantPortalChatbotEnabled : undefined,
         tenantPortalMaintenanceEnabled: typeof tenantPortalMaintenanceEnabled === 'boolean' ? tenantPortalMaintenanceEnabled : undefined,
@@ -2125,6 +2143,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await storage.getUser(userId);
       if (!user?.organizationId || user.organizationId !== organizationId) {
         return res.status(403).json({ message: "Access denied" });
+      }
+
+      const {
+        getCompanyModulePlanContext,
+        enforceAiPlanCompanyModuleLocks,
+      } = await import("./billing/companyModulePlanLocks");
+      const {
+        PROPERTY_BUNDLE_UPGRADE_MESSAGE,
+        aiPlanForcedCompanyModuleFlags,
+      } = await import("@shared/companyModules");
+      const plan = await getCompanyModulePlanContext(organizationId);
+      if (plan.locked) {
+        await enforceAiPlanCompanyModuleLocks(organizationId);
+        const tryingToEnable =
+          req.body?.rentalsEnabled === true ||
+          req.body?.tenanciesEnabled === true ||
+          req.body?.complianceEnabled === true ||
+          req.body?.maintenanceEnabled === true ||
+          req.body?.hmoComplianceEnabled === true;
+        if (tryingToEnable) {
+          return res.status(403).json({
+            message: PROPERTY_BUNDLE_UPGRADE_MESSAGE,
+            code: "PROPERTY_PLAN_REQUIRED",
+          });
+        }
+        const organization = await storage.updateOrganization(
+          organizationId,
+          aiPlanForcedCompanyModuleFlags(),
+        );
+        return res.json(organization);
       }
 
       const {
@@ -5236,6 +5284,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (!user?.organizationId) {
         return res.status(400).json({ message: "User must belong to an organization" });
+      }
+
+      try {
+        const { assertCanAddProperty } = await import("./billing/planLimits");
+        const limit = await assertCanAddProperty(user.organizationId);
+        if (!limit.ok) {
+          return res.status(403).json({
+            message: limit.message,
+            code: limit.code,
+            action: limit.action,
+            max: limit.max,
+            current: limit.current,
+          });
+        }
+      } catch (limitErr) {
+        console.warn("[properties] limit check skipped:", limitErr);
       }
 
       // Validate request body
@@ -8695,6 +8759,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Update inspection with credit info
           updates.creditsConsumed = creditsNeeded;
           updates.imagesCount = imageCount;
+
+          try {
+            const { notifyLowBalanceIfNeeded } = await import("./billing/creditRules");
+            await notifyLowBalanceIfNeeded(ownerOrgId);
+          } catch {
+            /* non-fatal */
+          }
         } catch (creditError: any) {
           console.error('[Complete Inspection] Failed to check/consume credits:', creditError);
           // If insufficient credits or any credit-related error, block completion
@@ -8888,16 +8959,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Update inspection with credit info
           updates.creditsConsumed = creditsNeeded;
           updates.imagesCount = imageCount;
+
+          try {
+            const { notifyLowBalanceIfNeeded } = await import("./billing/creditRules");
+            await notifyLowBalanceIfNeeded(ownerOrgId);
+          } catch {
+            /* non-fatal */
+          }
         } catch (creditError: any) {
           console.error('[PUT Complete] Failed to check/consume credits:', creditError);
-          // If insufficient credits or any credit-related error, block completion
           if (creditError.message.includes("Insufficient credits") || creditError.message.includes("No subscription found")) {
             return res.status(402).json({
               message: "No credits available for inspection. Please subscribe to a plan to get inspection credits.",
               error: "insufficient_credits"
             });
           }
-          // For other errors, also block to be safe
           return res.status(402).json({
             message: "No credits available for inspection. Please subscribe to a plan to get inspection credits.",
             error: "insufficient_credits"
@@ -9060,6 +9136,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
             creditsConsumed: creditsNeeded,
             imagesCount: imageCount
           } as any);
+
+          try {
+            const { notifyLowBalanceIfNeeded } = await import("./billing/creditRules");
+            await notifyLowBalanceIfNeeded(ownerOrgId);
+          } catch {
+            /* non-fatal */
+          }
         } catch (creditError: any) {
           console.error('[Update Status] Failed to check/consume credits:', creditError);
           // If insufficient credits or any credit-related error, block completion
@@ -21065,6 +21148,11 @@ ${optionalNotes || "No details provided."}`;
   const { registerHmoRoutes } = await import("./hmo/routes");
   registerHmoRoutes(app);
 
+  const { registerBillingCatalogRoutes } = await import("./billing/registerBillingRoutes");
+  registerBillingCatalogRoutes(app);
+  const { registerAdminInspectionTemplateRoutes } = await import("./adminInspectionTemplateRoutes");
+  registerAdminInspectionTemplateRoutes(app, isAdminAuthenticated);
+
   // Admin Login
   app.post("/api/admin/login", async (req, res) => {
     try {
@@ -21081,19 +21169,15 @@ ${optionalNotes || "No details provided."}`;
 
       if (!adminUser) {
         console.error(`[Admin Login] Admin user not found for email: ${normalizedEmail}`);
-        return res.status(401).json({ message: "Invalid credentials" });
+        return res.status(401).json({
+          message: "Invalid username. Please try again or register.",
+        });
       }
 
-      // Log for debugging (remove in production)
-      console.log(`[Admin Login] Retrieved password hash length: ${adminUser.password.length}, starts with: ${adminUser.password.substring(0, 10)}`);
-      console.log(`[Admin Login] Password hash format: ${adminUser.password.startsWith("$2") ? "bcrypt" : adminUser.password.includes(".") ? "scrypt" : "unknown"}`);
-
-      // Use comparePasswords which supports both scrypt (from hashPassword) and bcrypt formats
       const isValidPassword = await comparePasswords(password, adminUser.password);
-
       if (!isValidPassword) {
         console.error(`[Admin Login] Invalid password for admin: ${normalizedEmail}`);
-        return res.status(401).json({ message: "Invalid credentials" });
+        return res.status(401).json({ message: "Invalid password." });
       }
 
       console.log(`[Admin Login] Successful login for admin: ${normalizedEmail}`);
@@ -24002,7 +24086,21 @@ ${optionalNotes || "No details provided."}`;
       switch (event.type) {
         case "checkout.session.completed": {
           const session = event.data.object;
-          const { organizationId, planId, includedCredits, topupOrderId, packSize } = session.metadata;
+
+          // Nov 2026 self-serve catalog (billingV2) — idempotent handler
+          if (session?.metadata?.billingV2 === "true") {
+            try {
+              const { processBillingV2WebhookEvent } = await import("./billing/stripeWebhookService");
+              await processBillingV2WebhookEvent(event);
+              console.log(`[Stripe Webhook] billingV2 checkout handled: ${session.id}`);
+            } catch (v2Err: any) {
+              console.error(`[Stripe Webhook] billingV2 checkout failed:`, v2Err);
+              throw v2Err;
+            }
+            break;
+          }
+
+          const { organizationId, planId, includedCredits, topupOrderId, packSize } = session.metadata || {};
 
           console.log(`[Stripe Webhook] Checkout completed:`, {
             organizationId,
@@ -24487,6 +24585,14 @@ ${optionalNotes || "No details provided."}`;
         }
 
         case "invoice.paid": {
+          {
+            const { processBillingV2WebhookEvent } = await import("./billing/stripeWebhookService");
+            const v2 = await processBillingV2WebhookEvent(event);
+            if (v2.handled) {
+              console.log(`[Stripe Webhook] billingV2 invoice.paid handled (duplicate=${!!v2.duplicate})`);
+              break;
+            }
+          }
           const invoice = event.data.object;
 
           if (invoice.subscription) {
@@ -25642,6 +25748,14 @@ ${optionalNotes || "No details provided."}`;
         }
 
         case "invoice.payment_failed": {
+          {
+            const { processBillingV2WebhookEvent } = await import("./billing/stripeWebhookService");
+            const v2 = await processBillingV2WebhookEvent(event);
+            if (v2.handled) {
+              console.log(`[Stripe Webhook] billingV2 invoice.payment_failed handled`);
+              break;
+            }
+          }
           const invoice = event.data.object;
 
           if (invoice.subscription) {
@@ -25776,6 +25890,14 @@ ${optionalNotes || "No details provided."}`;
         }
 
         case "customer.subscription.updated": {
+          {
+            const { processBillingV2WebhookEvent } = await import("./billing/stripeWebhookService");
+            const v2 = await processBillingV2WebhookEvent(event);
+            if (v2.handled) {
+              console.log(`[Stripe Webhook] billingV2 subscription.updated handled`);
+              break;
+            }
+          }
           const subscription = event.data.object;
           const dbSubscription = await storage.getSubscriptionByStripeId(subscription.id);
 
@@ -25921,6 +26043,14 @@ ${optionalNotes || "No details provided."}`;
         }
 
         case "customer.subscription.deleted": {
+          {
+            const { processBillingV2WebhookEvent } = await import("./billing/stripeWebhookService");
+            const v2 = await processBillingV2WebhookEvent(event);
+            if (v2.handled) {
+              console.log(`[Stripe Webhook] billingV2 subscription.deleted handled`);
+              break;
+            }
+          }
           const subscription = event.data.object;
           const dbSubscription = await storage.getSubscriptionByStripeId(subscription.id);
 
@@ -31699,20 +31829,24 @@ You can help the tenant with:
 
       if (!user) {
         console.log(`[Tenant Login] User not found for email: ${normalizedEmail}`);
-        return res.status(401).json({ message: "Invalid credentials or not a tenant account" });
+        return res.status(401).json({
+          message: "Invalid username. Please try again or register.",
+        });
       }
 
       console.log(`[Tenant Login] User found: ${user.id}, role: ${user.role}, isActive: ${user.isActive}, hasPassword: ${!!user.password}`);
 
       if (user.role !== "tenant") {
         console.log(`[Tenant Login] User role is '${user.role}', expected 'tenant'`);
-        return res.status(401).json({ message: "Invalid credentials or not a tenant account" });
+        return res.status(401).json({
+          message: "Invalid username. Please try again or register.",
+        });
       }
 
       // Check if user has a password set
       if (!user.password) {
         console.warn(`[Tenant Login] User ${user.id} (${user.email}) has no password set`);
-        return res.status(401).json({ message: "Invalid credentials" });
+        return res.status(401).json({ message: "Invalid password." });
       }
 
       // Verify password - this is the same password that was set during tenant creation
@@ -31720,7 +31854,7 @@ You can help the tenant with:
 
       if (!isValid) {
         console.log(`[Tenant Login] Password mismatch for user: ${user.email}`);
-        return res.status(401).json({ message: "Invalid credentials" });
+        return res.status(401).json({ message: "Invalid password." });
       }
 
       if (!user.isActive) {
@@ -36802,7 +36936,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   // ==================== COMMUNITY DISCUSSION ROUTES ====================
 
   // Get community rules for tenant
-  app.get("/api/tenant-portal/community/rules", async (req, res) => {
+  app.get("/api/tenant-portal/community/rules", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || req.user?.role !== "tenant") {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -36829,7 +36963,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Accept community rules
-  app.post("/api/tenant-portal/community/rules/accept", async (req, res) => {
+  app.post("/api/tenant-portal/community/rules/accept", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || req.user?.role !== "tenant") {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -36860,7 +36994,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Get community groups for tenant's block
-  app.get("/api/tenant-portal/community/groups", async (req, res) => {
+  app.get("/api/tenant-portal/community/groups", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || req.user?.role !== "tenant") {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -36892,7 +37026,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Get a single community group
-  app.get("/api/tenant-portal/community/groups/:id", async (req, res) => {
+  app.get("/api/tenant-portal/community/groups/:id", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || req.user?.role !== "tenant") {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -36919,7 +37053,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Create a new community group (requires rule acceptance)
-  app.post("/api/tenant-portal/community/groups", async (req, res) => {
+  app.post("/api/tenant-portal/community/groups", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || req.user?.role !== "tenant") {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37001,7 +37135,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Join a community group
-  app.post("/api/tenant-portal/community/groups/:id/join", async (req, res) => {
+  app.post("/api/tenant-portal/community/groups/:id/join", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || req.user?.role !== "tenant") {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37037,7 +37171,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Leave a community group
-  app.post("/api/tenant-portal/community/groups/:id/leave", async (req, res) => {
+  app.post("/api/tenant-portal/community/groups/:id/leave", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || req.user?.role !== "tenant") {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37053,7 +37187,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Get threads in a group
-  app.get("/api/tenant-portal/community/groups/:id/threads", async (req, res) => {
+  app.get("/api/tenant-portal/community/groups/:id/threads", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || req.user?.role !== "tenant") {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37092,7 +37226,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Get a single thread with its posts
-  app.get("/api/tenant-portal/community/threads/:id", async (req, res) => {
+  app.get("/api/tenant-portal/community/threads/:id", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || req.user?.role !== "tenant") {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37152,7 +37286,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Create a new thread
-  app.post("/api/tenant-portal/community/groups/:id/threads", async (req, res) => {
+  app.post("/api/tenant-portal/community/groups/:id/threads", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || req.user?.role !== "tenant") {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37214,7 +37348,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Create a post (reply) in a thread
-  app.post("/api/tenant-portal/community/threads/:id/posts", async (req, res) => {
+  app.post("/api/tenant-portal/community/threads/:id/posts", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || req.user?.role !== "tenant") {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37279,7 +37413,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Flag content
-  app.post("/api/tenant-portal/community/flag", async (req, res) => {
+  app.post("/api/tenant-portal/community/flag", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || req.user?.role !== "tenant") {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37310,7 +37444,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   // ==================== OPERATOR COMMUNITY MODERATION ROUTES ====================
 
   // Get/update community rules (operator)
-  app.get("/api/community/rules", async (req, res) => {
+  app.get("/api/community/rules", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || !["owner", "clerk"].includes(req.user?.role || "")) {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37325,7 +37459,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
     }
   });
 
-  app.post("/api/community/rules", async (req, res) => {
+  app.post("/api/community/rules", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || req.user?.role !== "owner") {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37345,7 +37479,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Get pending groups count for operator dashboard
-  app.get("/api/community/pending-count", async (req, res) => {
+  app.get("/api/community/pending-count", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || !["owner", "clerk"].includes(req.user?.role || "")) {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37361,7 +37495,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Get all groups for moderation (operator)
-  app.get("/api/community/groups", async (req, res) => {
+  app.get("/api/community/groups", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || !["owner", "clerk"].includes(req.user?.role || "")) {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37390,7 +37524,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Approve/reject a group (operator)
-  app.patch("/api/community/groups/:id", async (req, res) => {
+  app.patch("/api/community/groups/:id", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || !["owner", "clerk"].includes(req.user?.role || "")) {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37455,7 +37589,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Get flagged content (operator)
-  app.get("/api/community/flags", async (req, res) => {
+  app.get("/api/community/flags", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || !["owner", "clerk"].includes(req.user?.role || "")) {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37492,7 +37626,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Resolve a flag (operator)
-  app.post("/api/community/flags/:id/resolve", async (req, res) => {
+  app.post("/api/community/flags/:id/resolve", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || !["owner", "clerk"].includes(req.user?.role || "")) {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37530,7 +37664,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Moderate thread/post directly (operator)
-  app.patch("/api/community/threads/:id/moderate", async (req, res) => {
+  app.patch("/api/community/threads/:id/moderate", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || !["owner", "clerk"].includes(req.user?.role || "")) {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37575,7 +37709,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
     }
   });
 
-  app.patch("/api/community/posts/:id/moderate", async (req, res) => {
+  app.patch("/api/community/posts/:id/moderate", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || !["owner", "clerk"].includes(req.user?.role || "")) {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37619,7 +37753,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Operator create group (auto-approved)
-  app.post("/api/community/groups", async (req, res) => {
+  app.post("/api/community/groups", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || !["owner", "clerk"].includes(req.user?.role || "")) {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37697,7 +37831,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Operator get group threads
-  app.get("/api/community/groups/:id/threads", async (req, res) => {
+  app.get("/api/community/groups/:id/threads", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || !["owner", "clerk"].includes(req.user?.role || "")) {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37729,7 +37863,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Operator create thread
-  app.post("/api/community/groups/:id/threads", async (req, res) => {
+  app.post("/api/community/groups/:id/threads", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || !["owner", "clerk"].includes(req.user?.role || "")) {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37762,7 +37896,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Operator get thread with posts
-  app.get("/api/community/threads/:id", async (req, res) => {
+  app.get("/api/community/threads/:id", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || !["owner", "clerk"].includes(req.user?.role || "")) {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37813,7 +37947,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Operator create post
-  app.post("/api/community/threads/:id/posts", async (req, res) => {
+  app.post("/api/community/threads/:id/posts", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || !["owner", "clerk"].includes(req.user?.role || "")) {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37850,7 +37984,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Get moderation log (operator)
-  app.get("/api/community/moderation-log", async (req, res) => {
+  app.get("/api/community/moderation-log", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || !["owner", "clerk"].includes(req.user?.role || "")) {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37876,7 +38010,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Get blocked tenants list (operator)
-  app.get("/api/community/blocked-tenants", async (req, res) => {
+  app.get("/api/community/blocked-tenants", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || !["owner", "clerk"].includes(req.user?.role || "")) {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37905,7 +38039,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Block a tenant (operator)
-  app.post("/api/community/blocked-tenants", async (req, res) => {
+  app.post("/api/community/blocked-tenants", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || !["owner", "clerk"].includes(req.user?.role || "")) {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37949,7 +38083,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Unblock a tenant (operator)
-  app.delete("/api/community/blocked-tenants/:tenantUserId", async (req, res) => {
+  app.delete("/api/community/blocked-tenants/:tenantUserId", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || !["owner", "clerk"].includes(req.user?.role || "")) {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37978,7 +38112,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Check if current user (tenant) is blocked
-  app.get("/api/community/am-i-blocked", async (req, res) => {
+  app.get("/api/community/am-i-blocked", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).json({ message: "Unauthorized" });
     }

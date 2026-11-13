@@ -4281,6 +4281,13 @@ export class DatabaseStorage implements IStorage {
     let earliestExpiry: Date | null = null;
 
     for (const batch of batches) {
+      // SMS credits are a separate balance (Nov 2026); exclude from inspection totals
+      const kind =
+        (batch as any).creditKind ||
+        batch.metadataJson?.creditKind ||
+        batch.metadataJson?.kind;
+      if (kind === "sms") continue;
+
       total += batch.remainingQuantity;
       if (batch.rolled) {
         rolled += batch.remainingQuantity;

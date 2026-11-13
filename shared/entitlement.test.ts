@@ -11,6 +11,7 @@ import {
   addDaysUtc,
   computeExtendedTrialEnd,
   daysRemainingUntil,
+  isCaptureAllowedWhenCreditsExpired,
   isLockedApiPath,
   isLockedAppPath,
   parseCreditExpiryInput,
@@ -283,6 +284,23 @@ assert(!parseCreditExpiryInput("2020-01-01", now).ok, "past expiry rejected");
 // Route isolation
 assert(isLockedApiPath("/api/properties"), "properties locked");
 assert(isLockedApiPath("/api/properties/abc"), "property id locked");
+
+assert(
+  isCaptureAllowedWhenCreditsExpired("POST", "/api/inspections/abc/entries"),
+  "capture entries allowed when credits expired",
+);
+assert(
+  isCaptureAllowedWhenCreditsExpired("POST", "/api/objects/upload"),
+  "object upload allowed when credits expired",
+);
+assert(
+  !isCaptureAllowedWhenCreditsExpired("POST", "/api/inspections/abc/generate-ai"),
+  "AI generate blocked when credits expired",
+);
+assert(
+  isCaptureAllowedWhenCreditsExpired("GET", "/api/inspections/abc"),
+  "GET inspection allowed when credits expired",
+);
 assert(isLockedApiPath("/api/blocks"), "blocks locked");
 assert(isLockedApiPath("/api/inspections/1/complete"), "inspection action locked");
 assert(isLockedApiPath("/api/comparison-reports"), "comparison reports locked");

@@ -11,9 +11,15 @@ import { storage } from "./storage";
 import { User as DbUser, registerUserSchema, loginUserSchema } from "@shared/schema";
 import { buildOwnerUsername, withUsernameCollisionSuffix } from "@shared/username";
 import { billingNowUtc } from "@shared/billingClock";
-import { addDaysUtc, isLockedApiPath, lockPayload } from "@shared/entitlements";
+import {
+  addDaysUtc,
+  isCaptureAllowedWhenCreditsExpired,
+  isLockedApiPath,
+  lockPayload,
+} from "@shared/entitlements";
 import {
   COMPANY_MODULE_META,
+  PROPERTY_BUNDLE_UPGRADE_MESSAGE,
   isCompanyModuleEnabled,
   type CompanyModuleKey,
 } from "@shared/companyModules";
@@ -243,18 +249,20 @@ export async function setupAuth(app: Express) {
           const normalizedEmail = email.toLowerCase().trim();
           const user = await storage.getUserByEmail(normalizedEmail);
           if (!user) {
-            return done(null, false, { message: "Invalid email or password" });
+            return done(null, false, {
+              message: "Invalid username. Please try again or register.",
+            });
           }
 
           // Check if user has a password set
           if (!user.password) {
             console.warn(`User ${user.id} (${user.email}) has no password set`);
-            return done(null, false, { message: "Invalid email or password" });
+            return done(null, false, { message: "Invalid password." });
           }
 
           const isValid = await comparePasswords(password, user.password);
           if (!isValid) {
-            return done(null, false, { message: "Invalid email or password" });
+            return done(null, false, { message: "Invalid password." });
           }
 
           // Check if user account is active
@@ -456,23 +464,11 @@ export async function setupAuth(app: Express) {
             console.error("Warning: Failed to enable trial modules:", moduleError);
           }
 
-          // Create default inspection templates
+          // Create default inspection templates from platform catalog
           try {
-            const { DEFAULT_TEMPLATES } = await import('./defaultTemplates');
-            for (const template of DEFAULT_TEMPLATES) {
-              await storage.createInspectionTemplate({
-                organizationId: organization.id,
-                name: template.name,
-                description: template.description,
-                scope: template.scope,
-                version: 1,
-                isActive: true,
-                structureJson: template.structureJson,
-                categoryId: template.categoryId,
-                createdBy: user.id,
-              });
-            }
-            console.log(`✓ Created default templates for new organization ${organization.id}`);
+            const { seedOrganizationFromCatalog } = await import("./platformTemplatesService");
+            const created = await seedOrganizationFromCatalog(organization.id, user.id);
+            console.log(`✓ Created ${created} catalog templates for new organization ${organization.id}`);
           } catch (templateError) {
             console.error("Warning: Failed to create default templates:", templateError);
           }
@@ -594,7 +590,7 @@ export async function setupAuth(app: Express) {
         }
         if (!user) {
           return res.status(401).json({
-            message: info?.message || "Invalid email or password"
+            message: info?.message || "Invalid username. Please try again or register.",
           });
         }
 
@@ -806,6 +802,14 @@ export async function setupAuth(app: Express) {
   });
 }
 
+/** Platform admin session middleware (req.session.adminUser). */
+export function isAdminAuthenticated(req: any, res: any, next: any) {
+  if (req.session && (req.session as any).adminUser) {
+    return next();
+  }
+  return res.status(401).json({ message: "Unauthorized - Admin access required" });
+}
+
 // Middleware to check if user is authenticated
 export async function isAuthenticated(req: any, res: any, next: any) {
   // If deserialization failed, req.user will be false or undefined
@@ -835,7 +839,15 @@ export async function isAuthenticated(req: any, res: any, next: any) {
           try {
             const access = await getOrganizationAccessStatus(organization.id);
             if (access?.locked && (access.code === "TRIAL_EXPIRED" || access.code === "CREDITS_EXPIRED")) {
-              return res.status(403).json(lockPayload(access.code));
+              // Zero-credit capture: allow uploads / inspection field updates; still block AI
+              if (
+                access.code === "CREDITS_EXPIRED" &&
+                isCaptureAllowedWhenCreditsExpired(req.method || "GET", requestPath)
+              ) {
+                // continue
+              } else {
+                return res.status(403).json(lockPayload(access.code));
+              }
             }
           } catch (error) {
             console.error("[isAuthenticated] Entitlement check failed:", error);
@@ -843,6 +855,27 @@ export async function isAuthenticated(req: any, res: any, next: any) {
               code: "ENTITLEMENT_UNAVAILABLE",
               message: "Unable to verify access. Please try again.",
             });
+          }
+        }
+
+        // Payment failure read-only: view OK, mutations blocked (except billing portal)
+        if (organization) {
+          try {
+            const { isSelfServeEnabled } = await import("./billing/catalogService");
+            const { isOrgReadOnly } = await import("./billing/planLimits");
+            if (
+              (await isSelfServeEnabled()) &&
+              (await isOrgReadOnly(organization.id)) &&
+              !["GET", "HEAD", "OPTIONS"].includes(String(req.method || "").toUpperCase()) &&
+              !requestPath.startsWith("/api/billing/v2/portal")
+            ) {
+              return res.status(403).json({
+                code: "BILLING_READ_ONLY",
+                message: "Account is read-only due to payment failure. Update billing to continue.",
+              });
+            }
+          } catch {
+            /* billing tables may be absent in older envs */
           }
         }
       } catch (error) {
@@ -885,12 +918,25 @@ export function requireCompanyModule(moduleKey: CompanyModuleKey) {
     }
 
     try {
+      const {
+        enforceAiPlanCompanyModuleLocks,
+        getCompanyModulePlanContext,
+      } = await import("./billing/companyModulePlanLocks");
+      await enforceAiPlanCompanyModuleLocks(organizationId);
+      const plan = await getCompanyModulePlanContext(organizationId);
       const org = await storage.getOrganization(organizationId);
-      if (!isCompanyModuleEnabled(org, moduleKey)) {
+      if (
+        !isCompanyModuleEnabled(org, moduleKey, {
+          planCode: plan.planCode,
+          planStatus: plan.planStatus,
+        })
+      ) {
         const label = COMPANY_MODULE_META[moduleKey].label;
         return res.status(403).json({
-          message: `${label} is disabled for your organization`,
-          code: "COMPANY_MODULE_DISABLED",
+          message: plan.locked
+            ? PROPERTY_BUNDLE_UPGRADE_MESSAGE
+            : `${label} is disabled for your organization`,
+          code: plan.locked ? "PROPERTY_PLAN_REQUIRED" : "COMPANY_MODULE_DISABLED",
           module: moduleKey,
         });
       }

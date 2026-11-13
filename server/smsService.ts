@@ -234,6 +234,34 @@ export async function sendTenantSms(input: SendTenantSmsInput): Promise<void> {
       return;
     }
 
+    // SMS credits for orgs on self-serve billing_subscriptions. Insufficient → skip (email fallback).
+    let smsCreditsNeeded = 1;
+    let trackSmsCredits = false;
+    try {
+      const { getOrgBillingSubscription } = await import("./billing/planLimits");
+      const sub = await getOrgBillingSubscription(input.organizationId);
+      if (sub) {
+        const { smsCreditsForMessage, getBalances } = await import("./billing/creditRules");
+        smsCreditsNeeded = smsCreditsForMessage(text);
+        const bal = await getBalances(input.organizationId);
+        trackSmsCredits = true;
+        if (bal.sms < smsCreditsNeeded) {
+          await markSmsLog(claim.id, {
+            status: "skipped_no_credits",
+            lastError: `Insufficient SMS credits (need ${smsCreditsNeeded}, have ${bal.sms})`,
+            recipientPhone: e164,
+          });
+          console.log(
+            `[SMS] skipped_no_credits type=${input.eventType} org=${input.organizationId}`,
+          );
+          return;
+        }
+      }
+    } catch (creditErr: any) {
+      console.warn("[SMS] credit check skipped:", creditErr?.message || creditErr);
+      trackSmsCredits = false;
+    }
+
     const result = await sendTextMagicSms({ to: e164, text });
     if (!result.ok) {
       await markSmsLog(claim.id, {
@@ -245,6 +273,22 @@ export async function sendTenantSms(input: SendTenantSmsInput): Promise<void> {
         `[SMS] Send failed type=${input.eventType} org=${input.organizationId}: ${result.error}`,
       );
       return;
+    }
+
+    if (trackSmsCredits) {
+      try {
+        const { consumeKindCredits } = await import("./billing/creditRules");
+        await consumeKindCredits({
+          organizationId: input.organizationId,
+          kind: "sms",
+          quantity: smsCreditsNeeded,
+          linkedEntityType: "sms_delivery",
+          linkedEntityId: claim.id,
+          notes: `SMS ${input.eventType}`,
+        });
+      } catch (consumeErr: any) {
+        console.error("[SMS] credit consume failed after send:", consumeErr?.message || consumeErr);
+      }
     }
 
     await markSmsLog(claim.id, {

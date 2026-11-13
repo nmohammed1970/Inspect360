@@ -56,7 +56,7 @@ function formatInclusiveUtcDate(iso: string | null | undefined): string {
   });
 }
 import { TagSearch } from "@/components/TagSearch";
-import { BuyCreditsButton, RequestCreditsDialog } from "@/components/RequestCreditsDialog";
+import { BuyCreditsButton } from "@/components/BuyCreditsButton";
 import ComplianceCalendar from "@/components/ComplianceCalendar";
 import ComplianceDocumentCalendar from "@/components/ComplianceDocumentCalendar";
 import { 
@@ -225,8 +225,6 @@ export default function Dashboard() {
   });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState("dashboard");
-  const [creditRequestOpen, setCreditRequestOpen] = useState(false);
-  
   // Inspection Schedule widget filter state
   const [inspectionScheduleBlockId, setInspectionScheduleBlockId] = useState<string>("");
   const [inspectionSchedulePropertyId, setInspectionSchedulePropertyId] = useState<string>("");
@@ -852,10 +850,10 @@ export default function Dashboard() {
                 Your free trial expires in {entitlement.daysRemaining} {entitlement.daysRemaining === 1 ? "day" : "days"}
               </p>
               <p className="text-sm text-muted-foreground">
-                Please contact your administrator to purchase credits to continue using the system.
+                Choose a plan to keep full access after your trial ends.
               </p>
             </div>
-            <BuyCreditsButton onClick={() => setCreditRequestOpen(true)} testId="button-buy-credits-trial" />
+            <BuyCreditsButton testId="button-buy-credits-trial" label="View pricing" />
           </CardContent>
         </Card>
       )}
@@ -865,10 +863,10 @@ export default function Dashboard() {
             <div className="min-w-0">
               <p className="font-semibold text-destructive">Trial Period Ended</p>
               <p className="text-sm text-muted-foreground">
-                Your free trial has ended and some features are currently locked. Please contact your administrator to purchase credits and continue using the system.
+                Your free trial has ended and some features are locked. Subscribe or buy credits to continue.
               </p>
             </div>
-            <BuyCreditsButton onClick={() => setCreditRequestOpen(true)} testId="button-buy-credits-trial-expired" />
+            <BuyCreditsButton testId="button-buy-credits-trial-expired" label="View pricing" />
           </CardContent>
         </Card>
       )}
@@ -880,10 +878,10 @@ export default function Dashboard() {
                 Your credits expire in {entitlement.daysRemaining} {entitlement.daysRemaining === 1 ? "day" : "days"}
               </p>
               <p className="text-sm text-muted-foreground">
-                Your current credits will expire on {formatInclusiveUtcDate(entitlement.creditExpiryAt)}. Please contact your administrator to purchase more credits before they expire.
+                Credits expire on {formatInclusiveUtcDate(entitlement.creditExpiryAt)}. Top up or upgrade before then.
               </p>
             </div>
-            <BuyCreditsButton onClick={() => setCreditRequestOpen(true)} testId="button-buy-credits-expiry" />
+            <BuyCreditsButton testId="button-buy-credits-expiry" label="Buy credits" />
           </CardContent>
         </Card>
       )}
@@ -893,10 +891,10 @@ export default function Dashboard() {
             <div className="min-w-0">
               <p className="font-semibold text-destructive">Credits Expired</p>
               <p className="text-sm text-muted-foreground">
-                Your credits have expired. Some features are currently locked. Please contact your administrator to continue.
+                Your credits have expired and some features are locked. Top up or choose a plan to continue.
               </p>
             </div>
-            <BuyCreditsButton onClick={() => setCreditRequestOpen(true)} testId="button-buy-credits-expired" />
+            <BuyCreditsButton testId="button-buy-credits-expired" label="Buy credits" />
           </CardContent>
         </Card>
       )}
@@ -918,20 +916,18 @@ export default function Dashboard() {
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <Link href="/billing">
-                    <Button size="sm" variant="outline" data-testid="button-view-plan">View Modules</Button>
+                    <Button size="sm" variant="outline" data-testid="button-view-plan">View billing</Button>
                   </Link>
-                  <BuyCreditsButton onClick={() => setCreditRequestOpen(true)} testId="button-buy-credits-low" />
+                  <BuyCreditsButton testId="button-buy-credits-low" />
                 </div>
               </CardContent>
             </Card>
           </TooltipTrigger>
           <TooltipContent>
-            <p>Credits are used for AI features — contact your admin if you need more</p>
+            <p>Credits are used for AI features — top up from Pricing when you need more</p>
           </TooltipContent>
         </UiTooltip>
       )}
-
-      <RequestCreditsDialog open={creditRequestOpen} onOpenChange={setCreditRequestOpen} user={user} />
 
       {/* KPI Cards Row */}
       {visibleWidgets.kpis && (

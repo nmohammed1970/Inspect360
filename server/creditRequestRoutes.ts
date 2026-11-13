@@ -1,24 +1,25 @@
 import type { Express } from "express";
-import { CreditRequestError, countOpenCreditRequests, createCreditRequest, getCreditRequest, grantCreditRequest, listCreditRequests } from "./creditRequestService";
+import {
+  CreditRequestError,
+  countOpenCreditRequests,
+  getCreditRequest,
+  grantCreditRequest,
+  listCreditRequests,
+} from "./creditRequestService";
 
 type Guard = (req: any, res: any, next: any) => void;
 
-function sendError(res: any, error: any) {
-  if (error instanceof CreditRequestError) {
-    return res.status(error.status).json({ message: error.message, field: error.field });
-  }
-  console.error("[CreditRequest]", error);
-  return res.status(500).json({ message: "Unable to submit your credit request. Please try again." });
-}
-
+/**
+ * Customer credit-request submission is retired (self-serve Pricing / Stripe).
+ * Admin list/grant endpoints remain for clearing any legacy open requests.
+ */
 export function registerCreditRequestRoutes(app: Express, isAuthenticated: Guard, isAdminAuthenticated: Guard) {
-  app.post("/api/credit-requests", isAuthenticated, async (req: any, res) => {
-    try {
-      const result = await createCreditRequest(req.user.id, req.body);
-      res.status(result.duplicate ? 200 : 201).json(result);
-    } catch (error) {
-      sendError(res, error);
-    }
+  app.post("/api/credit-requests", isAuthenticated, async (_req: any, res) => {
+    return res.status(410).json({
+      message: "Credit requests are no longer used. Please buy credits or subscribe from Pricing.",
+      code: "CREDIT_REQUESTS_RETIRED",
+      pricingPath: "/pricing",
+    });
   });
 
   app.get("/api/admin/credit-requests/open-count", isAdminAuthenticated, async (_req, res) => {

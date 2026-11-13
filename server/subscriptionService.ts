@@ -2,43 +2,24 @@ import { storage } from "./storage";
 import type { Organization, CreditBatch, InsertCreditBatch, InsertCreditLedger, InstanceSubscription, InstanceAddonPurchase } from "@shared/schema";
 import { creditsConsumed } from "../shared/billingUnits";
 
-/** Lower number = consumed first: bonus → pack/top-up → plan. */
-function creditSourceConsumePriority(source: string | null | undefined): number {
-  switch (source) {
-    case "admin_grant": // signup / welcome bonus
-    case "refund":
-    case "adjustment":
-      return 0;
-    case "addon_pack":
-    case "topup":
-      return 1;
-    case "plan_inclusion":
-      return 2;
-    default:
-      return 1;
-  }
-}
-
+/**
+ * PDF §4: FIFO by earliest expiry first (non-expiring last), then oldest grant.
+ * Source priority is secondary only when expiry ties.
+ */
 function sortBatchesForConsumption(batches: CreditBatch[]): CreditBatch[] {
   return batches.slice().sort((a, b) => {
-    const pa = creditSourceConsumePriority(a.grantSource);
-    const pb = creditSourceConsumePriority(b.grantSource);
-    if (pa !== pb) return pa - pb;
-
-    // Within the same source group: earliest expiry first (non-expiring last), then oldest grant
     const aExp = a.expiresAt ? new Date(a.expiresAt).getTime() : Number.MAX_SAFE_INTEGER;
     const bExp = b.expiresAt ? new Date(b.expiresAt).getTime() : Number.MAX_SAFE_INTEGER;
     if (aExp !== bExp) return aExp - bExp;
-
     return new Date(a.grantedAt).getTime() - new Date(b.grantedAt).getTime();
   });
 }
 
 export class SubscriptionService {
   /**
-   * Calculate credits needed for an inspection based on photo count (BILL-08).
-   * One credit includes up to 300 photos.
-   * creditsConsumed = MAX(1, CEIL(photoCount / 300))
+   * Calculate credits needed for an inspection based on photo count.
+   * One credit includes up to PHOTOS_PER_CREDIT photos (500 per Nov 2026 guide).
+   * creditsConsumed = MAX(1, CEIL(photoCount / PHOTOS_PER_CREDIT))
    */
   calculateInspectionCredits(imageCount: number): number {
     return creditsConsumed(imageCount);
@@ -93,8 +74,15 @@ export class SubscriptionService {
       throw new Error("Quantity must be positive");
     }
 
+    // Inspection consumption must not take SMS batches (credit_kind / metadata)
     const batches = sortBatchesForConsumption(
-      await storage.getAvailableCreditBatches(organizationId),
+      (await storage.getAvailableCreditBatches(organizationId)).filter((b) => {
+        const kind =
+          (b as any).creditKind ||
+          b.metadataJson?.creditKind ||
+          b.metadataJson?.kind;
+        return kind !== "sms";
+      }),
     );
     
     // First, calculate total available credits and plan deductions WITHOUT modifying database
@@ -175,12 +163,24 @@ export class SubscriptionService {
     quantity: number,
     source: "plan_inclusion" | "topup" | "admin_grant" | "addon_pack",
     expiresAt?: Date,
-    metadata?: { subscriptionId?: string; topupOrderId?: string; addonPurchaseId?: string; adminNotes?: string; createdBy?: string; kind?: string },
+    metadata?: {
+      subscriptionId?: string;
+      topupOrderId?: string;
+      addonPurchaseId?: string;
+      adminNotes?: string;
+      createdBy?: string;
+      kind?: string;
+      creditKind?: string;
+      [key: string]: unknown;
+    },
     unitCostMinorUnits?: number
   ): Promise<CreditBatch> {
     if (quantity <= 0) {
       throw new Error("Quantity must be positive");
     }
+
+    const creditKind =
+      metadata?.creditKind === "sms" || metadata?.kind === "sms" ? "sms" : "inspection";
 
     // Create credit batch
     const batch = await storage.createCreditBatch({
@@ -192,8 +192,9 @@ export class SubscriptionService {
       expiresAt: expiresAt ?? null,
       unitCostMinorUnits: unitCostMinorUnits ?? null,
       rolled: false,
+      creditKind,
       metadataJson: metadata ?? null,
-    });
+    } as any);
 
     // Determine linked entity type and ID based on source
     let linkedEntityType = "subscription";

@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Inspect360 — HMO Licence Functionality</title>
+  <style>
+    @page { margin: 18mm 16mm; }
+    body {
+      font-family: "Segoe UI", Calibri, Arial, sans-serif;
+      color: #1a1a1a;
+      line-height: 1.45;
+      font-size: 11pt;
+    }
+    h1 { font-size: 22pt; margin: 0 0 6px; color: #0f3d3e; }
+    h2 { font-size: 14pt; margin: 22px 0 8px; color: #0f3d3e; border-bottom: 1px solid #cde; padding-bottom: 4px; }
+    h3 { font-size: 12pt; margin: 14px 0 6px; color: #1f4f50; }
+    p, li { margin: 0 0 8px; }
+    .meta { color: #555; font-size: 10pt; margin-bottom: 18px; }
+    .note {
+      background: #f4faf9;
+      border-left: 4px solid #0d9488;
+      padding: 10px 12px;
+      margin: 12px 0;
+    }
+    .warn {
+      background: #fff8e8;
+      border-left: 4px solid #d97706;
+      padding: 10px 12px;
+      margin: 12px 0;
+    }
+    table { width: 100%; border-collapse: collapse; margin: 10px 0 14px; font-size: 10pt; }
+    th, td { border: 1px solid #ccd; padding: 6px 8px; vertical-align: top; text-align: left; }
+    th { background: #e8f5f4; }
+    code { font-family: Consolas, monospace; font-size: 9.5pt; background: #f3f4f6; padding: 1px 4px; }
+    ol.steps { padding-left: 20px; }
+    .footer { margin-top: 28px; font-size: 9pt; color: #666; }
+  </style>
+</head>
+<body>
+  <h1>Inspect360 HMO Licence Functionality</h1>
+  <p class="meta">
+    Complete product guide — upload, extract, assess, findings, cases and evidence.<br />
+    Generated for Inspect360 · November 2026
+  </p>
+
+  <div class="note">
+    <strong>Important disclaimer:</strong> HMO assessment in Inspect360 is a
+    <em>document and evidence status</em> workflow. It is <strong>not</strong> a legal
+    compliance certificate and does not prove lawful operation of an HMO.
+  </div>
+
+  <h2>1. Purpose</h2>
+  <p>
+    The HMO Compliance module helps property managers collect HMO licence documents,
+    extract key fields, run rule-based checks against the property record, track gaps
+    in evidence, and open remediation cases when critical issues appear.
+  </p>
+  <p>Typical users: landlords, agents, compliance officers, and Inspect360 admins with HMO permissions.</p>
+
+  <h2>2. Where it lives in the product</h2>
+  <ul>
+    <li><strong>Sidebar:</strong> HMO Compliance (portfolio / cases dashboard)</li>
+    <li><strong>Property page:</strong> HMO panel on a property (upload licence, review extraction, run assessment)</li>
+    <li><strong>Module gate:</strong> Requires the HMO Compliance company module to be enabled for the organisation</li>
+  </ul>
+
+  <h2>3. End-to-end workflow</h2>
+  <ol class="steps">
+    <li><strong>Enable module</strong> — Organisation must have HMO Compliance turned on.</li>
+    <li><strong>Open a property</strong> — Go to the property and use the HMO panel.</li>
+    <li><strong>Upload &amp; extract</strong> — Upload a PDF or image of the HMO licence. The system stores the file and extracts fields into a draft licence version.</li>
+    <li><strong>Review extracted fields</strong> — Check licence number, authority, dates, address, holder, etc. Re-upload if extraction looks wrong.</li>
+    <li><strong>Run assessment</strong> — Runs deterministic licence checks (LIC-01…LIC-05 and related stubs) against the extraction + property record.</li>
+    <li><strong>Review findings &amp; status</strong> — Overall property HMO status and evidence completeness update.</li>
+    <li><strong>Case / tasks (when needed)</strong> — Critical expiry or missing schedules can open an HMO case with remediation tasks.</li>
+    <li><strong>Close the loop</strong> — Upload better evidence, re-assess, complete tasks, and close cases when verified.</li>
+  </ol>
+
+  <h2>4. Upload &amp; extract</h2>
+  <h3>4.1 Accepted files</h3>
+  <p>PDF, JPG/JPEG, PNG, WebP, HEIC/HEIF, GIF, BMP (and plain text for fixtures). Max size typically 25 MB.</p>
+
+  <h3>4.2 What extraction produces</h3>
+  <p>A structured licence extraction object, including:</p>
+  <table>
+    <tr><th>Field</th><th>Meaning</th></tr>
+    <tr><td>Property address</td><td>Address printed on the licence</td></tr>
+    <tr><td>Licence number</td><td>Council licence reference</td></tr>
+    <tr><td>Issuing authority</td><td>Council / borough that issued the licence</td></tr>
+    <tr><td>Issue date / expiry date</td><td>Validity window of the uploaded document</td></tr>
+    <tr><td>Maximum individuals</td><td>Max occupancy stated on the licence (when found)</td></tr>
+    <tr><td>Holder / manager</td><td>Named licence holder or manager</td></tr>
+    <tr><td>Conditions</td><td>Extracted licence conditions (when available)</td></tr>
+    <tr><td>Missing attachments</td><td>Schedules/annexes referenced but not present in the upload</td></tr>
+    <tr><td>Confidence</td><td>Per-field confidence (e.g. Low confidence when OCR fails)</td></tr>
+  </table>
+
+  <h3>4.3 How extraction works</h3>
+  <ul>
+    <li><strong>PDF text:</strong> Text layer parsed from the PDF when available.</li>
+    <li><strong>Images / scans:</strong> Vision / OCR when AI keys are configured.</li>
+    <li><strong>Heuristic + AI parsers:</strong> Map free text into structured fields; content is treated as untrusted data.</li>
+    <li><strong>Versioning:</strong> Each upload creates a licence version (draft → current after confirmation/assessment flow).</li>
+  </ul>
+
+  <div class="warn">
+    If licence number shows <strong>“Not found”</strong> or <strong>Low confidence</strong>, assessment will flag gaps.
+    Prefer a clear multi-page licence PDF (including schedules) before relying on results.
+  </div>
+
+  <h2>5. Run assessment — detailed behaviour</h2>
+  <p>
+    <strong>Run assessment</strong> does <em>not</em> re-read the PDF. It evaluates the
+    already-extracted fields against the property record using fixed rules, then saves:
+  </p>
+  <ul>
+    <li>An <strong>assessment</strong> record</li>
+    <li>Individual <strong>findings</strong> (one per check)</li>
+    <li>Updated <strong>overall status</strong> and <strong>evidence completeness %</strong></li>
+    <li>Optionally an <strong>HMO case</strong> + tasks</li>
+    <li>An <strong>audit event</strong> (<code>assessment.run</code>)</li>
+  </ul>
+
+  <h3>5.1 Licence checks (LIC)</h3>
+  <table>
+    <tr><th>Check</th><th>What it evaluates</th><th>Typical outcomes</th></tr>
+    <tr>
+      <td><strong>LIC-01</strong></td>
+      <td>Address on licence vs property address</td>
+      <td>Match → compliant; postcode-only match → human review; mismatch → critical review (no auto-link)</td>
+    </tr>
+    <tr>
+      <td><strong>LIC-02</strong></td>
+      <td>Licence number + issuing authority present</td>
+      <td>Missing → evidence missing; present → still needs human authenticity review (upload ≠ council verification)</td>
+    </tr>
+    <tr>
+      <td><strong>LIC-03</strong></td>
+      <td>Expiry date vs today</td>
+      <td>Future expiry → document valid window OK; expired → critical review (does not assert unlawful operation); missing date → evidence missing</td>
+    </tr>
+    <tr>
+      <td><strong>LIC-04</strong></td>
+      <td>Licence holder vs landlord/contact on file</td>
+      <td>Missing holder → evidence missing; mismatch → potential risk / review</td>
+    </tr>
+    <tr>
+      <td><strong>LIC-05</strong></td>
+      <td>Referenced schedules/annexes missing from upload</td>
+      <td>Missing attachments → evidence missing (high); none flagged → compliant for this check</td>
+    </tr>
+  </table>
+
+  <h3>5.2 Broader check stubs (not fully assessed yet)</h3>
+  <p>
+    Additional checks are reserved and currently return <strong>EVIDENCE_MISSING</strong>
+    until occupancy/room/amenity/safety data is supplied:
+  </p>
+  <p>
+    OCC-01…03 (occupancy), ROOM-01/02 (room sizes/use), AMEN-01 (amenities),
+    SAF-01 (safety certificates), COND-01 (conditions/hazards), LOC-01 (local standards),
+    PLAN-01 (planning), MGMT-01 (display/notices).
+  </p>
+
+  <h3>5.3 Finding statuses</h3>
+  <table>
+    <tr><th>Status</th><th>Meaning</th></tr>
+    <tr><td>VERIFIED_COMPLIANT</td><td>Check passed based on available evidence</td></tr>
+    <tr><td>CONFIRMED_NON_COMPLIANT</td><td>Confirmed failure against a requirement</td></tr>
+    <tr><td>POTENTIAL_RISK</td><td>Possible issue needing investigation</td></tr>
+    <tr><td>EVIDENCE_MISSING</td><td>Cannot decide — needed document/data not present</td></tr>
+    <tr><td>REQUIRES_HUMAN_REVIEW</td><td>Rule cannot auto-decide safely</td></tr>
+    <tr><td>NOT_APPLICABLE</td><td>Check does not apply</td></tr>
+  </table>
+
+  <h3>5.4 Overall property statuses</h3>
+  <table>
+    <tr><th>Status</th><th>Meaning (UI label)</th></tr>
+    <tr><td>NOT_ASSESSED</td><td>Not assessed yet</td></tr>
+    <tr><td>VERIFIED_COMPLIANT</td><td>Verified compliant (based on assessed checks)</td></tr>
+    <tr><td>REVIEW_REQUIRED</td><td>Review required</td></tr>
+    <tr><td>ACTION_REQUIRED</td><td>Action required</td></tr>
+    <tr><td>CRITICAL_EXCEPTION</td><td>Critical exception</td></tr>
+  </table>
+  <p><strong>Evidence completeness %</strong> summarises how much of the expected evidence set is present across findings.</p>
+
+  <h2>6. Automatic case opening</h2>
+  <p>After assessment, Inspect360 may open an HMO remediation case when:</p>
+  <ul>
+    <li><strong>LIC-03</strong> is CRITICAL and not verified compliant (e.g. expired uploaded licence), or</li>
+    <li><strong>LIC-05</strong> is EVIDENCE_MISSING (missing schedules/annexes)</li>
+  </ul>
+  <p>
+    If an open case already exists for the property, a duplicate is not created.
+    New cases can be seeded with remediation tasks (e.g. obtain current licensing position,
+    upload full schedules).
+  </p>
+
+  <h3>6.1 Case lifecycle</h3>
+  <p>
+    OPEN → TRIAGED → IN_PROGRESS → AWAITING_EVIDENCE / AWAITING_REVIEW →
+    READY_FOR_SIGNOFF → VERIFIED_CLOSED (also REOPENED / CANCELLED_AS_DUPLICATE).
+  </p>
+
+  <h3>6.2 Task lifecycle</h3>
+  <p>
+    OPEN → ASSIGNED → IN_PROGRESS → EVIDENCE_REQUESTED → EVIDENCE_RECEIVED →
+    AWAITING_VERIFICATION → VERIFIED_CLOSED (also REOPENED / CANCELLED).
+  </p>
+
+  <h2>7. Licence document lifecycle</h2>
+  <table>
+    <tr><th>State</th><th>Meaning</th></tr>
+    <tr><td>DRAFT</td><td>Uploaded / extracted, not yet treated as the live position</td></tr>
+    <tr><td>CURRENT</td><td>Active document version for the property</td></tr>
+    <tr><td>EXPIRED_DOCUMENT</td><td>Uploaded document past expiry</td></tr>
+    <tr><td>RENEWAL_PENDING_EVIDENCE</td><td>Renewal in progress; evidence still needed</td></tr>
+    <tr><td>SUPERSEDED</td><td>Replaced by a newer version</td></tr>
+    <tr><td>UNDER_REVIEW</td><td>Human review in progress</td></tr>
+  </table>
+
+  <h2>8. Permissions</h2>
+  <p>Access is gated by role permissions, including:</p>
+  <ul>
+    <li><code>hmo.licence.upload</code> / <code>hmo.licence.confirm</code></li>
+    <li><code>hmo.assessment.run</code></li>
+    <li><code>hmo.case.read</code> / <code>hmo.case.write</code> / <code>hmo.case.assign</code></li>
+    <li><code>hmo.critical.close</code>, <code>hmo.occupancy.read</code>, <code>hmo.notification.send</code>, <code>hmo.rule.approve</code></li>
+  </ul>
+
+  <h2>9. Related capabilities (beyond the licence button)</h2>
+  <ul>
+    <li><strong>Occupancy checks</strong> — Compare household/occupancy against licence maxima (OCC checks).</li>
+    <li><strong>Room baselines</strong> — England sleeping-room floor-area baselines (Housing Act 2004 Sch.4) for ROOM checks when room data exists.</li>
+    <li><strong>Dashboard / metrics</strong> — Portfolio views of statuses, open cases, evidence gaps.</li>
+    <li><strong>Bulk import</strong> — Idempotent licence import by content hash for large portfolios.</li>
+    <li><strong>Audit trail</strong> — Assessment runs and key actions are audited.</li>
+    <li><strong>Integrations</strong> — Adapters (e.g. Reapit) can feed property context where configured.</li>
+  </ul>
+
+  <h2>10. Practical operator guide</h2>
+  <ol class="steps">
+    <li>Upload the full licence pack (main grant + schedules/annexes).</li>
+    <li>Confirm extracted fields before assessing — especially address, number, expiry.</li>
+    <li>Click <strong>Run assessment</strong>.</li>
+    <li>If status is Action/Critical/Review, open the case and complete evidence tasks.</li>
+    <li>Re-upload corrected documents and re-run assessment after fixes.</li>
+    <li>Treat “Verified compliant” as <em>document/evidence status for assessed checks</em>, not legal advice.</li>
+  </ol>
+
+  <h2>11. Common outcomes explained</h2>
+  <table>
+    <tr><th>What you see</th><th>What it usually means</th></tr>
+    <tr><td>Licence number “Not found”</td><td>OCR/heuristic could not read the number — re-upload a clearer PDF</td></tr>
+    <tr><td>Setup / draft badge</td><td>Extraction saved; assessment not yet relied on as final</td></tr>
+    <tr><td>SMS/credits unrelated</td><td>Billing credits are separate from HMO module entitlement</td></tr>
+    <tr><td>Case opened after assess</td><td>Expired licence document and/or missing schedules triggered remediation</td></tr>
+    <tr><td>Many EVIDENCE_MISSING findings</td><td>Room/occupancy/safety data not yet supplied — expected for licence-only uploads</td></tr>
+  </table>
+
+  <p class="footer">
+    Inspect360 HMO Compliance Intelligence — internal product documentation.<br />
+    Source areas: <code>client/src/components/hmo</code>, <code>server/hmo</code>, <code>shared/hmo</code>.
+  </p>
+</body>
+</html>

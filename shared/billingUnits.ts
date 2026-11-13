@@ -1,6 +1,10 @@
-/** BILL-08 — photo credit definition (Billing Spec v2.0) */
-export const PHOTOS_PER_CREDIT = 300;
-export const PHOTO_WARN_THRESHOLD = 280;
+/**
+ * Photo credit band.
+ * Nov 2026 Billing Build Guide: 500 photos/credit.
+ * (Previous BILL-08 used 300 — superseded for self-serve catalog.)
+ */
+export const PHOTOS_PER_CREDIT = 500;
+export const PHOTO_WARN_THRESHOLD = 480;
 
 /** @deprecated Use PHOTOS_PER_CREDIT */
 export const PHOTOS_PER_UNIT = PHOTOS_PER_CREDIT;

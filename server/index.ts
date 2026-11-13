@@ -283,6 +283,30 @@ app.use((req, res, next) => {
     }
 
     try {
+      const billingReadonlyInterval = 60 * 60 * 1000;
+      const { applyPaymentFailureReadOnly } = await import("./billing/stripeWebhookService");
+      setImmediate(async () => {
+        try {
+          const n = await applyPaymentFailureReadOnly();
+          if (n > 0) console.log(`[BillingV2] Applied read-only to ${n} org(s)`);
+        } catch (error) {
+          console.error("[BillingV2] Initial read-only scan failed:", error);
+        }
+      });
+      setInterval(async () => {
+        try {
+          const n = await applyPaymentFailureReadOnly();
+          if (n > 0) console.log(`[BillingV2] Applied read-only to ${n} org(s)`);
+        } catch (error) {
+          console.error("[BillingV2] Scheduled read-only scan failed:", error);
+        }
+      }, billingReadonlyInterval);
+      console.log("✅ Billing V2 payment-failure read-only scheduler initialized (hourly)");
+    } catch (error) {
+      console.error("❌ Failed to initialize billing V2 read-only scheduler:", error);
+    }
+
+    try {
       const { startReapitWorker } = await import("./reapit/worker");
       startReapitWorker();
     } catch (error) {

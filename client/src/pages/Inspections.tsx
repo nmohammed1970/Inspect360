@@ -603,7 +603,7 @@ export default function Inspections() {
           if (!hasCredits && open) {
             toast({
               title: "No credits available",
-              description: "No credits to add inspection. Contact your administrator to assign credits.",
+              description: "No credits available. Top up or subscribe from Pricing to continue.",
               variant: "destructive",
             });
             return;
@@ -634,7 +634,7 @@ export default function Inspections() {
               </TooltipTrigger>
               {!hasCredits && (
                 <TooltipContent>
-                  <p>No credits available. Contact your administrator to assign credits.</p>
+                  <p>No credits available. Top up or subscribe from Pricing to continue.</p>
                 </TooltipContent>
               )}
             </Tooltip>

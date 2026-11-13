@@ -55,6 +55,9 @@ import AdminDashboard from "@/pages/AdminDashboard";
 import AdminCreditRequests from "@/pages/AdminCreditRequests";
 import AdminTeam from "@/pages/AdminTeam";
 import AdminUnitPricing from "@/pages/AdminUnitPricing";
+import AdminBillingPricing from "@/pages/AdminBillingPricing";
+import AdminInspectionTemplates from "@/pages/AdminInspectionTemplates";
+import Pricing from "@/pages/Pricing";
 import KnowledgeBase from "@/pages/KnowledgeBase";
 import { AdminPageWrapper } from "@/components/admin-page-wrapper";
 import { ExtensiveInspectionManagement, QuotationsManagement, ModuleManagement } from "@/pages/EcoAdminComponents";
@@ -131,6 +134,8 @@ function AppContent() {
     "/admin/unit-pricing",
     "/admin/quotations",
     "/admin/credit-requests",
+    "/admin/billing-pricing",
+    "/admin/templates",
     "/tenant/login",
     "/hmo/evidence",
   ];
@@ -260,10 +265,24 @@ function AppContent() {
               </AdminPageWrapper>
             )}
           </Route>
+          <Route path="/admin/templates">
+            {() => (
+              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Inspection Templates" }]}>
+                <AdminInspectionTemplates />
+              </AdminPageWrapper>
+            )}
+          </Route>
           <Route path="/admin/unit-pricing">
             {() => (
               <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Unit Pricing" }]}>
                 <AdminUnitPricing />
+              </AdminPageWrapper>
+            )}
+          </Route>
+          <Route path="/admin/billing-pricing">
+            {() => (
+              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Billing Catalog" }]}>
+                <AdminBillingPricing />
               </AdminPageWrapper>
             )}
           </Route>
@@ -394,10 +413,24 @@ function AppContent() {
               </AdminPageWrapper>
             )}
           </Route>
+          <Route path="/admin/templates">
+            {() => (
+              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Inspection Templates" }]}>
+                <AdminInspectionTemplates />
+              </AdminPageWrapper>
+            )}
+          </Route>
           <Route path="/admin/unit-pricing">
             {() => (
               <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Unit Pricing" }]}>
                 <AdminUnitPricing />
+              </AdminPageWrapper>
+            )}
+          </Route>
+          <Route path="/admin/billing-pricing">
+            {() => (
+              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Billing Catalog" }]}>
+                <AdminBillingPricing />
               </AdminPageWrapper>
             )}
           </Route>
@@ -421,6 +454,7 @@ function AppContent() {
               </AdminPageWrapper>
             )}
           </Route>
+          <Route path="/pricing" component={Pricing} />
           <Route path="/tenant/login" component={TenantLogin} />
           <Route path="/hmo/evidence/:token" component={HmoEvidencePublic} />
           <Route component={NotFound} />
@@ -448,7 +482,9 @@ function AppContent() {
       (tenantOrganization?.tenantPortalMaintenanceEnabled ?? true) &&
       isCompanyModuleEnabled(tenantOrganization, "maintenance");
     const showComparison = tenantOrganization?.tenantPortalComparisonEnabled ?? true;
-    const showCommunity = tenantOrganization?.tenantPortalCommunityEnabled ?? true;
+    const showCommunity =
+      (tenantOrganization?.tenantPortalCommunityEnabled ?? true) &&
+      isCompanyModuleEnabled(tenantOrganization, "tenancies");
 
     return (
       <TooltipProvider>
@@ -567,6 +603,7 @@ function AppContent() {
                   <>
                     <Route path="/" component={Dashboard} />
                     <Route path="/dashboard" component={Dashboard} />
+                    <Route path="/settings" component={Settings} />
                   </>
                 )}
                 <Route path="/blocks/:id/tenants">
@@ -677,10 +714,15 @@ function AppContent() {
                   {() => <FieldRoleRedirect to="/settings?tab=completion-checklists" />}
                 </Route>
                 <Route path="/billing" component={Billing} />
-                <Route path="/settings" component={Settings} />
-                <Route path="/bulk-import" component={BulkImport} />
+                <Route path="/pricing" component={Pricing} />
                 <Route path="/marketplace" component={Marketplace} />
-                <Route path="/community-moderation" component={CommunityModeration} />
+                <Route path="/community-moderation">
+                  {() => (
+                    <CompanyModuleRoute module="tenancies">
+                      <CommunityModeration />
+                    </CompanyModuleRoute>
+                  )}
+                </Route>
                 <Route path="/disputes" component={DisputeResolution} />
                 <Route path="/my-feedback" component={MyFeedback} />
                 <Route component={NotFound} />

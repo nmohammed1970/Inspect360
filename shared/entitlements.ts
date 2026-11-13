@@ -59,7 +59,8 @@ export type LockCode = "TRIAL_EXPIRED" | "CREDITS_EXPIRED";
 export type CreditBatchSnapshot = {
   remainingQuantity: number;
   expiresAt: Date | string | null;
-  metadataJson?: { kind?: string; adminNotes?: string } | null;
+  creditKind?: string | null;
+  metadataJson?: { kind?: string; adminNotes?: string; creditKind?: string } | null;
 };
 
 export type EntitlementInput = {
@@ -116,6 +117,26 @@ function isStillValid(expiresAt: Date | string | null | undefined, now: Date): b
 export function isLockedApiPath(path: string): boolean {
   const bare = path.split("?")[0];
   return LOCKED_API_PREFIXES.some((prefix) => bare === prefix || bare.startsWith(`${prefix}/`));
+}
+
+/**
+ * Nov 2026 C-06: with zero/expired inspection credits, capture & upload stay allowed;
+ * AI generation paths remain locked.
+ */
+export function isCaptureAllowedWhenCreditsExpired(method: string, path: string): boolean {
+  const m = method.toUpperCase();
+  if (m === "GET" || m === "HEAD" || m === "OPTIONS") return true;
+  const bare = path.split("?")[0];
+  if (/\/(ai|generate|full-inspect|analyse|analyze|transcribe)/i.test(bare)) {
+    return false;
+  }
+  // Object storage / gallery / inspection field & photo updates
+  if (bare.startsWith("/api/objects")) return true;
+  if (bare.startsWith("/api/inspections")) return true;
+  if (bare.includes("/gallery") || bare.includes("/photos") || bare.includes("/entries")) {
+    return true;
+  }
+  return false;
 }
 
 export function isLockedAppPath(path: string): boolean {
@@ -196,7 +217,13 @@ export function computeExtendedTrialEnd(
 export function resolveEntitlement(input: EntitlementInput, now: Date): EntitlementStatus {
   const trialStart = toUtcDate(input.trialStartAt);
   const trialEnd = toUtcDate(input.trialEndAt);
-  const paidBatches = input.batches.filter((batch) => !isSignupBonusBatch(batch.metadataJson));
+  const paidBatches = input.batches.filter((batch) => {
+    if (isSignupBonusBatch(batch.metadataJson)) return false;
+    const kind = batch.creditKind || batch.metadataJson?.creditKind || batch.metadataJson?.kind;
+    // SMS credits do not unlock inspection AI entitlement
+    if (kind === "sms") return false;
+    return true;
+  });
   const activePaid = paidBatches.filter(
     (batch) => batch.remainingQuantity > 0 && isStillValid(batch.expiresAt, now),
   );

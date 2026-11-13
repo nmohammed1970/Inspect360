@@ -60,7 +60,7 @@ export function useAuth() {
     onError: (error: Error) => {
       toast({
         title: "Login failed",
-        description: error.message || "Invalid email or password",
+        description: error.message || "Invalid username. Please try again or register.",
         variant: "destructive",
       });
     },

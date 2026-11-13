@@ -817,6 +817,76 @@ export const insertTemplateCategorySchema = createInsertSchema(templateCategorie
 export type TemplateCategory = typeof templateCategories.$inferSelect;
 export type InsertTemplateCategory = z.infer<typeof insertTemplateCategorySchema>;
 
+/** Shared report PDF section config used by org + platform inspection templates. */
+export type InspectionTemplateReportConfig = {
+  showCover: boolean;
+  showContentsPage: boolean;
+  showFloorPlan?: boolean;
+  showTradeMarks: boolean;
+  showGlossary: boolean;
+  showMaintenanceLog: boolean;
+  showInspection: boolean;
+  showInventory: boolean;
+  showTermsConditions: boolean;
+  showClosingSection: boolean;
+  /** Order of built-in report sections in generated PDFs / report views. */
+  sectionOrder?: Array<
+    | "cover"
+    | "contents"
+    | "floorPlan"
+    | "tradeMarks"
+    | "glossary"
+    | "maintenanceLog"
+    | "inspection"
+    | "inventory"
+    | "termsConditions"
+    | "closing"
+  >;
+  coverPageTitle?: string;
+  coverPageSubtitle?: string;
+  termsConditionsText?: string;
+  closingSectionTitle?: string;
+  closingSectionText?: string;
+  customSections?: Array<{
+    id: string;
+    title: string;
+    content: string;
+    sortOrder: number;
+    placement: "before_inspection" | "after_inspection" | "before_closing";
+  }>;
+};
+
+// Platform (built-in) inspection template catalog — global across all organizations
+export const platformInspectionTemplates = pgTable("platform_inspection_templates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name").notNull(),
+  description: text("description"),
+  scope: templateScopeEnum("scope").notNull().default("property"),
+  version: integer("version").notNull().default(1),
+  isActive: boolean("is_active").default(true),
+  structureJson: jsonb("structure_json").notNull(),
+  aiMaxWords: integer("ai_max_words").default(150),
+  aiInstruction: text("ai_instruction"),
+  aiIncludeRecommendedActions: boolean("ai_include_recommended_actions").default(false),
+  aiIncludeMaintenanceIssues: boolean("ai_include_maintenance_issues").default(false),
+  reportConfig: jsonb("report_config").$type<InspectionTemplateReportConfig>(),
+  createdByAdminId: varchar("created_by_admin_id"),
+  sourceOrganizationId: varchar("source_organization_id"),
+  sourceTemplateId: varchar("source_template_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("platform_inspection_templates_name_scope_uidx").on(table.name, table.scope),
+]);
+
+export const insertPlatformInspectionTemplateSchema = createInsertSchema(platformInspectionTemplates).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type PlatformInspectionTemplate = typeof platformInspectionTemplates.$inferSelect;
+export type InsertPlatformInspectionTemplate = z.infer<typeof insertPlatformInspectionTemplateSchema>;
+
 // Inspection Templates (JSON-based flexible structure)
 export const inspectionTemplates = pgTable("inspection_templates", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -835,51 +905,17 @@ export const inspectionTemplates = pgTable("inspection_templates", {
   aiIncludeRecommendedActions: boolean("ai_include_recommended_actions").default(false),
   /** When true, InspectAI includes a Maintenance Issues section. Default off. */
   aiIncludeMaintenanceIssues: boolean("ai_include_maintenance_issues").default(false),
-  reportConfig: jsonb("report_config").$type<{
-    showCover: boolean;
-    showContentsPage: boolean;
-    showFloorPlan?: boolean;
-    showTradeMarks: boolean;
-    showGlossary: boolean;
-    showMaintenanceLog: boolean;
-    showInspection: boolean;
-    showInventory: boolean;
-    showTermsConditions: boolean;
-    showClosingSection: boolean;
-    /** Order of built-in report sections in generated PDFs / report views. */
-    sectionOrder?: Array<
-      | "cover"
-      | "contents"
-      | "floorPlan"
-      | "tradeMarks"
-      | "glossary"
-      | "maintenanceLog"
-      | "inspection"
-      | "inventory"
-      | "termsConditions"
-      | "closing"
-    >;
-    // Custom content fields
-    coverPageTitle?: string;
-    coverPageSubtitle?: string;
-    termsConditionsText?: string;
-    closingSectionTitle?: string;
-    closingSectionText?: string;
-    // Custom formatted text sections
-    customSections?: Array<{
-      id: string;
-      title: string;
-      content: string;
-      sortOrder: number;
-      placement: "before_inspection" | "after_inspection" | "before_closing";
-    }>;
-  }>(), // Report section visibility and custom content configuration
+  reportConfig: jsonb("report_config").$type<InspectionTemplateReportConfig>(),
   /** Optional org completion checklist attached to this template (snapshotted onto inspections). */
   completionChecklistId: varchar("completion_checklist_id"),
+  /** When set, this org template was seeded/copied from the platform built-in catalog. */
+  platformTemplateId: varchar("platform_template_id"),
   createdBy: varchar("created_by").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => [
+  index("inspection_templates_platform_template_id_idx").on(table.platformTemplateId),
+]);
 
 export const insertInspectionTemplateSchema = createInsertSchema(inspectionTemplates).omit({
   id: true,
@@ -2683,18 +2719,22 @@ export const creditBatches = pgTable("credit_batches", {
   expiresAt: timestamp("expires_at"), // null for non-expiring batches
   unitCostMinorUnits: integer("unit_cost_minor_units"), // For valuation
   rolled: boolean("rolled").default(false), // Indicates if this batch came from a rollover
+  /** Nov 2026: inspection | sms (defaults inspection for legacy rows) */
+  creditKind: varchar("credit_kind", { length: 32 }).notNull().default("inspection"),
   metadataJson: jsonb("metadata_json").$type<{
     subscriptionId?: string;
     topupOrderId?: string;
     adminNotes?: string;
     /** signup_bonus credits do not count as paid entitlement */
     kind?: string;
+    creditKind?: string;
   }>(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
   index("idx_credit_batches_org_expires").on(table.organizationId, table.expiresAt),
   index("idx_credit_batches_org_granted").on(table.organizationId, table.grantedAt),
+  index("idx_credit_batches_org_kind_expires").on(table.organizationId, table.creditKind, table.expiresAt),
 ]);
 
 export const insertCreditBatchSchema = createInsertSchema(creditBatches).omit({
@@ -3728,4 +3768,7 @@ export type InsertCreditNote = typeof creditNotes.$inferInsert;
 
 /** HMO Compliance Intelligence tables + types */
 export * from "./hmoSchema";
+
+/** Nov 2026 self-serve billing catalog + subscriptions */
+export * from "./billingCatalogSchema";
 

@@ -3,6 +3,8 @@
  *
  * Dependency strategy (no cascade-disable of Properties/Blocks/Inspections):
  * - Tenancies OFF → Rentals is also treated as OFF (rent is tied to tenant assignments).
+ * - Tenancies OFF → Community (operator moderation + tenant portal community) is also OFF.
+ *   Community has no separate Internal Module toggle; it follows Tenancies.
  * - Rentals OFF → hide finance tabs/actions/settings/jobs; tenancy assignments still work.
  * - Compliance OFF → hide compliance nav/tabs/reports/alerts; skip certificate→compliance
  *   auto-link; inspections continue. Maintenance is a separate toggle.
@@ -21,6 +23,67 @@ export const COMPANY_MODULE_KEYS = [
 ] as const;
 
 export type CompanyModuleKey = (typeof COMPANY_MODULE_KEYS)[number];
+
+/** Modules that require a Property Management plan (locked on AI Inspections plans). */
+export const PROPERTY_PLAN_REQUIRED_MODULES: readonly CompanyModuleKey[] = COMPANY_MODULE_KEYS;
+
+export const PROPERTY_BUNDLE_UPGRADE_MESSAGE =
+  "Please upgrade your plan to Property Management to unlock these.";
+
+const AI_PLAN_ACTIVE_STATUSES = new Set([
+  "trialing",
+  "active",
+  "past_due",
+  "read_only",
+  "unpaid",
+]);
+
+/** AI Inspections catalog plan codes (ai_payg, ai_inspector, …). */
+export function isAiInspectionsPlanCode(planCode: string | null | undefined): boolean {
+  if (!planCode || planCode === "pending") return false;
+  return planCode.startsWith("ai_");
+}
+
+/** Property Management catalog plan codes (pm_essentials, …). */
+export function isPropertyManagementPlanCode(planCode: string | null | undefined): boolean {
+  if (!planCode || planCode === "pending") return false;
+  return planCode.startsWith("pm_");
+}
+
+/**
+ * True when the org is on an active AI Inspections subscription —
+ * Internal Modules (tenancies/rentals/compliance/maintenance/HMO) stay locked OFF.
+ */
+export function companyModulesLockedByAiPlan(
+  planCode: string | null | undefined,
+  planStatus?: string | null,
+): boolean {
+  if (!isAiInspectionsPlanCode(planCode)) return false;
+  if (planStatus == null || planStatus === "") return true;
+  return AI_PLAN_ACTIVE_STATUSES.has(planStatus);
+}
+
+export type CompanyModulePlanContext = {
+  planCode?: string | null;
+  planStatus?: string | null;
+};
+
+/** Flags forced OFF while an AI Inspections plan is active. */
+export function aiPlanForcedCompanyModuleFlags(): {
+  rentalsEnabled: false;
+  tenanciesEnabled: false;
+  complianceEnabled: false;
+  maintenanceEnabled: false;
+  hmoComplianceEnabled: false;
+} {
+  return {
+    rentalsEnabled: false,
+    tenanciesEnabled: false,
+    complianceEnabled: false,
+    maintenanceEnabled: false,
+    hmoComplianceEnabled: false,
+  };
+}
 
 export type CompanyModuleFlags = {
   rentalsEnabled?: boolean | null;
@@ -48,12 +111,17 @@ function flagOn(value: boolean | null | undefined): boolean {
  * Missing/null flags default to enabled (backward compatible) except
  * `hmo_compliance`, which is opt-in (must be explicitly true).
  * Rentals requires Tenancies — if Tenancies is OFF, Rentals is OFF.
+ * When `plan` is an active AI Inspections subscription, all company modules are OFF.
  */
 export function isCompanyModuleEnabled(
   org: CompanyModuleFlags | null | undefined,
   key: CompanyModuleKey,
+  plan?: CompanyModulePlanContext | null,
 ): boolean {
   if (!org) return false;
+  if (companyModulesLockedByAiPlan(plan?.planCode, plan?.planStatus)) {
+    return false;
+  }
   if (key === "rentals") {
     return flagOn(org.rentalsEnabled) && flagOn(org.tenanciesEnabled);
   }
@@ -61,6 +129,17 @@ export function isCompanyModuleEnabled(
     return org.hmoComplianceEnabled === true;
   }
   return flagOn(org[FLAG_BY_KEY[key]]);
+}
+
+/**
+ * Community has no separate Internal Module — it follows Tenancies
+ * (operator Community nav + tenant portal community).
+ */
+export function isCommunityEnabled(
+  org: CompanyModuleFlags | null | undefined,
+  plan?: CompanyModulePlanContext | null,
+): boolean {
+  return isCompanyModuleEnabled(org, "tenancies", plan);
 }
 
 /**
@@ -145,7 +224,7 @@ export const COMPANY_MODULE_META: Record<
   tenancies: {
     label: "Tenancies",
     description:
-      "Manage tenancy assignments, tenant records, and tenant-related workflows. Turning this off also disables Rentals.",
+      "Manage tenancy assignments, tenant records, and tenant-related workflows. Turning this off also disables Rentals and Community.",
   },
   compliance: {
     label: "Compliance",

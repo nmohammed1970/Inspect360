@@ -226,14 +226,18 @@ export default function HmoCaseDetail() {
   const priorityOpen = openTasks.filter((t) =>
     hmoChecksForTask(t.taskCode).some((checkId) => linkedCheckIds.has(checkId)),
   );
+  const pendingEvidence = evidenceReviews.filter((r) => !r.decision).length;
 
   return (
-    <div className={pagePad} data-testid="hmo-case-detail">
+    <div
+      className={`container mx-auto min-w-0 space-y-4 md:space-y-6 ${pagePad}`}
+      data-testid="hmo-case-detail"
+    >
       <PageHeader
         leading={
           <Link
             href="/hmo"
-            className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:underline"
+            className="inline-flex items-center gap-1 text-sm md:text-base text-muted-foreground hover:underline"
           >
             <ArrowLeft className="h-4 w-4" /> Back to HMO
           </Link>
@@ -305,367 +309,452 @@ export default function HmoCaseDetail() {
         </DialogContent>
       </Dialog>
 
-      {c.dueAt && (
-        <p className="text-sm text-muted-foreground mb-4">Due {formatHmoDate(c.dueAt)}</p>
-      )}
-
-      {lastShareLink && (
-        <Card className="mb-4 border-sky-200 bg-sky-50/60">
-          <CardContent className="pt-4 flex flex-col sm:flex-row gap-2 sm:items-center justify-between">
-            <div className="min-w-0">
-              <p className="text-sm font-medium">Share link (also copied to clipboard)</p>
-              {(lastShareMeta?.propertyName || lastShareMeta?.neededSummary) && (
-                <p className="text-sm mt-1">
-                  {lastShareMeta.propertyName && (
-                    <span className="font-medium">{lastShareMeta.propertyName}</span>
-                  )}
-                  {lastShareMeta.propertyName && lastShareMeta.neededSummary ? " · " : ""}
-                  {lastShareMeta.neededSummary}
-                </p>
-              )}
-              <p className="text-xs text-muted-foreground break-all mt-1">
-                {`${window.location.origin}${lastShareLink}`}
-              </p>
-            </div>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={async () => {
-                try {
-                  await navigator.clipboard.writeText(
-                    `${window.location.origin}${lastShareLink}`,
-                  );
-                  toast({ title: "Link copied" });
-                } catch {
-                  toast({ title: "Copy failed", variant: "destructive" });
-                }
-              }}
-            >
-              Copy full link
-            </Button>
-          </CardContent>
-        </Card>
-      )}
-
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle className="text-base">Received evidence</CardTitle>
-          <CardDescription>
-            Files uploaded via share links for this case. Open them here, then accept or reject.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {evidenceReviews.length === 0 && (
-            <p className="text-sm text-muted-foreground">
-              No evidence received yet. Create a share link on a task below.
+      <div className="space-y-8 md:space-y-10">
+        <div className="rounded-xl border bg-muted/30 px-4 py-5 md:px-6 md:py-6 space-y-4">
+          <div className="space-y-1.5">
+            <p className="text-base md:text-lg font-semibold text-foreground">How to close this case</p>
+            <p className="text-sm md:text-base text-muted-foreground leading-relaxed max-w-3xl">
+              Work the linked findings first, collect and review evidence on each task, then approve
+              closure when residual risk is acceptable.
+              {c.dueAt ? ` Target due date: ${formatHmoDate(c.dueAt)}.` : ""}
             </p>
-          )}
-          {evidenceReviews.map((r) => {
-            const fileName = r.aiResult?.fileName || "Uploaded file";
-            const decisionMeta =
-              r.decision === "ACCEPTED"
-                ? {
-                    label: "Accepted",
-                    className: "border-emerald-300 bg-emerald-50 text-emerald-900",
+          </div>
+          <ol className="grid gap-3 sm:grid-cols-3 text-sm md:text-base">
+            {[
+              { n: "1", t: "Clear findings", d: "Complete priority tasks tied to the licence checks" },
+              { n: "2", t: "Review evidence", d: "Accept or reject uploads under Received evidence" },
+              { n: "3", t: "Approve closure", d: "Sign off when open work and risk are settled" },
+            ].map((s) => (
+              <li key={s.n} className="rounded-lg border bg-card px-3.5 py-3">
+                <div className="flex items-center gap-2.5">
+                  <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
+                    {s.n}
+                  </span>
+                  <span className="font-semibold">{s.t}</span>
+                </div>
+                <p className="text-sm text-muted-foreground mt-2 pl-9 leading-relaxed">{s.d}</p>
+              </li>
+            ))}
+          </ol>
+        </div>
+
+        <section className="space-y-4">
+          <div className="space-y-1">
+            <h2 className="text-lg md:text-xl font-semibold tracking-tight">Case snapshot</h2>
+            <p className="text-sm md:text-base text-muted-foreground leading-relaxed">
+              Counts of open work, linked findings, and evidence waiting for your decision.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+            <Card className="border-l-4 border-l-amber-500 shadow-none">
+              <CardContent className="p-4 md:p-5">
+                <p className="text-sm font-medium text-muted-foreground">Open tasks</p>
+                <p className="text-2xl md:text-3xl font-bold tabular-nums text-amber-800">
+                  {openTasks.length}
+                </p>
+                <p className="text-sm text-muted-foreground mt-1">Still in progress</p>
+              </CardContent>
+            </Card>
+            <Card className="border-l-4 border-l-primary shadow-none">
+              <CardContent className="p-4 md:p-5">
+                <p className="text-sm font-medium text-muted-foreground">Priority next</p>
+                <p className="text-2xl md:text-3xl font-bold tabular-nums">{priorityOpen.length}</p>
+                <p className="text-sm text-muted-foreground mt-1">Tied to findings</p>
+              </CardContent>
+            </Card>
+            <Card className="border-l-4 border-l-sky-500 shadow-none">
+              <CardContent className="p-4 md:p-5">
+                <p className="text-sm font-medium text-muted-foreground">Findings</p>
+                <p className="text-2xl md:text-3xl font-bold tabular-nums text-sky-800">
+                  {findings.length}
+                </p>
+                <p className="text-sm text-muted-foreground mt-1">Why this case opened</p>
+              </CardContent>
+            </Card>
+            <Card className="border-l-4 border-l-rose-500 shadow-none">
+              <CardContent className="p-4 md:p-5">
+                <p className="text-sm font-medium text-muted-foreground">Evidence to review</p>
+                <p
+                  className={`text-2xl md:text-3xl font-bold tabular-nums ${
+                    pendingEvidence > 0 ? "text-rose-800" : ""
+                  }`}
+                >
+                  {pendingEvidence}
+                </p>
+                <p className="text-sm text-muted-foreground mt-1">Awaiting accept/reject</p>
+              </CardContent>
+            </Card>
+          </div>
+        </section>
+
+        {lastShareLink && (
+          <Card className="border-sky-200 bg-sky-50/60 shadow-none">
+            <CardContent className="pt-4 flex flex-col sm:flex-row gap-2 sm:items-center justify-between">
+              <div className="min-w-0">
+                <p className="text-sm font-medium">Share link (also copied to clipboard)</p>
+                {(lastShareMeta?.propertyName || lastShareMeta?.neededSummary) && (
+                  <p className="text-sm mt-1 leading-relaxed">
+                    {lastShareMeta.propertyName && (
+                      <span className="font-medium">{lastShareMeta.propertyName}</span>
+                    )}
+                    {lastShareMeta.propertyName && lastShareMeta.neededSummary ? " · " : ""}
+                    {lastShareMeta.neededSummary}
+                  </p>
+                )}
+                <p className="text-xs text-muted-foreground break-all mt-1">
+                  {`${window.location.origin}${lastShareLink}`}
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(
+                      `${window.location.origin}${lastShareLink}`,
+                    );
+                    toast({ title: "Link copied" });
+                  } catch {
+                    toast({ title: "Copy failed", variant: "destructive" });
                   }
-                : r.decision === "REJECTED"
+                }}
+              >
+                Copy full link
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        <Card className="shadow-none">
+          <CardHeader className="space-y-1.5">
+            <CardTitle className="text-lg md:text-xl">Received evidence</CardTitle>
+            <CardDescription className="text-sm md:text-base leading-relaxed">
+              Files uploaded via share links or direct upload. Open each file, then accept or reject
+              before closing related tasks.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {evidenceReviews.length === 0 && (
+              <div className="rounded-xl border border-dashed px-4 py-8 text-center">
+                <p className="text-sm font-medium">No evidence received yet</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Use Add evidence on a task below to upload or send a share link.
+                </p>
+              </div>
+            )}
+            {evidenceReviews.map((r) => {
+              const fileName = r.aiResult?.fileName || "Uploaded file";
+              const decisionMeta =
+                r.decision === "ACCEPTED"
                   ? {
-                      label: "Rejected",
-                      className: "border-rose-300 bg-rose-50 text-rose-900",
+                      label: "Accepted",
+                      className: "border-emerald-300 bg-emerald-50 text-emerald-900",
                     }
-                  : {
-                      label: "Pending review",
-                      className: "border-amber-300 bg-amber-50 text-amber-950",
-                    };
-            return (
-              <div key={r.id} className="rounded-lg border px-3 py-3 space-y-3">
-                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-                  <div className="min-w-0 space-y-1">
-                    <div className="font-medium leading-snug truncate">{fileName}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {taskTitleById[r.taskId] || "Task"}
-                      {r.createdAt ? ` · ${formatHmoDate(r.createdAt)}` : ""}
+                  : r.decision === "REJECTED"
+                    ? {
+                        label: "Rejected",
+                        className: "border-rose-300 bg-rose-50 text-rose-900",
+                      }
+                    : {
+                        label: "Pending review",
+                        className: "border-amber-300 bg-amber-50 text-amber-950",
+                      };
+              return (
+                <div key={r.id} className="rounded-xl border px-4 py-3.5 space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                    <div className="min-w-0 space-y-1">
+                      <div className="font-medium leading-snug truncate">{fileName}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {taskTitleById[r.taskId] || "Task"}
+                        {r.createdAt ? ` · ${formatHmoDate(r.createdAt)}` : ""}
+                      </div>
+                      <Badge variant="outline" className={decisionMeta.className}>
+                        {decisionMeta.label}
+                      </Badge>
+                      {r.rejectionReason && (
+                        <p className="text-sm text-muted-foreground leading-relaxed">
+                          {r.rejectionReason}
+                        </p>
+                      )}
                     </div>
-                    <Badge variant="outline" className={decisionMeta.className}>
-                      {decisionMeta.label}
-                    </Badge>
-                    {r.rejectionReason && (
-                      <p className="text-xs text-muted-foreground">{r.rejectionReason}</p>
-                    )}
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {r.evidenceObjectUrl && (
-                      <Button size="sm" variant="outline" asChild>
-                        <a
-                          href={`/api/hmo/evidence-reviews/${r.id}/file`}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          Open file
-                        </a>
-                      </Button>
-                    )}
-                    {!r.decision && (
-                      <>
-                        <Button
-                          size="sm"
-                          onClick={() =>
-                            decideEvidenceMutation.mutate({
-                              reviewId: r.id,
-                              decision: "ACCEPTED",
-                            })
-                          }
-                          disabled={decideEvidenceMutation.isPending}
-                        >
-                          Accept
+                    <div className="flex flex-wrap gap-2">
+                      {r.evidenceObjectUrl && (
+                        <Button size="sm" variant="outline" asChild>
+                          <a
+                            href={`/api/hmo/evidence-reviews/${r.id}/file`}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Open file
+                          </a>
                         </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() =>
-                            decideEvidenceMutation.mutate({
-                              reviewId: r.id,
-                              decision: "REJECTED",
-                              rejectionReason: "Needs a clearer or complete document",
-                            })
-                          }
-                          disabled={decideEvidenceMutation.isPending}
-                        >
-                          Reject
-                        </Button>
-                      </>
-                    )}
+                      )}
+                      {!r.decision && (
+                        <>
+                          <Button
+                            size="sm"
+                            onClick={() =>
+                              decideEvidenceMutation.mutate({
+                                reviewId: r.id,
+                                decision: "ACCEPTED",
+                              })
+                            }
+                            disabled={decideEvidenceMutation.isPending}
+                          >
+                            Accept
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() =>
+                              decideEvidenceMutation.mutate({
+                                reviewId: r.id,
+                                decision: "REJECTED",
+                                rejectionReason: "Needs a clearer or complete document",
+                              })
+                            }
+                            disabled={decideEvidenceMutation.isPending}
+                          >
+                            Reject
+                          </Button>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
-        </CardContent>
-      </Card>
+              );
+            })}
+          </CardContent>
+        </Card>
 
-      <Card className="mb-6 border-slate-200 bg-slate-50/70">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base">What matters on this case</CardTitle>
-          <CardDescription>
-            The case opened from linked licence findings. Work those related tasks first; other
-            tasks cover later checks once you have more evidence.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div>
-            <p className="text-xs font-medium text-muted-foreground mb-2">Opened because of</p>
-            {findings.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No findings linked to this case.</p>
-            ) : (
-              <div className="space-y-2">
-                {findings.map((f) => {
-                  const fSev = hmoSeverityMeta(f.severity);
-                  return (
-                    <div
-                      key={f.id}
-                      className="rounded-md border bg-white px-3 py-2.5 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2"
+        <Card className="border-slate-200 bg-slate-50/70 shadow-none">
+          <CardHeader className="space-y-1.5">
+            <CardTitle className="text-lg md:text-xl">What matters on this case</CardTitle>
+            <CardDescription className="text-sm md:text-base leading-relaxed">
+              The case opened from linked licence findings. Work those related tasks first; other
+              tasks cover later checks once you have more evidence.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div>
+              <p className="text-sm font-medium mb-2">Opened because of</p>
+              {findings.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No findings linked to this case.</p>
+              ) : (
+                <div className="space-y-2">
+                  {findings.map((f) => {
+                    const fSev = hmoSeverityMeta(f.severity);
+                    return (
+                      <div
+                        key={f.id}
+                        className="rounded-xl border bg-white px-4 py-3 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2"
+                      >
+                        <div className="min-w-0 space-y-1">
+                          <div className="text-sm font-semibold">{hmoCheckLabel(f.checkId)}</div>
+                          <div className="text-xs text-muted-foreground">{f.checkId}</div>
+                          {f.explanation && (
+                            <p className="text-sm text-muted-foreground leading-relaxed">
+                              {f.explanation}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap gap-2 shrink-0">
+                          <Badge variant="outline" className={fSev.className}>
+                            {fSev.label}
+                          </Badge>
+                          <Badge variant="secondary">{hmoFindingStatusLabel(f.status)}</Badge>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            <div>
+              <p className="text-sm font-medium mb-2">Do these tasks next</p>
+              {priorityOpen.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No open tasks left that map directly to the linked findings.
+                </p>
+              ) : (
+                <ul className="space-y-2">
+                  {priorityOpen.map((t) => (
+                    <li
+                      key={t.id}
+                      className="text-sm rounded-xl border bg-white px-4 py-2.5 flex flex-wrap items-center gap-2"
                     >
-                      <div className="min-w-0">
-                        <div className="text-sm font-medium">{hmoCheckLabel(f.checkId)}</div>
-                        <div className="text-xs text-muted-foreground mt-0.5">{f.checkId}</div>
-                        {f.explanation && (
-                          <p className="text-sm text-muted-foreground mt-1 leading-relaxed">
-                            {f.explanation}
-                          </p>
-                        )}
-                      </div>
-                      <div className="flex flex-wrap gap-2 shrink-0">
-                        <Badge variant="outline" className={fSev.className}>
-                          {fSev.label}
-                        </Badge>
-                        <Badge variant="secondary">{hmoFindingStatusLabel(f.status)}</Badge>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-          <div>
-            <p className="text-xs font-medium text-muted-foreground mb-2">Do these tasks next</p>
-            {priorityOpen.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                No open tasks left that map directly to the linked findings.
-              </p>
-            ) : (
-              <ul className="space-y-1.5">
-                {priorityOpen.map((t) => (
-                  <li
-                    key={t.id}
-                    className="text-sm rounded-md border bg-white px-3 py-2 flex flex-wrap items-center gap-2"
-                  >
-                    <span className="font-medium">{t.taskCode}</span>
-                    <span className="text-muted-foreground">·</span>
-                    <span>{hmoTaskShortLabel(t.taskCode)}</span>
-                    <Badge variant="outline" className={hmoTaskStatusMeta(t.status).className}>
-                      {hmoTaskStatusMeta(t.status).label}
-                    </Badge>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle className="text-base">Tasks</CardTitle>
-          <CardDescription>
-            Upload evidence yourself, or send a share link when you need documents from someone
-            outside the team.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {tasks.length === 0 && (
-            <p className="text-sm text-muted-foreground">No tasks on this case.</p>
-          )}
-          {tasks.map((t) => {
-            const taskSev = hmoSeverityMeta(t.priority);
-            const panelOpen = evidenceTaskId === t.id;
-            return (
-              <div key={t.id} className="rounded-lg border px-3 py-3 space-y-3">
-                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-                  <div className="min-w-0 space-y-1">
-                    {t.taskCode && (
-                      <div className="text-xs font-medium text-muted-foreground">{t.taskCode}</div>
-                    )}
-                    <div className="font-medium leading-snug">{t.title}</div>
-                    <div className="flex flex-wrap gap-2 items-center pt-1">
+                      <span className="font-semibold">{t.taskCode}</span>
+                      <span className="text-muted-foreground">·</span>
+                      <span>{hmoTaskShortLabel(t.taskCode)}</span>
                       <Badge variant="outline" className={hmoTaskStatusMeta(t.status).className}>
                         {hmoTaskStatusMeta(t.status).label}
                       </Badge>
-                      {t.priority && (
-                        <Badge variant="outline" className={taskSev.className}>
-                          {taskSev.label} priority
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="shadow-none">
+          <CardHeader className="space-y-1.5">
+            <CardTitle className="text-lg md:text-xl">Tasks</CardTitle>
+            <CardDescription className="text-sm md:text-base leading-relaxed">
+              Upload evidence yourself, or send a share link when you need documents from someone
+              outside the team. Priority tasks linked to findings are listed first above.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {tasks.length === 0 && (
+              <div className="rounded-xl border border-dashed px-4 py-8 text-center">
+                <p className="text-sm font-medium">No tasks on this case</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Assessment-created cases normally include remediation tasks here.
+                </p>
+              </div>
+            )}
+            {tasks.map((t) => {
+              const taskSev = hmoSeverityMeta(t.priority);
+              const panelOpen = evidenceTaskId === t.id;
+              return (
+                <div key={t.id} className="rounded-xl border px-4 py-3.5 space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                    <div className="min-w-0 space-y-1">
+                      {t.taskCode && (
+                        <div className="text-xs font-medium text-muted-foreground">{t.taskCode}</div>
+                      )}
+                      <div className="font-semibold leading-snug">{t.title}</div>
+                      <div className="flex flex-wrap gap-2 items-center pt-1">
+                        <Badge variant="outline" className={hmoTaskStatusMeta(t.status).className}>
+                          {hmoTaskStatusMeta(t.status).label}
                         </Badge>
-                      )}
-                      {t.assignedRole && (
-                        <span className="text-xs text-muted-foreground">
-                          Suggested role: {hmoRoleLabel(t.assignedRole)}
-                        </span>
-                      )}
-                      {t.dueAt && (
-                        <span className="text-xs text-muted-foreground">
-                          Due {formatHmoDate(t.dueAt)}
-                        </span>
-                      )}
-                    </div>
-                    {hmoChecksForTask(t.taskCode).length > 0 && (
-                      <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                        <span className="text-xs text-muted-foreground">Helps clear:</span>
-                        {hmoChecksForTask(t.taskCode).map((checkId) => (
-                          <Badge
-                            key={checkId}
-                            variant="outline"
-                            className={
-                              linkedCheckIds.has(checkId)
-                                ? "border-amber-300 bg-amber-50 text-amber-950 font-normal"
-                                : "font-normal"
-                            }
-                          >
-                            {checkId} · {hmoCheckLabel(checkId)}
+                        {t.priority && (
+                          <Badge variant="outline" className={taskSev.className}>
+                            {taskSev.label} priority
                           </Badge>
-                        ))}
+                        )}
+                        {t.assignedRole && (
+                          <span className="text-xs text-muted-foreground">
+                            Suggested role: {hmoRoleLabel(t.assignedRole)}
+                          </span>
+                        )}
+                        {t.dueAt && (
+                          <span className="text-xs text-muted-foreground">
+                            Due {formatHmoDate(t.dueAt)}
+                          </span>
+                        )}
                       </div>
-                    )}
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => {
-                      if (panelOpen) {
-                        setEvidenceTaskId(null);
-                        setDirectUploadFile(null);
-                        setRecipientEmail("");
-                      } else {
-                        setEvidenceTaskId(t.id);
-                        setDirectUploadFile(null);
-                        setRecipientEmail("");
-                      }
-                    }}
-                  >
-                    {panelOpen ? "Cancel" : "Add evidence"}
-                  </Button>
-                </div>
-                {panelOpen && (
-                  <div className="rounded-md bg-muted/40 p-3 space-y-4">
-                    <div className="space-y-2">
-                      <p className="text-sm font-medium">Upload yourself</p>
-                      <p className="text-xs text-muted-foreground">
-                        PDF or image. It will appear under Received evidence for review.
-                      </p>
-                      <ModernFilePickerInline
-                        onFilesSelected={(files) => setDirectUploadFile(files[0] || null)}
-                        maxFiles={1}
-                        accept="application/pdf,image/*,.pdf,.jpg,.jpeg,.png,.heic,.heif,.webp"
-                        height={200}
-                      />
-                      {directUploadFile && (
-                        <div className="flex items-center justify-between gap-2 rounded-md border bg-background px-3 py-2 text-sm">
-                          <span className="truncate">{directUploadFile.name}</span>
-                          <Button
-                            type="button"
-                            size="icon"
-                            variant="ghost"
-                            className="h-7 w-7 shrink-0"
-                            onClick={() => setDirectUploadFile(null)}
-                          >
-                            <X className="h-4 w-4" />
-                          </Button>
+                      {hmoChecksForTask(t.taskCode).length > 0 && (
+                        <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                          <span className="text-xs text-muted-foreground">Helps clear:</span>
+                          {hmoChecksForTask(t.taskCode).map((checkId) => (
+                            <Badge
+                              key={checkId}
+                              variant="outline"
+                              className={
+                                linkedCheckIds.has(checkId)
+                                  ? "border-amber-300 bg-amber-50 text-amber-950 font-normal"
+                                  : "font-normal"
+                              }
+                            >
+                              {checkId} · {hmoCheckLabel(checkId)}
+                            </Badge>
+                          ))}
                         </div>
                       )}
-                      <Button
-                        size="sm"
-                        onClick={() => directUploadMutation.mutate(t.id)}
-                        disabled={!directUploadFile || directUploadMutation.isPending}
-                      >
-                        {directUploadMutation.isPending ? "Uploading…" : "Submit evidence"}
-                      </Button>
                     </div>
-                    <div className="border-t pt-3 space-y-2">
-                      <p className="text-sm font-medium">Or request from someone else</p>
-                      <Label htmlFor={`evidence-email-${t.id}`}>Recipient email (optional)</Label>
-                      <div className="flex flex-col sm:flex-row gap-2">
-                        <Input
-                          id={`evidence-email-${t.id}`}
-                          type="email"
-                          placeholder="name@example.com"
-                          value={recipientEmail}
-                          onChange={(e) => setRecipientEmail(e.target.value)}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        if (panelOpen) {
+                          setEvidenceTaskId(null);
+                          setDirectUploadFile(null);
+                          setRecipientEmail("");
+                        } else {
+                          setEvidenceTaskId(t.id);
+                          setDirectUploadFile(null);
+                          setRecipientEmail("");
+                        }
+                      }}
+                    >
+                      {panelOpen ? "Cancel" : "Add evidence"}
+                    </Button>
+                  </div>
+                  {panelOpen && (
+                    <div className="rounded-lg bg-muted/40 p-4 space-y-4">
+                      <div className="space-y-2">
+                        <p className="text-sm font-medium">Upload yourself</p>
+                        <p className="text-sm text-muted-foreground leading-relaxed">
+                          PDF or image. It will appear under Received evidence for review.
+                        </p>
+                        <ModernFilePickerInline
+                          onFilesSelected={(files) => setDirectUploadFile(files[0] || null)}
+                          maxFiles={1}
+                          accept="application/pdf,image/*,.pdf,.jpg,.jpeg,.png,.heic,.heif,.webp"
+                          height={200}
                         />
+                        {directUploadFile && (
+                          <div className="flex items-center justify-between gap-2 rounded-md border bg-background px-3 py-2 text-sm">
+                            <span className="truncate">{directUploadFile.name}</span>
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              className="h-7 w-7 shrink-0"
+                              onClick={() => setDirectUploadFile(null)}
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        )}
                         <Button
                           size="sm"
-                          variant="outline"
-                          onClick={() => evidenceMutation.mutate(t.id)}
-                          disabled={evidenceMutation.isPending}
+                          onClick={() => directUploadMutation.mutate(t.id)}
+                          disabled={!directUploadFile || directUploadMutation.isPending}
                         >
-                          {evidenceMutation.isPending
-                            ? recipientEmail.trim()
-                              ? "Sending…"
-                              : "Creating…"
-                            : "Share link"}
+                          {directUploadMutation.isPending ? "Uploading…" : "Submit evidence"}
                         </Button>
                       </div>
-                      <p className="text-xs text-muted-foreground">
-                        {recipientEmail.trim()
-                          ? "We’ll email them a secure one-off upload link. The same link is copied to your clipboard and shown above."
-                          : "Creates a link, copies it to your clipboard, and shows it above so you can paste it anywhere."}
-                      </p>
+                      <div className="border-t pt-3 space-y-2">
+                        <p className="text-sm font-medium">Or request from someone else</p>
+                        <Label htmlFor={`evidence-email-${t.id}`}>Recipient email (optional)</Label>
+                        <div className="flex flex-col sm:flex-row gap-2">
+                          <Input
+                            id={`evidence-email-${t.id}`}
+                            type="email"
+                            placeholder="name@example.com"
+                            value={recipientEmail}
+                            onChange={(e) => setRecipientEmail(e.target.value)}
+                          />
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => evidenceMutation.mutate(t.id)}
+                            disabled={evidenceMutation.isPending}
+                          >
+                            {evidenceMutation.isPending
+                              ? recipientEmail.trim()
+                                ? "Sending…"
+                                : "Creating…"
+                              : "Share link"}
+                          </Button>
+                        </div>
+                        <p className="text-sm text-muted-foreground leading-relaxed">
+                          {recipientEmail.trim()
+                            ? "We’ll email them a secure one-off upload link. The same link is copied to your clipboard and shown above."
+                            : "Creates a link, copies it to your clipboard, and shows it above so you can paste it anywhere."}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </CardContent>
-      </Card>
-
+                  )}
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

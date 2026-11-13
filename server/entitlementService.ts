@@ -27,6 +27,7 @@ export async function getOrganizationAccessStatus(
       batches: batches.map((batch) => ({
         remainingQuantity: batch.remainingQuantity,
         expiresAt: batch.expiresAt,
+        creditKind: (batch as any).creditKind ?? null,
         metadataJson: batch.metadataJson,
       })),
     },
