@@ -298,20 +298,25 @@ export default function Pricing() {
               !!sub.planCode &&
               sub.planCode !== "pending" &&
               (sub.status === "active" || sub.status === "trialing");
-            const isCurrent =
-              hasLiveSub && sub.planCode === plan.code && (sub.cycle || cycle) === cycle;
+            const isSamePlan = hasLiveSub && sub.planCode === plan.code;
+            const isCurrentCycle = isSamePlan && (sub.cycle || cycle) === cycle;
+            const isCycleChange = isSamePlan && !isCurrentCycle;
             return (
               <Card
                 key={plan.code}
                 className={cn(
                   "flex flex-col",
                   plan.popular && "border-primary border-2 shadow-sm",
+                  isSamePlan && "ring-2 ring-primary/40",
                 )}
               >
                 <CardHeader className="pb-3">
                   <div className="flex items-start justify-between gap-2">
                     <CardTitle className="text-xl">{plan.name}</CardTitle>
-                    {plan.popular ? <Badge>Most popular</Badge> : null}
+                    <div className="flex flex-wrap gap-1 justify-end">
+                      {isSamePlan ? <Badge variant="secondary">Current</Badge> : null}
+                      {plan.popular ? <Badge>Most popular</Badge> : null}
+                    </div>
                   </div>
                   {plan.description ? (
                     <CardDescription className="text-sm">{plan.description}</CardDescription>
@@ -368,10 +373,10 @@ export default function Pricing() {
                   ) : (
                     <Button
                       className="w-full"
-                      variant={isCurrent ? "outline" : "default"}
+                      variant={isCurrentCycle ? "outline" : "default"}
                       disabled={
                         checkoutBusy === plan.code ||
-                        isCurrent ||
+                        isCurrentCycle ||
                         Boolean(sub?.pendingPlanCode)
                       }
                       onClick={() => startCheckout(plan.code)}
@@ -380,8 +385,10 @@ export default function Pricing() {
                         <Loader2 className="h-4 w-4 animate-spin" />
                       ) : !isAuthenticated ? (
                         "Sign in to subscribe"
-                      ) : isCurrent ? (
+                      ) : isCurrentCycle ? (
                         "Current plan"
+                      ) : isCycleChange ? (
+                        cycle === "yearly" ? "Switch to yearly" : "Switch to monthly"
                       ) : hasLiveSub ? (
                         "Switch plan"
                       ) : (

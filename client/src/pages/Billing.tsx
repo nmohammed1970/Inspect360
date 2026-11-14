@@ -517,8 +517,7 @@ export default function Billing() {
               Billing
             </h1>
             <p className="text-sm md:text-base text-muted-foreground max-w-2xl">
-              Plan, credits, pricing, invoices, and modules — prices exclude VAT.{" "}
-              {status?.photosPerCredit || 500} photos per inspection credit.
+              Plan, credits, pricing, invoices, and modules.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2 shrink-0">
@@ -776,7 +775,7 @@ export default function Billing() {
             <div className="space-y-1">
               <h2 className="text-xl md:text-2xl font-bold tracking-tight">Plans & pricing</h2>
               <p className="text-sm text-muted-foreground">
-                Subscribe or change plan. Prices exclude VAT.
+                Subscribe or change plan.
               </p>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -814,16 +813,21 @@ export default function Billing() {
                 const price =
                   plan.prices?.find((p) => p.cycle === billingCycle) || plan.prices?.[0];
                 const amount = price?.amountMinor ?? 0;
-                const isCurrent =
+                const subCycle = (v2?.subscription?.cycle as string | undefined) || null;
+                const isSamePlan =
                   currentPlanCode === plan.code &&
                   (v2?.subscription?.status === "active" ||
-                    v2?.subscription?.status === "trialing") &&
-                  (v2?.subscription?.cycle || billingCycle) === billingCycle;
+                    v2?.subscription?.status === "trialing");
+                const isCurrentCycle = isSamePlan && (subCycle || billingCycle) === billingCycle;
+                const isCycleChange = isSamePlan && !isCurrentCycle;
                 const isPendingTarget = pendingPlanCode === plan.code;
                 const planCta = (() => {
-                  if (isCurrent) return "Current plan";
+                  if (isCurrentCycle) return "Current plan";
                   if (isPendingTarget || hasPendingUpgrade) {
                     return isPendingTarget ? "Payment pending" : "Upgrade pending";
+                  }
+                  if (isCycleChange) {
+                    return billingCycle === "yearly" ? "Switch to yearly" : "Switch to monthly";
                   }
                   if (hasActivePlan) return "Switch plan";
                   return "Start trial";
@@ -834,7 +838,7 @@ export default function Billing() {
                     className={cn(
                       "flex flex-col",
                       plan.popular && "border-primary border-2",
-                      isCurrent && "ring-2 ring-primary/40",
+                      isSamePlan && "ring-2 ring-primary/40",
                       isPendingTarget && "ring-2 ring-amber-500/40",
                     )}
                   >
@@ -842,7 +846,7 @@ export default function Billing() {
                       <div className="flex items-start justify-between gap-2">
                         <CardTitle className="text-xl">{plan.name}</CardTitle>
                         <div className="flex flex-wrap gap-1 justify-end">
-                          {isCurrent ? <Badge variant="secondary">Current</Badge> : null}
+                          {isSamePlan ? <Badge variant="secondary">Current</Badge> : null}
                           {isPendingTarget ? (
                             <Badge variant="outline" className="border-amber-500/40 text-amber-800 dark:text-amber-400">
                               Pending
@@ -913,10 +917,10 @@ export default function Billing() {
                       ) : (
                         <Button
                           className="w-full"
-                          variant={isCurrent || isPendingTarget ? "outline" : "default"}
+                          variant={isCurrentCycle || isPendingTarget ? "outline" : "default"}
                           disabled={
                             checkoutBusy === plan.code ||
-                            isCurrent ||
+                            isCurrentCycle ||
                             hasPendingUpgrade
                           }
                           onClick={() => startCheckout(plan.code)}
