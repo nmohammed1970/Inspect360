@@ -219,9 +219,10 @@ export default function Maintenance() {
     },
   });
 
+  // Inspectors (clerk) must not see work orders in the inspector portal.
   const canSeeWorkOrders =
-    user?.role === "owner" || user?.role === "contractor" || user?.role === "clerk";
-  const isAssigneeRole = user?.role === "clerk" || user?.role === "contractor";
+    user?.role === "owner" || user?.role === "contractor";
+  const isAssigneeRole = user?.role === "contractor";
   const tabFromUrl = new URLSearchParams(searchParams).get("tab");
   const defaultWorkOrdersTab =
     tabFromUrl === "work-orders" || (isAssigneeRole && tabFromUrl !== "requests");
@@ -232,6 +233,8 @@ export default function Maintenance() {
   useEffect(() => {
     if (tabFromUrl === "work-orders" && canSeeWorkOrders) {
       setActiveTab("work-orders");
+    } else if (tabFromUrl === "work-orders" && !canSeeWorkOrders) {
+      setActiveTab("requests");
     } else if (tabFromUrl === "requests") {
       setActiveTab("requests");
     }

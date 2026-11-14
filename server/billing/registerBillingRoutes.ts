@@ -84,11 +84,28 @@ export function registerBillingCatalogRoutes(app: Express) {
       } catch (lockErr) {
         console.error("[billing/v2/subscription] plan module lock failed:", lockErr);
       }
-      const [sub] = await db
+      let [sub] = await db
         .select()
         .from(billingSubscriptions)
         .where(eq(billingSubscriptions.organizationId, orgId))
         .limit(1);
+
+      // Self-heal stuck pending upgrades (e.g. trial £0 invoice / missed webhook).
+      if (sub?.pendingPlanCode) {
+        try {
+          const healed = await planLimits.reconcilePendingUpgrade(orgId);
+          if (healed) {
+            const [refreshed] = await db
+              .select()
+              .from(billingSubscriptions)
+              .where(eq(billingSubscriptions.organizationId, orgId))
+              .limit(1);
+            sub = refreshed;
+          }
+        } catch (e) {
+          console.warn("[billing] pending upgrade reconcile skipped:", e);
+        }
+      }
 
       // Trial = bonus only. Never grant plan SMS while trialing/incomplete.
       // Self-heal orgs that already received the old mistaken backfill during trial.

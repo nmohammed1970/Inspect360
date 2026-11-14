@@ -20,6 +20,8 @@ import {
   History,
   Sparkles,
   Banknote,
+  MessageSquare,
+  ClipboardList,
 } from "lucide-react";
 import {
   Table,
@@ -76,6 +78,7 @@ type InstanceRow = {
   createdAt?: string;
   owner?: { id?: string; email?: string; firstName?: string; lastName?: string };
   creditBalance?: CreditBalance;
+  smsBalance?: number;
   enabledModuleCount?: number;
   unitPricing?: InstanceUnitPricing;
   entitlement?: {
@@ -151,6 +154,8 @@ export default function AdminDashboard() {
 
   const [creditsTarget, setCreditsTarget] = useState("");
   const [creditsDelta, setCreditsDelta] = useState("");
+  const [smsCreditsTarget, setSmsCreditsTarget] = useState("");
+  const [smsCreditsDelta, setSmsCreditsDelta] = useState("");
   const [creditReason, setCreditReason] = useState("");
   const [creditExpiresAt, setCreditExpiresAt] = useState("");
   const [trialDays, setTrialDays] = useState("7");
@@ -257,6 +262,9 @@ export default function AdminDashboard() {
   const liveBalance = selectedInstance
     ? instances.find((i) => i.id === selectedInstance.id)?.creditBalance ?? selectedInstance.creditBalance
     : undefined;
+  const liveSmsBalance = selectedInstance
+    ? instances.find((i) => i.id === selectedInstance.id)?.smsBalance ?? selectedInstance.smsBalance ?? 0
+    : 0;
   const liveEntitlement = selectedInstance
     ? instances.find((i) => i.id === selectedInstance.id)?.entitlement ?? selectedInstance.entitlement
     : undefined;
@@ -266,6 +274,8 @@ export default function AdminDashboard() {
     setSelectedInstance(instance);
     setCreditsTarget(String(instance.creditBalance?.total ?? 0));
     setCreditsDelta("");
+    setSmsCreditsTarget(String(instance.smsBalance ?? 0));
+    setSmsCreditsDelta("");
     setCreditReason("");
     setCreditExpiresAt("");
     setTrialDays("7");
@@ -328,12 +338,20 @@ export default function AdminDashboard() {
   useEffect(() => {
     if (!manageOpen || !selectedInstance) return;
     const refreshed = instances.find((i) => i.id === selectedInstance.id);
-    if (refreshed && refreshed.creditBalance) {
+    if (refreshed && (refreshed.creditBalance || refreshed.smsBalance !== undefined)) {
       setSelectedInstance((prev) =>
         prev && prev.id === refreshed.id
-          ? { ...prev, creditBalance: refreshed.creditBalance, enabledModuleCount: refreshed.enabledModuleCount }
+          ? {
+              ...prev,
+              creditBalance: refreshed.creditBalance ?? prev.creditBalance,
+              smsBalance: refreshed.smsBalance ?? prev.smsBalance,
+              enabledModuleCount: refreshed.enabledModuleCount,
+            }
           : prev
       );
+      if (refreshed.smsBalance !== undefined) {
+        setSmsCreditsTarget(String(refreshed.smsBalance));
+      }
     }
   }, [instances, manageOpen, selectedInstance?.id]);
 
@@ -366,11 +384,21 @@ export default function AdminDashboard() {
     },
     onSuccess: (body) => {
       invalidateAll();
-      if (body?.creditBalance && selectedInstance) {
-        setSelectedInstance({ ...selectedInstance, creditBalance: body.creditBalance });
+      if (selectedInstance) {
+        setSelectedInstance({
+          ...selectedInstance,
+          ...(body?.creditBalance ? { creditBalance: body.creditBalance } : {}),
+          ...(body?.smsBalance !== undefined ? { smsBalance: body.smsBalance } : {}),
+        });
+      }
+      if (body?.creditBalance) {
         setCreditsTarget(String(body.creditBalance.total ?? 0));
       }
+      if (body?.smsBalance !== undefined) {
+        setSmsCreditsTarget(String(body.smsBalance));
+      }
       setCreditsDelta("");
+      setSmsCreditsDelta("");
       setCreditReason("");
       setConfirmDisableModuleId(null);
       toast({
@@ -389,24 +417,47 @@ export default function AdminDashboard() {
   });
 
   const grantMutation = useMutation({
-    mutationFn: async ({ quantity, reason, expiresAt }: { quantity: number; reason: string; expiresAt: string }) => {
+    mutationFn: async ({
+      quantity,
+      reason,
+      expiresAt,
+      kind,
+    }: {
+      quantity: number;
+      reason: string;
+      expiresAt: string;
+      kind?: "inspection" | "sms";
+    }) => {
       if (!selectedInstance) throw new Error("No instance selected");
       const res = await apiRequest("POST", "/api/admin/credits/grant", {
         organizationId: selectedInstance.id,
         quantity,
         reason,
         expiresAt,
+        kind: kind || "inspection",
       });
       return res.json();
     },
     onSuccess: (body) => {
       invalidateAll();
+      if (selectedInstance) {
+        setSelectedInstance({
+          ...selectedInstance,
+          ...(body?.creditBalance ? { creditBalance: body.creditBalance } : {}),
+          ...(body?.smsBalance !== undefined ? { smsBalance: body.smsBalance } : {}),
+        });
+      }
       if (body?.creditBalance) {
         setCreditsTarget(String(body.creditBalance.total ?? 0));
       }
+      if (body?.smsBalance !== undefined) {
+        setSmsCreditsTarget(String(body.smsBalance));
+      }
       setCreditsDelta("");
+      setSmsCreditsDelta("");
       setCreditReason("");
-      toast({ title: "Credits granted", description: `Granted ${body.granted} credits.` });
+      const label = body?.kind === "sms" ? "SMS credits" : "credits";
+      toast({ title: "Credits granted", description: `Granted ${body.granted} ${label}.` });
       refetchLedger();
     },
     onError: (err: Error) => {
@@ -493,12 +544,75 @@ export default function AdminDashboard() {
         toast({ variant: "destructive", title: "Expiration date required", description: "Choose when these credits expire." });
         return;
       }
-      grantMutation.mutate({ quantity: delta, reason: creditReason.trim(), expiresAt: creditExpiresAt });
+      grantMutation.mutate({
+        quantity: delta,
+        reason: creditReason.trim(),
+        expiresAt: creditExpiresAt,
+        kind: "inspection",
+      });
       return;
     }
     const target = Math.max(0, current + delta);
     updateMutation.mutate({
       credits: target,
+      creditReason: creditReason.trim(),
+      ...(creditExpiresAt ? { creditExpiresAt } : {}),
+      isActive: selectedInstance?.isActive !== false,
+      enabledModules,
+    });
+  };
+
+  const saveSmsCreditsAbsolute = () => {
+    const target = Number(smsCreditsTarget);
+    if (!Number.isFinite(target) || target < 0) {
+      toast({ variant: "destructive", title: "Invalid SMS credits", description: "Enter a non-negative number." });
+      return;
+    }
+    if (!creditReason.trim()) {
+      toast({ variant: "destructive", title: "Reason required", description: "Add a short note for the credit change." });
+      return;
+    }
+    const current = liveSmsBalance;
+    if (target > current && !creditExpiresAt) {
+      toast({ variant: "destructive", title: "Expiration date required", description: "Choose when these SMS credits expire." });
+      return;
+    }
+    updateMutation.mutate({
+      smsCredits: target,
+      creditReason: creditReason.trim(),
+      ...(creditExpiresAt ? { creditExpiresAt } : {}),
+      isActive: selectedInstance?.isActive !== false,
+      enabledModules,
+    });
+  };
+
+  const applySmsDelta = () => {
+    const delta = Number(smsCreditsDelta);
+    if (!Number.isFinite(delta) || delta === 0) {
+      toast({ variant: "destructive", title: "Invalid amount", description: "Enter a non-zero SMS credit amount." });
+      return;
+    }
+    if (!creditReason.trim()) {
+      toast({ variant: "destructive", title: "Reason required", description: "Add a short note for the credit change." });
+      return;
+    }
+    const current = liveSmsBalance;
+    if (delta > 0) {
+      if (!creditExpiresAt) {
+        toast({ variant: "destructive", title: "Expiration date required", description: "Choose when these SMS credits expire." });
+        return;
+      }
+      grantMutation.mutate({
+        quantity: delta,
+        reason: creditReason.trim(),
+        expiresAt: creditExpiresAt,
+        kind: "sms",
+      });
+      return;
+    }
+    const target = Math.max(0, current + delta);
+    updateMutation.mutate({
+      smsCredits: target,
       creditReason: creditReason.trim(),
       ...(creditExpiresAt ? { creditExpiresAt } : {}),
       isActive: selectedInstance?.isActive !== false,
@@ -804,9 +918,9 @@ export default function AdminDashboard() {
         </Card>
 
       <Dialog open={manageOpen} onOpenChange={setManageOpen}>
-        <DialogContent className={cn(dialogContentBase, "max-w-3xl")}>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 min-w-0">
+        <DialogContent className={cn(dialogContentBase, "max-w-4xl")}>
+          <DialogHeader className="space-y-1.5">
+            <DialogTitle className="flex items-center gap-2 min-w-0 text-xl">
               <Building2 className="h-5 w-5 shrink-0" />
               <span className={textTruncate}>{selectedInstance?.name || "Instance"}</span>
             </DialogTitle>
@@ -815,190 +929,315 @@ export default function AdminDashboard() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            <div className="rounded-lg border bg-muted/30 p-3">
-              <div className="text-xs text-muted-foreground">Live credits</div>
-              <div className="text-2xl font-semibold tabular-nums">{liveBalance?.total ?? 0}</div>
-                </div>
-            <div className="rounded-lg border bg-muted/30 p-3">
-              <div className="text-xs text-muted-foreground">Current batch</div>
-              <div className="text-2xl font-semibold tabular-nums">{liveBalance?.current ?? 0}</div>
-              </div>
-            <div className="rounded-lg border bg-muted/30 p-3">
-              <div className="text-xs text-muted-foreground">Modules on</div>
-              <div className="text-2xl font-semibold tabular-nums">{enabledModules.length}</div>
-                </div>
-            <div className="rounded-lg border bg-muted/30 p-3">
-              <div className="text-xs text-muted-foreground">Expires</div>
-              <div className="text-sm font-medium mt-1">
-                {liveBalance?.expiresOn
-                  ? format(new Date(liveBalance.expiresOn), "dd MMM yyyy")
-                  : "No expiry"}
+          <div className="space-y-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="rounded-xl border bg-muted/20 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                      <ClipboardList className="h-4 w-4 shrink-0" />
+                      Inspection credits
+                    </div>
+                    <div className="mt-1 text-3xl font-semibold tabular-nums tracking-tight">
+                      {liveBalance?.total ?? 0}
+                    </div>
                   </div>
+                  <Badge variant="secondary" className="shrink-0">
+                    Batch {liveBalance?.current ?? 0}
+                  </Badge>
                 </div>
-                </div>
-
-          <div className="rounded-xl border p-4 space-y-3">
-            <div className="font-medium text-sm">Trial</div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
-              <div>
-                <div className="text-xs text-muted-foreground">Status</div>
-                <div>{trial.status}</div>
-              </div>
-              <div>
-                <div className="text-xs text-muted-foreground">Days remaining</div>
-                <div>{trial.days}</div>
-              </div>
-              <div>
-                <div className="text-xs text-muted-foreground">Trial start</div>
-                <div>{formatUtcDateTime(liveEntitlement?.trialStartAt)}</div>
-              </div>
-              <div>
-                <div className="text-xs text-muted-foreground">Trial end</div>
-                <div>{formatUtcDateTime(liveEntitlement?.trialEndAt)}</div>
-              </div>
-            </div>
-            <div className="flex flex-col sm:flex-row gap-2 sm:items-end">
-              <div className="space-y-1 flex-1 min-w-0">
-                <Label htmlFor="trial-days">Days to add</Label>
-                <Input
-                  id="trial-days"
-                  type="number"
-                  min={1}
-                  max={365}
-                  value={trialDays}
-                  onChange={(e) => {
-                    setTrialDays(e.target.value);
-                    setConfirmExtend(false);
-                  }}
-                  data-testid="input-trial-days"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Choose how many days to add. If this organization has no trial yet, it starts today and lasts this long.
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Expires{" "}
+                  {liveBalance?.expiresOn
+                    ? format(new Date(liveBalance.expiresOn), "dd MMM yyyy")
+                    : "— no date set"}
                 </p>
               </div>
-              <Button
-                type="button"
-                variant={confirmExtend ? "default" : "secondary"}
-                disabled={extendTrialMutation.isPending}
-                onClick={() => {
-                  const days = Number(trialDays);
-                  if (!Number.isInteger(days) || days <= 0 || days > 365) {
-                    toast({ variant: "destructive", title: "Invalid days", description: "Enter a whole number from 1 to 365." });
-                    return;
-                  }
-                  if (!confirmExtend) {
-                    setConfirmExtend(true);
-                    return;
-                  }
-                  extendTrialMutation.mutate(days);
-                }}
-                data-testid="button-extend-trial"
-              >
-                {extendTrialMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-                {confirmExtend ? `Confirm +${trialDays} days` : "Extend trial"}
-              </Button>
+              <div className="rounded-xl border bg-muted/20 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                      <MessageSquare className="h-4 w-4 shrink-0" />
+                      SMS credits
+                    </div>
+                    <div className="mt-1 text-3xl font-semibold tabular-nums tracking-tight">
+                      {liveSmsBalance}
+                    </div>
+                  </div>
+                  <Badge variant="outline" className="shrink-0">
+                    {enabledModules.length} modules on
+                  </Badge>
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Used for outbound SMS. Separate from inspection balance.
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-xl border p-4 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="font-medium">Trial</div>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Extend access if this organization is still evaluating.
+                  </p>
+                </div>
+                <Badge variant={trial.status === "Active" ? "default" : "secondary"}>
+                  {trial.status}
+                  {trial.days !== "—" ? ` · ${trial.days}d left` : ""}
+                </Badge>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                <div className="rounded-lg bg-muted/30 px-3 py-2">
+                  <div className="text-xs text-muted-foreground">Trial start</div>
+                  <div className="mt-0.5 font-medium">{formatUtcDateTime(liveEntitlement?.trialStartAt)}</div>
+                </div>
+                <div className="rounded-lg bg-muted/30 px-3 py-2">
+                  <div className="text-xs text-muted-foreground">Trial end</div>
+                  <div className="mt-0.5 font-medium">{formatUtcDateTime(liveEntitlement?.trialEndAt)}</div>
+                </div>
+              </div>
+              <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
+                <div className="space-y-1.5 flex-1 min-w-0">
+                  <Label htmlFor="trial-days">Days to add</Label>
+                  <Input
+                    id="trial-days"
+                    type="number"
+                    min={1}
+                    max={365}
+                    value={trialDays}
+                    onChange={(e) => {
+                      setTrialDays(e.target.value);
+                      setConfirmExtend(false);
+                    }}
+                    data-testid="input-trial-days"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    If there is no trial yet, it starts today and lasts this many days.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant={confirmExtend ? "default" : "secondary"}
+                  disabled={extendTrialMutation.isPending}
+                  className="sm:mb-0.5"
+                  onClick={() => {
+                    const days = Number(trialDays);
+                    if (!Number.isInteger(days) || days <= 0 || days > 365) {
+                      toast({ variant: "destructive", title: "Invalid days", description: "Enter a whole number from 1 to 365." });
+                      return;
+                    }
+                    if (!confirmExtend) {
+                      setConfirmExtend(true);
+                      return;
+                    }
+                    extendTrialMutation.mutate(days);
+                  }}
+                  data-testid="button-extend-trial"
+                >
+                  {extendTrialMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+                  {confirmExtend ? `Confirm +${trialDays} days` : "Extend trial"}
+                </Button>
+              </div>
             </div>
           </div>
 
-          <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-1">
             <TabsList className={tabsListScroll}>
-              <TabsTrigger value="credits" className="gap-1 shrink-0">
+              <TabsTrigger value="credits" className="gap-1.5 shrink-0">
                 <CreditCard className="h-3.5 w-3.5" />
                 Credits
               </TabsTrigger>
-              <TabsTrigger value="modules" className="gap-1 shrink-0">
+              <TabsTrigger value="modules" className="gap-1.5 shrink-0">
                 <Package className="h-3.5 w-3.5" />
                 Modules
               </TabsTrigger>
-              <TabsTrigger value="unit-pricing" className="gap-1 shrink-0">
+              <TabsTrigger value="unit-pricing" className="gap-1.5 shrink-0">
                 <Banknote className="h-3.5 w-3.5" />
                 Unit pricing
               </TabsTrigger>
             </TabsList>
 
-            <TabsContent value="credits" className="space-y-4 pt-2">
-                  <div className="space-y-2">
-                <Label htmlFor="credit-reason">Reason (required for changes)</Label>
-                <Textarea
-                  id="credit-reason"
-                  placeholder="e.g. Pilot allocation for March, goodwill top-up…"
-                  value={creditReason}
-                  onChange={(e) => setCreditReason(e.target.value)}
-                  rows={2}
-                />
+            <TabsContent value="credits" className="space-y-5 pt-4">
+              <div className="rounded-xl border bg-muted/15 p-4 space-y-4">
+                <div>
+                  <div className="font-medium">Before you change credits</div>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Reason is required for every change. Expiry is required when adding credits.
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-4">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="credit-reason">Reason</Label>
+                    <Textarea
+                      id="credit-reason"
+                      placeholder="e.g. Pilot allocation for March, goodwill top-up…"
+                      value={creditReason}
+                      onChange={(e) => setCreditReason(e.target.value)}
+                      rows={3}
+                    />
                   </div>
-              <div className="space-y-2">
-                <Label htmlFor="credit-expiry">Credit expiration date</Label>
-                <LocaleDateInput
-                  id="credit-expiry"
-                  value={creditExpiresAt || null}
-                  onChange={(ymd) => setCreditExpiresAt(ymd || "")}
-                  disablePast
-                  data-testid="input-credit-expiry"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Required when adding credits. If you set a date, it is saved onto the current balance, even when the total stays the same or goes down. The selected day is usable in full. Access ends at 00:00 UTC the next day.
-                </p>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="credit-expiry">Expiration date</Label>
+                    <LocaleDateInput
+                      id="credit-expiry"
+                      value={creditExpiresAt || null}
+                      onChange={(ymd) => setCreditExpiresAt(ymd || "")}
+                      disablePast
+                      data-testid="input-credit-expiry"
+                    />
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      Selected day is usable in full. Access ends at 00:00 UTC the next day.
+                    </p>
+                  </div>
+                </div>
               </div>
 
-              <div className={formGrid2}>
-                <div className="rounded-xl border p-4 space-y-3">
-                  <div className="font-medium text-sm">Set absolute total</div>
-                    <Input
-                      type="number"
-                    min={0}
-                    value={creditsTarget}
-                    onChange={(e) => setCreditsTarget(e.target.value)}
-                    data-testid="input-credits-target"
-                  />
-                  <Button
-                    className="w-full"
-                    onClick={saveCreditsAbsolute}
-                    disabled={updateMutation.isPending || grantMutation.isPending}
-                  >
-                    {updateMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-                    Set credits to this total
-                  </Button>
+              <div className="rounded-xl border overflow-hidden">
+                <div className="flex items-center justify-between gap-3 px-4 py-3 border-b bg-muted/30">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <ClipboardList className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <div className="min-w-0">
+                      <div className="font-medium text-sm">Inspection credits</div>
+                      <div className="text-xs text-muted-foreground">Reports and inspection usage</div>
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className="text-xs text-muted-foreground">Live</div>
+                    <div className="text-lg font-semibold tabular-nums">{liveBalance?.total ?? 0}</div>
+                  </div>
                 </div>
-                <div className="rounded-xl border p-4 space-y-3">
-                  <div className="font-medium text-sm">Add or remove (delta)</div>
-                  <Input
-                    type="number"
-                    placeholder="e.g. 50 or -20"
-                    value={creditsDelta}
-                    onChange={(e) => setCreditsDelta(e.target.value)}
-                    data-testid="input-credits-delta"
-                  />
-                  <Button
-                    className="w-full"
-                    variant="secondary"
-                    onClick={applyDelta}
-                    disabled={updateMutation.isPending || grantMutation.isPending}
-                  >
-                    {grantMutation.isPending || updateMutation.isPending ? (
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    ) : null}
-                    Apply delta
-                  </Button>
+                <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-3 rounded-lg border bg-background p-3.5">
+                    <div>
+                      <Label htmlFor="credits-target">Set balance to</Label>
+                      <p className="text-xs text-muted-foreground mt-0.5">Replace the current total</p>
+                    </div>
+                    <Input
+                      id="credits-target"
+                      type="number"
+                      min={0}
+                      value={creditsTarget}
+                      onChange={(e) => setCreditsTarget(e.target.value)}
+                      data-testid="input-credits-target"
+                    />
+                    <Button
+                      className="w-full"
+                      onClick={saveCreditsAbsolute}
+                      disabled={updateMutation.isPending || grantMutation.isPending}
+                    >
+                      {updateMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+                      Set balance
+                    </Button>
+                  </div>
+                  <div className="space-y-3 rounded-lg border bg-background p-3.5">
+                    <div>
+                      <Label htmlFor="credits-delta">Add or remove</Label>
+                      <p className="text-xs text-muted-foreground mt-0.5">Use +50 or -20</p>
+                    </div>
+                    <Input
+                      id="credits-delta"
+                      type="number"
+                      placeholder="e.g. 50 or -20"
+                      value={creditsDelta}
+                      onChange={(e) => setCreditsDelta(e.target.value)}
+                      data-testid="input-credits-delta"
+                    />
+                    <Button
+                      className="w-full"
+                      variant="secondary"
+                      onClick={applyDelta}
+                      disabled={updateMutation.isPending || grantMutation.isPending}
+                    >
+                      {grantMutation.isPending || updateMutation.isPending ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : null}
+                      Apply change
+                    </Button>
+                  </div>
+                </div>
               </div>
+
+              <div className="rounded-xl border overflow-hidden">
+                <div className="flex items-center justify-between gap-3 px-4 py-3 border-b bg-muted/30">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <div className="min-w-0">
+                      <div className="font-medium text-sm">SMS credits</div>
+                      <div className="text-xs text-muted-foreground">Outbound text messages</div>
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className="text-xs text-muted-foreground">Live</div>
+                    <div className="text-lg font-semibold tabular-nums">{liveSmsBalance}</div>
+                  </div>
+                </div>
+                <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-3 rounded-lg border bg-background p-3.5">
+                    <div>
+                      <Label htmlFor="sms-credits-target">Set balance to</Label>
+                      <p className="text-xs text-muted-foreground mt-0.5">Replace the current total</p>
+                    </div>
+                    <Input
+                      id="sms-credits-target"
+                      type="number"
+                      min={0}
+                      value={smsCreditsTarget}
+                      onChange={(e) => setSmsCreditsTarget(e.target.value)}
+                      data-testid="input-sms-credits-target"
+                    />
+                    <Button
+                      className="w-full"
+                      onClick={saveSmsCreditsAbsolute}
+                      disabled={updateMutation.isPending || grantMutation.isPending}
+                    >
+                      {updateMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+                      Set balance
+                    </Button>
+                  </div>
+                  <div className="space-y-3 rounded-lg border bg-background p-3.5">
+                    <div>
+                      <Label htmlFor="sms-credits-delta">Add or remove</Label>
+                      <p className="text-xs text-muted-foreground mt-0.5">Use +50 or -20</p>
+                    </div>
+                    <Input
+                      id="sms-credits-delta"
+                      type="number"
+                      placeholder="e.g. 50 or -20"
+                      value={smsCreditsDelta}
+                      onChange={(e) => setSmsCreditsDelta(e.target.value)}
+                      data-testid="input-sms-credits-delta"
+                    />
+                    <Button
+                      className="w-full"
+                      variant="secondary"
+                      onClick={applySmsDelta}
+                      disabled={updateMutation.isPending || grantMutation.isPending}
+                    >
+                      {grantMutation.isPending || updateMutation.isPending ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : null}
+                      Apply change
+                    </Button>
+                  </div>
+                </div>
               </div>
 
               <div className="rounded-xl border overflow-hidden">
                 <div className="flex items-center justify-between px-4 py-3 border-b bg-muted/30">
                   <div className="flex items-center gap-2 font-medium text-sm">
-                    <History className="h-4 w-4" />
+                    <History className="h-4 w-4 text-muted-foreground" />
                     Recent ledger
-                            </div>
+                  </div>
                   <Button size="sm" variant="ghost" onClick={() => refetchLedger()}>
                     <RefreshCw className="h-3.5 w-3.5" />
                   </Button>
-                            </div>
+                </div>
                 {ledgerLoading ? (
                   <div className="p-6 text-center text-muted-foreground text-sm">
                     <Loader2 className="h-5 w-5 animate-spin mx-auto mb-2" />
                     Loading ledger…
-                          </div>
+                  </div>
                 ) : ledger.length === 0 ? (
                   <div className="p-6 text-center text-muted-foreground text-sm">No ledger entries yet.</div>
                 ) : (

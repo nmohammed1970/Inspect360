@@ -291,13 +291,63 @@ export async function revertPendingUpgrade(organizationId: string): Promise<bool
   return true;
 }
 
+/**
+ * If local pending_* is set but Stripe already accepted the new price
+ * (common during trial when the proration invoice is £0), confirm the upgrade.
+ * Safe to call on every subscription read — no-op when nothing is pending.
+ */
+export async function reconcilePendingUpgrade(organizationId: string): Promise<boolean> {
+  const [sub] = await db
+    .select()
+    .from(billingSubscriptions)
+    .where(eq(billingSubscriptions.organizationId, organizationId))
+    .limit(1);
+  if (!sub?.pendingPlanCode || !sub.stripeSubscriptionId) return false;
+
+  try {
+    const stripe = await getUncachableStripeClient();
+    const stripeSub = await stripe.subscriptions.retrieve(sub.stripeSubscriptionId, {
+      expand: ["latest_invoice"],
+    });
+    const statusOk = stripeSub.status === "active" || stripeSub.status === "trialing";
+    if (!statusOk) return false;
+
+    const metaPlan = String(stripeSub.metadata?.planCode || "");
+    const metaMatches =
+      metaPlan === sub.pendingPlanCode &&
+      (!sub.pendingCycle || String(stripeSub.metadata?.cycle || "") === sub.pendingCycle);
+
+    const latest = stripeSub.latest_invoice;
+    const invoiceObj =
+      latest && typeof latest === "object" ? (latest as { status?: string; billing_reason?: string }) : null;
+    const invoiceSettled =
+      invoiceObj?.status === "paid" ||
+      invoiceObj?.status === "void" ||
+      // No open amount due — Stripe accepted the change without a further charge.
+      (invoiceObj?.status === "open" && Number((invoiceObj as any).amount_remaining || 0) === 0);
+
+    // Confirm when Stripe metadata already points at the pending plan, or the
+    // latest invoice after the update is settled (incl. £0 trial prorations).
+    if (!metaMatches && !invoiceSettled) return false;
+
+    // Prefer metadata match; if only invoice settled, still require upgradePending flag
+    // or matching plan metadata so we don't confirm on an unrelated old invoice.
+    if (!metaMatches && stripeSub.metadata?.upgradePending !== "true") return false;
+
+    return await finalizePendingUpgrade(organizationId);
+  } catch (err) {
+    console.warn("[billing] reconcilePendingUpgrade failed:", err);
+    return false;
+  }
+}
+
 export async function changePlan(input: {
   organizationId: string;
   userId: string;
   planCode: string;
   cycle: "monthly" | "yearly";
 }): Promise<{
-  mode: "upgrade_pending_payment" | "downgrade_scheduled";
+  mode: "upgrade_pending_payment" | "upgrade_confirmed" | "downgrade_scheduled";
   subscription: any;
 }> {
   const { sub, plan: currentPlan } = await getPlanForOrg(input.organizationId);
@@ -409,6 +459,8 @@ export async function changePlan(input: {
       err.status = 500;
       throw err;
     }
+    // error_if_incomplete: success means payment completed or none was required
+    // (typical during trial — Stripe accepts the price change with a £0 invoice).
     await stripe.subscriptions.update(sub.stripeSubscriptionId, {
       items: [{ id: itemId, price: stripePriceId }],
       proration_behavior: "always_invoice",
@@ -441,6 +493,21 @@ export async function changePlan(input: {
         .where(eq(billingSubscriptions.organizationId, input.organizationId));
     }
     throw err;
+  }
+
+  // Confirm immediately when Stripe accepted the update. Webhook finalize stays as backup.
+  const confirmed = await finalizePendingUpgrade(input.organizationId);
+  if (confirmed) {
+    await catalog.writeBillingAudit({
+      actorType: "user",
+      actorId: input.userId,
+      organizationId: input.organizationId,
+      action: "plan.upgrade_confirmed",
+      before: { planCode: currentPlan?.code, cycle: sub.cycle },
+      after: { planCode: input.planCode, cycle: input.cycle, pending: false },
+    });
+    const fresh = await getOrgBillingSubscription(input.organizationId);
+    return { mode: "upgrade_confirmed", subscription: fresh };
   }
 
   await catalog.writeBillingAudit({

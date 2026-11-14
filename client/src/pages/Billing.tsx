@@ -356,7 +356,12 @@ export default function Billing() {
         const data = await res.json();
         if (!res.ok) throw new Error(data.message || "Plan change failed");
         await Promise.all([refetchV2(), refetchBalance()]);
-        if (data.mode === "upgrade_pending_payment") {
+        if (data.mode === "upgrade_confirmed") {
+          toast({
+            title: "Plan upgraded",
+            description: "Your plan is updated. Any charge due was completed (or deferred to after trial).",
+          });
+        } else if (data.mode === "upgrade_pending_payment") {
           toast({
             title: "Upgrade payment processing",
             description:

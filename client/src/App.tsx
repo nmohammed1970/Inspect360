@@ -596,7 +596,15 @@ function AppContent() {
                       {() => <FieldRoleRedirect to="/inspections" />}
                     </Route>
                     <Route path="/analytics">
-                      {() => <FieldRoleRedirect to="/maintenance?tab=work-orders" />}
+                      {() => (
+                        <FieldRoleRedirect
+                          to={
+                            user?.role === "clerk"
+                              ? "/inspections"
+                              : "/maintenance?tab=work-orders"
+                          }
+                        />
+                      )}
                     </Route>
                   </>
                 ) : (

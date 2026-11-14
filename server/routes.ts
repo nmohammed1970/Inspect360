@@ -21304,6 +21304,8 @@ ${optionalNotes || "No details provided."}`;
 
         // Get credit balance from batch system (not legacy creditsRemaining)
         const creditBalance = await storage.getCreditBalance(org.id);
+        const { getBalances } = await import("./billing/creditRules");
+        const kindBalances = await getBalances(org.id);
         const entitlement = await getOrganizationAccessStatus(org.id);
 
         let enabledModuleCount = 0;
@@ -21339,6 +21341,7 @@ ${optionalNotes || "No details provided."}`;
             rolled: creditBalance.rolled,
             expiresOn: creditBalance.expiresOn,
           },
+          smsBalance: kindBalances.sms,
           entitlement,
           unitPricing,
         };
@@ -21360,6 +21363,8 @@ ${optionalNotes || "No details provided."}`;
       }
       const subscription = await storage.getInstanceSubscription(req.params.id);
       const creditBalance = await storage.getCreditBalance(req.params.id);
+      const { getBalances } = await import("./billing/creditRules");
+      const kindBalances = await getBalances(req.params.id);
       const { getOrganizationAccessStatus } = await import("./entitlementService");
       const entitlement = await getOrganizationAccessStatus(req.params.id);
       const tiers = await storage.getSubscriptionTiers();
@@ -21379,6 +21384,7 @@ ${optionalNotes || "No details provided."}`;
           rolled: creditBalance.rolled,
           expiresOn: creditBalance.expiresOn,
         },
+        smsBalance: kindBalances.sms,
         entitlement,
         instanceModules: enabledModules,
       });
@@ -21391,7 +21397,7 @@ ${optionalNotes || "No details provided."}`;
   // Update instance (tier, credits, active status, modules)
   app.patch("/api/admin/instances/:id", isAdminAuthenticated, async (req, res) => {
     try {
-      const { tierId, credits, isActive, enabledModules, preferredCurrency, creditReason, creditExpiresAt } = req.body;
+      const { tierId, credits, smsCredits, isActive, enabledModules, preferredCurrency, creditReason, creditExpiresAt } = req.body;
 
       // Get organization to get currency
       const org = await storage.getOrganization(req.params.id);
@@ -21498,6 +21504,84 @@ ${optionalNotes || "No details provided."}`;
         }
       }
 
+      // Absolute SMS credit balance (separate from inspection credits)
+      if (smsCredits !== undefined && smsCredits !== null) {
+        const targetSms = Number(smsCredits);
+        if (!Number.isFinite(targetSms) || targetSms < 0) {
+          return res.status(400).json({ message: "SMS credits must be a non-negative number" });
+        }
+
+        const creditRules = await import("./billing/creditRules");
+        const balances = await creditRules.getBalances(req.params.id);
+        const currentSms = balances.sms;
+        const smsToAdjust = targetSms - currentSms;
+        const adminId = (req.session as any).adminUser?.id || "admin";
+        const notes = creditReason
+          ? String(creditReason)
+          : `Admin SMS adjustment: Updated from ${currentSms} to ${targetSms}`;
+
+        const { billingNowUtc } = await import("@shared/billingClock");
+        const { parseCreditExpiryInput } = await import("@shared/entitlements");
+        const { recordEntitlementEvent } = await import("./entitlementService");
+
+        let parsedExpiry: { expiresAt: Date } | null = null;
+        const expiryProvided = typeof creditExpiresAt === "string" && creditExpiresAt.trim().length > 0;
+        if (smsToAdjust > 0 || expiryProvided) {
+          const parsed = parseCreditExpiryInput(creditExpiresAt, billingNowUtc());
+          if (!parsed.ok) {
+            return res.status(400).json({ message: parsed.message });
+          }
+          parsedExpiry = parsed;
+        }
+
+        if (smsToAdjust > 0) {
+          if (!parsedExpiry) {
+            return res.status(400).json({ message: "Credit expiration date is required" });
+          }
+          await creditRules.grantPdfCredits({
+            organizationId: req.params.id,
+            kind: "sms",
+            quantity: smsToAdjust,
+            source: "admin_grant",
+            expiresAt: parsedExpiry.expiresAt,
+            metadata: { adminNotes: notes, createdBy: adminId },
+          });
+          console.log(`[Admin] Granted ${smsToAdjust} SMS credits to org ${req.params.id} (new total: ${targetSms})`);
+        } else if (smsToAdjust < 0) {
+          await creditRules.consumeKindCredits({
+            organizationId: req.params.id,
+            kind: "sms",
+            quantity: Math.abs(smsToAdjust),
+            linkedEntityType: "admin_adjustment",
+            linkedEntityId: adminId,
+            notes,
+          });
+          console.log(`[Admin] Consumed ${Math.abs(smsToAdjust)} SMS credits from org ${req.params.id} (new total: ${targetSms})`);
+        }
+
+        if (parsedExpiry) {
+          const openBatches = await storage.getAvailableCreditBatches(req.params.id);
+          let updatedSmsBatches = 0;
+          for (const batch of openBatches) {
+            const kind =
+              (batch as any).creditKind ||
+              batch.metadataJson?.creditKind ||
+              batch.metadataJson?.kind;
+            if (kind !== "sms") continue;
+            await storage.updateCreditBatch(batch.id, { expiresAt: parsedExpiry.expiresAt });
+            updatedSmsBatches += 1;
+          }
+          await recordEntitlementEvent({
+            organizationId: req.params.id,
+            eventType: "credits_granted",
+            actorUserId: adminId,
+            notes: `SMS: ${notes}. Expires ${parsedExpiry.expiresAt.toISOString()} (${updatedSmsBatches} open SMS batches).`,
+          }).catch((auditError) => {
+            console.error("Failed to record SMS credit expiry audit:", auditError);
+          });
+        }
+      }
+
       // Update organization status
       const updated = await storage.updateOrganization(req.params.id, {
         isActive,
@@ -21582,6 +21666,8 @@ ${optionalNotes || "No details provided."}`;
       }
 
       const creditBalance = await storage.getCreditBalance(req.params.id);
+      const { getBalances } = await import("./billing/creditRules");
+      const kindBalances = await getBalances(req.params.id);
       res.json({
         ...updated,
         creditBalance: {
@@ -21590,6 +21676,7 @@ ${optionalNotes || "No details provided."}`;
           rolled: creditBalance.rolled,
           expiresOn: creditBalance.expiresOn,
         },
+        smsBalance: kindBalances.sms,
       });
     } catch (error: any) {
       console.error("Error updating instance:", error);
@@ -26313,7 +26400,8 @@ ${optionalNotes || "No details provided."}`;
   // Admin: Grant credits (eco-admin session)
   app.post("/api/admin/credits/grant", isAdminAuthenticated, async (req: any, res) => {
     try {
-      const { organizationId, quantity, reason, expiresAt } = req.body;
+      const { organizationId, quantity, reason, expiresAt, kind: rawKind } = req.body;
+      const kind = rawKind === "sms" ? "sms" : "inspection";
 
       if (!organizationId || !quantity || Number(quantity) <= 0) {
         return res.status(400).json({ message: "organizationId and a positive quantity are required" });
@@ -26332,34 +26420,53 @@ ${optionalNotes || "No details provided."}`;
       }
 
       const adminId = (req.session as any).adminUser?.id || "admin";
-      const { subscriptionService: subService } = await import("./subscriptionService");
       const { recordEntitlementEvent } = await import("./entitlementService");
-      await subService.grantCredits(
-        organizationId,
-        Number(quantity),
-        "admin_grant",
-        parsedExpiry.expiresAt,
-        { adminNotes: reason || "Admin grant", createdBy: adminId }
-      );
+      const grantNote = reason || (kind === "sms" ? "Admin SMS grant" : "Admin grant");
+
+      if (kind === "sms") {
+        const creditRules = await import("./billing/creditRules");
+        await creditRules.grantPdfCredits({
+          organizationId,
+          kind: "sms",
+          quantity: Number(quantity),
+          source: "admin_grant",
+          expiresAt: parsedExpiry.expiresAt,
+          metadata: { adminNotes: grantNote, createdBy: adminId },
+        });
+      } else {
+        const { subscriptionService: subService } = await import("./subscriptionService");
+        await subService.grantCredits(
+          organizationId,
+          Number(quantity),
+          "admin_grant",
+          parsedExpiry.expiresAt,
+          { adminNotes: grantNote, createdBy: adminId }
+        );
+      }
+
       await recordEntitlementEvent({
         organizationId,
         eventType: "credits_granted",
         actorUserId: adminId,
-        notes: `${reason || "Admin grant"}. Expires ${parsedExpiry.expiresAt.toISOString()}.`,
+        notes: `${kind === "sms" ? "SMS: " : ""}${grantNote}. Expires ${parsedExpiry.expiresAt.toISOString()}.`,
       }).catch((auditError) => {
         console.error("Failed to record credit grant audit:", auditError);
       });
 
       const creditBalance = await storage.getCreditBalance(organizationId);
+      const { getBalances } = await import("./billing/creditRules");
+      const kindBalances = await getBalances(organizationId);
       res.json({
         success: true,
         granted: Number(quantity),
+        kind,
         creditBalance: {
           total: creditBalance.total,
           current: creditBalance.current,
           rolled: creditBalance.rolled,
           expiresOn: creditBalance.expiresOn,
         },
+        smsBalance: kindBalances.sms,
       });
     } catch (error: any) {
       console.error("Error granting credits:", error);
