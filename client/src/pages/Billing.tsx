@@ -567,6 +567,16 @@ export default function Billing() {
                         </Badge>
                       ) : null}
                     </div>
+                    {subStatus === "trialing" ? (
+                      <p className="text-sm text-muted-foreground">
+                        You are on {planName} limits during trial
+                        {v2?.subscription?.trialEnd
+                          ? ` until ${format(new Date(v2.subscription.trialEnd), "dd MMM yyyy")}`
+                          : ""}
+                        . Upgrading the plan does not end the trial — billing for {planName} starts
+                        when the trial ends.
+                      </p>
+                    ) : null}
                     {v2?.subscription?.cancelAtPeriodEnd ? (
                       <p className="text-sm text-amber-700 dark:text-amber-400">
                         Cancels at the end of the current billing period.
