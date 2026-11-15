@@ -183,8 +183,8 @@ CREATE TABLE IF NOT EXISTS billing_platform_config (
 INSERT INTO billing_platform_config (key, value) VALUES
   ('self_serve_enabled', 'true'),
   ('trial_days', '14'),
-  ('trial_inspection_credits', '10'),
-  ('trial_sms_credits', '20'),
+  ('trial_inspection_credits', '2'),
+  ('trial_sms_credits', '10'),
   ('photos_per_credit', '500'),
   ('inspection_price_floor_minor', '295'),
   ('property_pack_ceiling', '15'),

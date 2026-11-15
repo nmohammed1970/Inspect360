@@ -91,9 +91,32 @@ export async function ensureSeedCatalog(actorId?: string | null) {
     }
   }
 
-  const existingAddons = await db.select().from(billingAddons).limit(1);
+  const existingAddons = await db.select().from(billingAddons);
   if (existingAddons.length === 0) {
     for (const a of SEED_ADDONS) {
+      await db.insert(billingAddons).values({
+        code: a.code,
+        name: a.name,
+        description: a.description,
+        kind: a.kind,
+        monthlyAmountMinor: a.monthlyAmountMinor,
+        yearlyAmountMinor: a.yearlyAmountMinor,
+        stripeLookupKeyMonth: a.stripeLookupKeyMonth,
+        stripeLookupKeyYear: a.stripeLookupKeyYear,
+        maxQuantity: a.maxQuantity ?? null,
+        propertiesPerPack: (a as any).propertiesPerPack ?? null,
+        inspectionsPerMonth: (a as any).inspectionsPerMonth ?? null,
+        inspectionsPerYear: (a as any).inspectionsPerYear ?? null,
+        availableOnPlansJson: a.availableOnPlansJson as any,
+        includedFreeOnPlansJson: a.includedFreeOnPlansJson as any,
+        enabled: true,
+      });
+    }
+  } else {
+    // Backfill seed add-ons that were added later (e.g. addon_hmo) without wiping existing rows.
+    const existingCodes = new Set(existingAddons.map((a) => a.code));
+    for (const a of SEED_ADDONS) {
+      if (existingCodes.has(a.code)) continue;
       await db.insert(billingAddons).values({
         code: a.code,
         name: a.name,

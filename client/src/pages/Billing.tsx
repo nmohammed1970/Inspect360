@@ -31,8 +31,16 @@ import {
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { pagePad } from "@/lib/responsive";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { Switch } from "@/components/ui/switch";
+import {
+  COMPANY_MODULE_META,
+  companyModuleAccessFromPlan,
+  isPropertyManagementPlanCode,
+  type CatalogModuleFlag,
+  type CompanyModuleKey,
+} from "@shared/companyModules";
 
 const CONTACT_ADMIN = "Upgrade your plan to activate this module.";
 
@@ -46,6 +54,27 @@ const PLAN_LABELS: Record<string, string> = {
   ai_team: "Team",
   ai_high_volume: "High volume",
 };
+
+/** Same order as Settings → Internal Modules. */
+const PLAN_CARD_MODULE_ORDER: CompanyModuleKey[] = [
+  "tenancies",
+  "rentals",
+  "compliance",
+  "maintenance",
+  "hmo_compliance",
+];
+
+/** Internal Modules included on a plan (excludes add-ons until purchased). */
+function planIncludedModuleLines(
+  modulesJson?: Record<string, CatalogModuleFlag> | null,
+): Array<{ key: string; label: string }> {
+  const access = companyModuleAccessFromPlan(modulesJson, { hmoAddon: false });
+  if (!access) return [];
+  return PLAN_CARD_MODULE_ORDER.filter((key) => access[key].reason === "included").map((key) => ({
+    key,
+    label: COMPANY_MODULE_META[key].label,
+  }));
+}
 
 type ModuleRow = {
   id: string;
@@ -69,7 +98,19 @@ type CatalogPlan = {
   monthlyInspections?: number | null;
   yearlyInspections?: number | null;
   smsPerYear?: number | null;
+  modulesJson?: Record<string, CatalogModuleFlag> | null;
   prices?: Array<{ cycle: string; amountMinor: number }>;
+};
+
+type CatalogAddon = {
+  code: string;
+  name: string;
+  description?: string | null;
+  kind?: string;
+  monthlyAmountMinor?: number | null;
+  yearlyAmountMinor?: number | null;
+  availableOnPlansJson?: string[] | null;
+  includedFreeOnPlansJson?: string[] | null;
 };
 
 type TopupPack = {
@@ -138,7 +179,8 @@ export default function Billing() {
   const [planTab, setPlanTab] = useState<"property_management" | "ai_inspections">(
     "property_management",
   );
-  const [billingCycle, setBillingCycle] = useState<"monthly" | "yearly">("yearly");
+  const [billingCycle, setBillingCycle] = useState<"monthly" | "yearly">("monthly");
+  const [cycleTouched, setCycleTouched] = useState(false);
   const [topupKind, setTopupKind] = useState<"inspection" | "sms">("inspection");
 
   const {
@@ -162,6 +204,15 @@ export default function Billing() {
     queryFn: async () => (await apiRequest("GET", "/api/billing/v2/subscription")).json(),
     retry: false,
   });
+
+  // Match the toggle to an existing subscription cycle once; keep monthly for new orgs.
+  useEffect(() => {
+    if (cycleTouched) return;
+    const subCycle = v2?.subscription?.cycle;
+    if (subCycle === "monthly" || subCycle === "yearly") {
+      setBillingCycle(subCycle);
+    }
+  }, [v2?.subscription?.cycle, cycleTouched]);
 
   // After Stripe redirect: confirm session server-side (webhooks often missing on localhost)
   useEffect(() => {
@@ -254,6 +305,7 @@ export default function Billing() {
   const { data: catalog, isLoading: catalogLoading } = useQuery<{
     plans: CatalogPlan[];
     prices?: Array<{ planCode: string; cycle: string; amountMinor: number }>;
+    addons?: CatalogAddon[];
   }>({
     queryKey: ["/api/billing/catalog", planTab, billingCycle],
     queryFn: async () => {
@@ -261,7 +313,7 @@ export default function Billing() {
         `/api/billing/catalog?tab=${encodeURIComponent(planTab)}&cycle=${encodeURIComponent(billingCycle)}`,
         { credentials: "include", cache: "no-store" },
       );
-      if (res.status === 404) return { plans: [] };
+      if (res.status === 404) return { plans: [], addons: [] };
       if (!res.ok) throw new Error("Failed to load catalog");
       return res.json();
     },
@@ -277,6 +329,12 @@ export default function Billing() {
         prices: prices.filter((pr) => pr.planCode === p.code),
       }));
   }, [catalog, planTab]);
+
+  const hmoAddonCatalog = useMemo(
+    () =>
+      (catalog?.addons || []).find((a) => a.code === "addon_hmo" || a.kind === "hmo") || null,
+    [catalog?.addons],
+  );
 
   const allInspectionPacks = useMemo(
     () => (topupPacks?.packs || []).filter((p) => p.kind === "inspection"),
@@ -331,6 +389,29 @@ export default function Billing() {
         description: `Now ${data.packs} packs (+${data.creditsGranted} credits)`,
       });
       refetchV2();
+    } catch (e: any) {
+      toast({ title: "Failed", description: e.message, variant: "destructive" });
+    } finally {
+      setAddonBusy(null);
+    }
+  }
+
+  async function setHmoAddonEnabled(enabled: boolean) {
+    setAddonBusy("hmo");
+    try {
+      await apiRequest("POST", "/api/billing/v2/addons/hmo", { enabled });
+      await Promise.all([
+        refetchV2(),
+        queryClient.invalidateQueries({ queryKey: ["/api/billing/v2/limits"] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/organizations"] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/marketplace/my-modules"] }),
+      ]);
+      toast({
+        title: enabled ? "HMO add-on enabled" : "HMO add-on disabled",
+        description: enabled
+          ? "HMO Compliance is available under Internal Modules."
+          : "HMO screens are hidden. Existing HMO data is kept.",
+      });
     } catch (e: any) {
       toast({ title: "Failed", description: e.message, variant: "destructive" });
     } finally {
@@ -475,6 +556,37 @@ export default function Billing() {
   const pendingPlanCode = (v2?.subscription?.pendingPlanCode as string | undefined) || null;
   const pendingCycle = (v2?.subscription?.pendingCycle as string | undefined) || null;
   const hasPendingUpgrade = Boolean(pendingPlanCode);
+
+  const planModulesJson = (limits?.plan?.modulesJson ||
+    plans.find((p) => p.code === currentPlanCode)?.modulesJson) as
+    | Record<string, CatalogModuleFlag>
+    | null
+    | undefined;
+  const hmoPlanFlag = planModulesJson?.hmo;
+  const hmoIncludedFree =
+    !!currentPlanCode &&
+    (hmoPlanFlag === true ||
+      (!!hmoAddonCatalog?.includedFreeOnPlansJson &&
+        Array.isArray(hmoAddonCatalog.includedFreeOnPlansJson) &&
+        hmoAddonCatalog.includedFreeOnPlansJson.includes(currentPlanCode)));
+  const hmoAvailableAsAddon =
+    !!currentPlanCode &&
+    (hmoPlanFlag === "addon" ||
+      (!!hmoAddonCatalog?.availableOnPlansJson &&
+        Array.isArray(hmoAddonCatalog.availableOnPlansJson) &&
+        hmoAddonCatalog.availableOnPlansJson.includes(currentPlanCode)));
+  // Show for Property Management plans that include HMO or offer it as an add-on.
+  const showHmoAddonCard =
+    hasActivePlan &&
+    isPropertyManagementPlanCode(currentPlanCode) &&
+    (hmoAvailableAsAddon || hmoIncludedFree || hmoPlanFlag === "addon" || hmoPlanFlag === true);
+  const hmoAddonActive = hmoIncludedFree || Boolean(v2?.subscription?.hmoAddon);
+  const subCycleForAddon =
+    (v2?.subscription?.cycle as "monthly" | "yearly" | undefined) || billingCycle;
+  const hmoAddonPriceMinor =
+    subCycleForAddon === "yearly"
+      ? hmoAddonCatalog?.yearlyAmountMinor || 29000
+      : hmoAddonCatalog?.monthlyAmountMinor || 2900;
 
   const moduleRows: ModuleRow[] = useMemo(
     () =>
@@ -802,7 +914,10 @@ export default function Billing() {
               </Tabs>
               <Tabs
                 value={billingCycle}
-                onValueChange={(v) => setBillingCycle(v as typeof billingCycle)}
+                onValueChange={(v) => {
+                  setCycleTouched(true);
+                  setBillingCycle(v as typeof billingCycle);
+                }}
               >
                 <TabsList>
                   <TabsTrigger value="monthly">Monthly</TabsTrigger>
@@ -919,6 +1034,23 @@ export default function Billing() {
                           </li>
                         )}
                       </ul>
+                      {(() => {
+                        const moduleLines = planIncludedModuleLines(plan.modulesJson);
+                        if (moduleLines.length === 0) return null;
+                        return (
+                          <div className="space-y-2 pt-1 border-t">
+                            <p className="text-xs font-medium text-foreground">Included modules</p>
+                            <ul className="space-y-1.5 text-sm text-muted-foreground">
+                              {moduleLines.map((mod) => (
+                                <li key={mod.key} className="flex gap-2 items-start">
+                                  <Check className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+                                  <span>{mod.label}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        );
+                      })()}
                     </CardContent>
                     <CardFooter className="pt-0">
                       {plan.enquireOnly ? (
@@ -1040,12 +1172,122 @@ export default function Billing() {
           )}
         </section>
 
-        <div
-          className={cn(
-            "grid gap-6",
-            limits?.plan?.allowsPropertyPacks ? "lg:grid-cols-2" : "lg:grid-cols-1",
-          )}
-        >
+        {(showHmoAddonCard || limits?.plan?.allowsPropertyPacks) && (
+          <section id="plan-addons" className="scroll-mt-6 space-y-4 border-t pt-6 md:pt-8">
+            <div className="space-y-1">
+              <h2 className="text-xl md:text-2xl font-bold tracking-tight">Plan add-ons</h2>
+              <p className="text-sm text-muted-foreground">
+                Optional extras billed on your subscription.
+              </p>
+            </div>
+            <div
+              className={cn(
+                "grid gap-6",
+                showHmoAddonCard && limits?.plan?.allowsPropertyPacks
+                  ? "lg:grid-cols-2"
+                  : "lg:grid-cols-1",
+              )}
+            >
+              {showHmoAddonCard ? (
+                <Card className="shadow-none" id="hmo-addon">
+                  <CardHeader className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
+                        <Package className="h-4 w-4 text-primary" />
+                      </span>
+                      <CardTitle className="text-lg">
+                        {hmoAddonCatalog?.name || "HMO Compliance Intelligence"}
+                      </CardTitle>
+                    </div>
+                    <CardDescription>
+                      {hmoIncludedFree
+                        ? "Included on your plan — no extra charge."
+                        : hmoAddonCatalog?.description ||
+                          "Licence upload, assessments, findings, and portfolio oversight."}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="flex items-start justify-between gap-3 rounded-xl border px-4 py-3.5">
+                      <div className="min-w-0">
+                        <p className="font-medium text-sm">HMO module add-on</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {hmoIncludedFree
+                            ? "Turn it on under Settings → Internal Modules."
+                            : `${formatGbp(hmoAddonPriceMinor)} / ${
+                                subCycleForAddon === "yearly" ? "year" : "month"
+                              } · billed on your subscription`}
+                        </p>
+                      </div>
+                      {hmoIncludedFree ? (
+                        <Badge variant="secondary" className="shrink-0">
+                          Included
+                        </Badge>
+                      ) : (
+                        <div className="flex items-center gap-2 shrink-0">
+                          {addonBusy === "hmo" ? (
+                            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                          ) : null}
+                          <Switch
+                            checked={hmoAddonActive}
+                            disabled={addonBusy === "hmo" || !hasActivePlan}
+                            onCheckedChange={(on) => setHmoAddonEnabled(on)}
+                            aria-label="Enable HMO Compliance add-on"
+                          />
+                        </div>
+                      )}
+                    </div>
+                    {!hmoIncludedFree ? (
+                      <p className="text-xs text-muted-foreground">
+                        After enabling, open Settings → Internal Modules to show HMO screens.
+                        Turning off hides them without deleting data.
+                      </p>
+                    ) : null}
+                  </CardContent>
+                </Card>
+              ) : null}
+
+              {limits?.plan?.allowsPropertyPacks ? (
+                <Card className="shadow-none">
+                  <CardHeader className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
+                        <Building2 className="h-4 w-4 text-primary" />
+                      </span>
+                      <CardTitle className="text-lg">Property packs</CardTitle>
+                    </div>
+                    <CardDescription>
+                      Add +10 properties (and included inspections) to your subscription.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex items-start justify-between gap-3 rounded-xl border px-4 py-3.5">
+                      <div>
+                        <p className="font-medium text-sm">+10 properties</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Billed through your Stripe subscription
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={addonBusy === "packs"}
+                        onClick={() => buyPacks(1)}
+                      >
+                        {addonBusy === "packs" ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          "Add pack"
+                        )}
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : null}
+            </div>
+          </section>
+        )}
+
+        <div className="grid gap-6 lg:grid-cols-1">
           {/* Auto top-up — inspection only */}
           <Card className="shadow-none">
             <CardHeader className="space-y-2 pb-4">
@@ -1146,45 +1388,6 @@ export default function Billing() {
               )}
             </CardContent>
           </Card>
-
-          {/* Property packs only — HMO is a company module, not a billing add-on */}
-          {limits?.plan?.allowsPropertyPacks ? (
-            <Card className="shadow-none">
-              <CardHeader className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
-                    <Building2 className="h-4 w-4 text-primary" />
-                  </span>
-                  <CardTitle className="text-lg">Property packs</CardTitle>
-                </div>
-                <CardDescription>
-                  Add +10 properties (and included inspections) to your subscription.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-start justify-between gap-3 rounded-xl border px-4 py-3.5">
-                  <div>
-                    <p className="font-medium text-sm">+10 properties</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      Billed through your Stripe subscription
-                    </p>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={addonBusy === "packs"}
-                    onClick={() => buyPacks(1)}
-                  >
-                    {addonBusy === "packs" ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      "Add pack"
-                    )}
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ) : null}
         </div>
 
         {/* Invoices */}

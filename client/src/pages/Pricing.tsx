@@ -57,7 +57,8 @@ function parseTab(raw: string | null): "property_management" | "ai_inspections" 
 }
 
 function parseCycle(raw: string | null): "monthly" | "yearly" {
-  return raw === "monthly" ? "monthly" : "yearly";
+  if (raw === "yearly") return "yearly";
+  return "monthly";
 }
 
 function parseTopupKind(raw: string | null): "inspection" | "sms" {
