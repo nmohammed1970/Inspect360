@@ -97,6 +97,7 @@ export default function Reports() {
   return (
     <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
       <PageHeader
+        icon={FileBarChart}
         title="Reports"
         description="Generate detailed reports and export to PDF"
       />

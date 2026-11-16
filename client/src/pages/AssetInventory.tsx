@@ -25,6 +25,7 @@ import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 import { FiltersSection } from "@/components/FiltersSection";
 import { pagePad, dialogContentBase, formGrid2, dialogFooterSticky, cardGrid } from "@/lib/responsive";
+import { PageHeader } from "@/components/PageHeader";
 import {
   ASSET_CATEGORIES,
   ASSET_CONDITION_LABELS,
@@ -694,51 +695,47 @@ export default function AssetInventory() {
 
   return (
     <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
-      {/* Header with optional block or property breadcrumb */}
-      {currentBlock && (
-        <Link href={`/blocks/${currentBlock.id}`}>
-          <Button variant="ghost" className="mb-2" data-testid="button-back-to-block">
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to {currentBlock.name}
-          </Button>
-        </Link>
-      )}
-      {currentProperty && (
-        <Link href={`/properties/${currentProperty.id}`}>
-          <Button variant="ghost" className="mb-2" data-testid="button-back-to-property">
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to {currentProperty.name}
-          </Button>
-        </Link>
-      )}
-      
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="min-w-0 flex-1">
-          <h1 className="text-xl md:text-2xl lg:text-3xl font-bold tracking-tight font-heading break-words">
-            {currentBlock 
-              ? `${currentBlock.name} - Asset Inventory` 
-              : currentProperty 
+      <PageHeader
+        icon={Package}
+        leading={
+          currentBlock ? (
+            <Link href={`/blocks/${currentBlock.id}`}>
+              <Button variant="ghost" size="sm" data-testid="button-back-to-block">
+                <ArrowLeft className="mr-2 h-4 w-4" />
+                Back to {currentBlock.name}
+              </Button>
+            </Link>
+          ) : currentProperty ? (
+            <Link href={`/properties/${currentProperty.id}`}>
+              <Button variant="ghost" size="sm" data-testid="button-back-to-property">
+                <ArrowLeft className="mr-2 h-4 w-4" />
+                Back to {currentProperty.name}
+              </Button>
+            </Link>
+          ) : undefined
+        }
+        title={
+          currentBlock
+            ? `${currentBlock.name} - Asset Inventory`
+            : currentProperty
               ? `${currentProperty.name} - Asset Inventory`
-              : 'Asset Inventory'
-            }
-          </h1>
-          <p className="text-muted-foreground mt-1">
-            {currentBlock 
-              ? `Assets and equipment in ${currentBlock.name}` 
-              : currentProperty
+              : "Asset Inventory"
+        }
+        description={
+          currentBlock
+            ? `Assets and equipment in ${currentBlock.name}`
+            : currentProperty
               ? `Assets and equipment in ${currentProperty.name}`
-              : 'Manage physical assets and equipment across your properties'
-            }
-          </p>
-        </div>
-
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogTrigger asChild>
-            <Button variant="brand" onClick={() => handleOpenDialog()} data-testid="button-add-asset">
-              <Plus className="w-4 h-4 mr-2" />
-              Add Asset
-            </Button>
-          </DialogTrigger>
+              : "Manage physical assets and equipment across your properties"
+        }
+        actions={
+          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+            <DialogTrigger asChild>
+              <Button variant="brand" onClick={() => handleOpenDialog()} data-testid="button-add-asset">
+                <Plus className="w-4 h-4 mr-2" />
+                Add Asset
+              </Button>
+            </DialogTrigger>
           <DialogContent className={cn(dialogContentBase, "max-w-4xl")}>
             <DialogHeader>
               <DialogTitle>{editingAsset ? "Edit Asset" : "Add New Asset"}</DialogTitle>
@@ -1146,7 +1143,8 @@ export default function AssetInventory() {
             </form>
           </DialogContent>
         </Dialog>
-      </div>
+        }
+      />
 
       <FiltersSection headingId="asset-inventory-filters-heading">
       <div className="hidden md:flex flex-col lg:flex-row gap-3 items-stretch lg:items-center flex-wrap">

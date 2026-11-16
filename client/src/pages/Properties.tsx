@@ -204,6 +204,7 @@ export default function Properties() {
   return (
     <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
       <PageHeader
+        icon={Building2}
         leading={
           urlBlockId && selectedBlock ? (
             <Link href={`/blocks/${urlBlockId}`}>

@@ -9,6 +9,7 @@ import {
   ClipboardList,
   Home,
   Scale,
+  Shield,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -160,6 +161,7 @@ export default function HmoDashboard() {
       data-testid="hmo-dashboard"
     >
       <PageHeader
+        icon={Shield}
         title="HMO Compliance"
         description="Portfolio licensing health — open a row to work the property HMO tab."
         actions={

@@ -32,6 +32,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { FiltersSection } from "@/components/FiltersSection";
 import { FeedbackStatusBadge, FeedbackTypeBadge } from "@/components/feedback/FeedbackBadges";
 import { pagePad } from "@/lib/responsive";
+import { PageHeader } from "@/components/PageHeader";
 import { FEEDBACK_STATUSES, FEEDBACK_TYPES } from "@shared/feedbackSchema";
 import { feedbackStatusLabel, feedbackTypeLabel } from "@shared/feedbackLabels";
 
@@ -98,22 +99,22 @@ export default function AdminFeedbackInbox() {
 
   return (
     <div className={pagePad}>
-      <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 mb-6">
-        <div>
-          <h1 className="text-2xl md:text-3xl font-bold">Feedback Inbox</h1>
-          <p className="text-muted-foreground mt-1">
-            Triage issues, feature requests, and questions from organisations.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button asChild variant="outline">
-            <Link href="/admin/feedback/feature-requests">Feature Requests</Link>
-          </Button>
-          <Button asChild variant="outline">
-            <Link href="/admin/feedback/team">Feature Admin Team</Link>
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        icon={Inbox}
+        title="Feedback Inbox"
+        description="Triage issues, feature requests, and questions from organisations."
+        className="mb-6"
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <Button asChild variant="outline">
+              <Link href="/admin/feedback/feature-requests">Feature Requests</Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link href="/admin/feedback/team">Feature Admin Team</Link>
+            </Button>
+          </div>
+        }
+      />
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 md:gap-4 mb-6">
         {kpis.map((kpi) => (

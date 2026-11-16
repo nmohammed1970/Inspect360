@@ -323,6 +323,7 @@ export default function Blocks() {
   return (
     <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
       <PageHeader
+        icon={Building}
         title="Blocks & Buildings"
         description="Manage your property complexes and building blocks"
         actions={

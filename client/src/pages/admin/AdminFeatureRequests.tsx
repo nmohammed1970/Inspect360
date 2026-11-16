@@ -19,6 +19,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { FiltersSection } from "@/components/FiltersSection";
 import { FeedbackStatusBadge } from "@/components/feedback/FeedbackBadges";
 import { pagePad } from "@/lib/responsive";
+import { PageHeader } from "@/components/PageHeader";
 import { feedbackStatusLabel } from "@shared/feedbackLabels";
 
 type Report = {
@@ -60,28 +61,25 @@ export default function AdminFeatureRequests() {
 
   return (
     <div className={pagePad}>
-      <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 mb-6">
-        <div>
-          <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-2">
-            <Lightbulb className="h-7 w-7 text-violet-600" />
-            Feature Requests
-          </h1>
-          <p className="text-muted-foreground mt-1">
-            Planned is not a commitment. Closed does not mean delivered.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button asChild variant="outline">
-            <Link href="/admin/feedback">Back to Inbox</Link>
-          </Button>
-          <Button asChild>
-            <a href="/api/admin/feedback/feature-report/export" download>
-              <Download className="h-4 w-4 mr-2" />
-              Export CSV
-            </a>
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        icon={Lightbulb}
+        title="Feature Requests"
+        description="Planned is not a commitment. Closed does not mean delivered."
+        className="mb-6"
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <Button asChild variant="outline">
+              <Link href="/admin/feedback">Back to Inbox</Link>
+            </Button>
+            <Button asChild>
+              <a href="/api/admin/feedback/feature-report/export" download>
+                <Download className="h-4 w-4 mr-2" />
+                Export CSV
+              </a>
+            </Button>
+          </div>
+        }
+      />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-6">
         <Card className="border-l-4 border-l-violet-500">

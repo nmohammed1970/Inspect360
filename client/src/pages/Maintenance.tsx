@@ -893,6 +893,7 @@ export default function Maintenance() {
   return (
     <div className={cn("container mx-auto min-w-0 space-y-6 md:space-y-8", pagePad)}>
       <PageHeader
+        icon={Wrench}
         title={<span data-testid="heading-maintenance">Maintenance</span>}
         description={
           user?.role === "tenant"

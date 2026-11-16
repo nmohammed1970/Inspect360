@@ -484,7 +484,7 @@ export default function Team() {
   if (isLoading) {
     return (
       <div className={cn("container mx-auto min-w-0", pagePad)}>
-        <PageHeader title="Team Management" description="Loading team members..." />
+        <PageHeader icon={Users} title="Team Management" description="Loading team members..." />
       </div>
     );
   }
@@ -492,6 +492,7 @@ export default function Team() {
   return (
     <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
       <PageHeader
+        icon={Users}
         title="Team Management"
         description="Manage your team members and their profiles"
         actions={

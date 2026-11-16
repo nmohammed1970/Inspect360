@@ -20,7 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { FileText, ArrowRight, User, Building2, Calendar, Plus, Loader2 } from "lucide-react";
+import { FileText, ArrowRight, User, Building2, Calendar, Plus, Loader2, GitCompare } from "lucide-react";
 import { format } from "date-fns";
 import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
@@ -281,6 +281,7 @@ export default function ComparisonReports() {
   return (
     <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)} data-testid="page-comparison-reports">
       <PageHeader
+        icon={GitCompare}
         title={<span data-testid="heading-comparison-reports">Comparison Reports</span>}
         description="AI-powered check-in vs check-out analysis with cost estimation and signatures"
         actions={

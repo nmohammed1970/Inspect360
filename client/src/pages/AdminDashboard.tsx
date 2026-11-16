@@ -43,6 +43,7 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { reportTableClass } from "@/components/data-table";
 import { pagePad, textBreak, textTruncate, formGrid2, tabsListScroll, dialogContentBase, dialogFooterSticky } from "@/lib/responsive";
+import { PageHeader } from "@/components/PageHeader";
 import { LocaleDateInput } from "@/components/LocaleDateInput";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -711,21 +712,17 @@ export default function AdminDashboard() {
 
   return (
     <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between min-w-0">
-        <div className="min-w-0">
-          <h1 className="text-xl md:text-2xl font-semibold tracking-tight flex items-center gap-2">
-            <Building2 className="h-6 w-6 text-primary shrink-0" />
-            <span className={textTruncate}>Instances</span>
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Assign credits and modules per organization. Operators can view status but cannot purchase or self-enable.
-          </p>
-        </div>
-        <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
-          {isFetching ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
-          Refresh
-        </Button>
-      </div>
+      <PageHeader
+        icon={Building2}
+        title="Instances"
+        description="Assign credits and modules per organization. Operators can view status but cannot purchase or self-enable."
+        actions={
+          <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
+            {isFetching ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+            Refresh
+          </Button>
+        }
+      />
 
       <Card className="border-border/60 shadow-sm">
         <CardHeader className="pb-3">

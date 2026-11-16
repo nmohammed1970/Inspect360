@@ -194,6 +194,7 @@ export default function HmoRulesReview() {
   return (
     <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
       <PageHeader
+        icon={Scale}
         title="Council rules"
         description="Watch council sources, review what changed, then approve only for the properties you choose."
         actions={

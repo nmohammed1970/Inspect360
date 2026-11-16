@@ -591,6 +591,7 @@ export default function Inspections() {
   return (
     <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
       <PageHeader
+        icon={ClipboardList}
         title={<span data-testid="text-page-title">Inspections</span>}
         description={
           canCreateInspections

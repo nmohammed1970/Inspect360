@@ -25,9 +25,11 @@ import {
   Pencil,
   Lock,
   Sparkles,
+  Tags,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { pagePad } from "@/lib/responsive";
+import { PageHeader } from "@/components/PageHeader";
 
 type PriceVersion = {
   id: string;
@@ -353,38 +355,36 @@ export default function AdminBillingPricing() {
 
   return (
     <div className={cn(pagePad, "max-w-6xl mx-auto space-y-6")}>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 space-y-1">
-          <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Billing catalog</h1>
-          <p className="text-muted-foreground text-sm max-w-2xl">
-            Edit monthly plan prices on a draft, then publish. Yearly is calculated automatically
-            as monthly × {YEARLY_FROM_MONTHLY} (2 months free). Published versions stay immutable.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
-            {isFetching ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <RefreshCw className="h-4 w-4" />
-            )}
-            <span className="ml-2">Refresh</span>
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => ensureSeed.mutate()}
-            disabled={ensureSeed.isPending}
-          >
-            {ensureSeed.isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <RefreshCw className="h-4 w-4" />
-            )}
-            <span className="ml-2">Ensure seed</span>
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        icon={Tags}
+        title="Billing catalog"
+        description={`Edit monthly plan prices on a draft, then publish. Yearly is calculated automatically as monthly × ${YEARLY_FROM_MONTHLY} (2 months free). Published versions stay immutable.`}
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
+              {isFetching ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+              <span className="ml-2">Refresh</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => ensureSeed.mutate()}
+              disabled={ensureSeed.isPending}
+            >
+              {ensureSeed.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+              <span className="ml-2">Ensure seed</span>
+            </Button>
+          </div>
+        }
+      />
 
       {/* Version bar */}
       <Card className="shadow-none border-border/80">

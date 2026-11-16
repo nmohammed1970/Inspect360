@@ -1,6 +1,6 @@
 import { useRoute, Link } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Shield } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -234,6 +234,7 @@ export default function HmoCaseDetail() {
       data-testid="hmo-case-detail"
     >
       <PageHeader
+        icon={Shield}
         leading={
           <Link
             href="/hmo"

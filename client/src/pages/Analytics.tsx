@@ -517,6 +517,7 @@ export default function Analytics() {
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <PageHeader
           className="flex-1"
+          icon={BarChart3}
           title={<span data-testid="heading-analytics">Work Orders</span>}
           description="Track assignments, status, and performance across maintenance teams"
         />

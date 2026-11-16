@@ -386,6 +386,7 @@ export default function Contacts() {
   return (
     <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
       <PageHeader
+        icon={Users}
         title="Contacts"
         description="Manage internal team members and external contacts"
         actions={

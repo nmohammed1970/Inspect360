@@ -26,6 +26,7 @@ import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { useImagePreview } from "@/components/ImagePreview";
 import { cn } from "@/lib/utils";
 import { pagePad, formGrid2 } from "@/lib/responsive";
+import { PageHeader } from "@/components/PageHeader";
 
 type ProfileFormValues = z.infer<typeof updateSelfProfileSchema>;
 
@@ -345,15 +346,13 @@ export default function Profile() {
 
   return (
     <div className={cn("container mx-auto min-w-0 max-w-4xl", pagePad)}>
-      <div className="mb-6">
-        <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-2" data-testid="text-page-title">
-          <UserIcon className="w-7 h-7 md:w-8 md:h-8 shrink-0" />
-          Profile
-        </h1>
-        <p className="text-muted-foreground mt-2">
-          Manage your personal information and settings
-        </p>
-      </div>
+      <PageHeader
+        icon={UserIcon}
+        title="Profile"
+        titleTestId="text-page-title"
+        description="Manage your personal information and settings"
+        className="mb-6"
+      />
 
       <Card data-testid="card-profile-form">
         <CardHeader>

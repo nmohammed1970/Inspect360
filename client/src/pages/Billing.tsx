@@ -31,6 +31,7 @@ import {
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { pagePad } from "@/lib/responsive";
+import { PageHeader } from "@/components/PageHeader";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Switch } from "@/components/ui/switch";
@@ -640,37 +641,35 @@ export default function Billing() {
   return (
     <TooltipProvider delayDuration={200}>
       <div className={cn("container mx-auto min-w-0 space-y-6 md:space-y-8", pagePad)}>
-        <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0 space-y-1">
-            <h1 className="text-2xl md:text-3xl font-bold tracking-tight" data-testid="text-page-title">
-              Billing
-            </h1>
-            <p className="text-sm md:text-base text-muted-foreground max-w-2xl">
-              Plan, credits, pricing, invoices, and modules.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2 shrink-0">
-            {balanceFetching && !balanceLoading ? (
-              <span className="text-xs text-muted-foreground flex items-center gap-1.5 mr-1">
-                <Loader2 className="h-3 w-3 animate-spin" />
-                Updating
-              </span>
-            ) : null}
-            <Button variant="outline" asChild>
-              <a href="#plans">View plans</a>
-            </Button>
-            <Button onClick={openPortal} disabled={portalBusy}>
-              {portalBusy ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <>
-                  <ExternalLink className="h-4 w-4 mr-2" />
-                  Manage billing
-                </>
-              )}
-            </Button>
-          </div>
-        </header>
+        <PageHeader
+          icon={CreditCard}
+          title="Billing"
+          titleTestId="text-page-title"
+          description="Plan, credits, pricing, invoices, and modules."
+          actions={
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              {balanceFetching && !balanceLoading ? (
+                <span className="text-xs text-muted-foreground flex items-center gap-1.5 mr-1">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Updating
+                </span>
+              ) : null}
+              <Button variant="outline" asChild>
+                <a href="#plans">View plans</a>
+              </Button>
+              <Button onClick={openPortal} disabled={portalBusy}>
+                {portalBusy ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <>
+                    <ExternalLink className="h-4 w-4 mr-2" />
+                    Manage billing
+                  </>
+                )}
+              </Button>
+            </div>
+          }
+        />
 
         {/* Current plan */}
         <Card>
