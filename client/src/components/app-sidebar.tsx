@@ -43,7 +43,12 @@ export function AppSidebar() {
   const { user } = useAuth();
   const [location] = useLocation();
   const { isMobile, setOpenMobile } = useSidebar();
-  const { complianceEnabled, maintenanceEnabled } = useCompanyModules();
+  const {
+    complianceEnabled,
+    maintenanceEnabled,
+    hmoComplianceEnabled,
+    tenanciesEnabled,
+  } = useCompanyModules();
 
   const { data: organization } = useQuery<Organization>({
     queryKey: ["/api/organizations", user?.organizationId],
@@ -110,6 +115,12 @@ export function AppSidebar() {
       roles: ["owner", "compliance"],
     },
     {
+      title: "HMO Compliance",
+      url: "/hmo",
+      icon: Shield,
+      roles: ["owner", "compliance", "clerk"],
+    },
+    {
       title: "Maintenance",
       url: "/maintenance",
       icon: Wrench,
@@ -125,7 +136,8 @@ export function AppSidebar() {
       title: "My Work Orders",
       url: "/maintenance?tab=work-orders",
       icon: Clipboard,
-      roles: ["clerk", "contractor"],
+      // Inspectors (clerk) stay on inspections; contractors keep assignee work orders.
+      roles: ["contractor"],
     },
     {
       title: "Reports",
@@ -146,7 +158,7 @@ export function AppSidebar() {
       roles: ["owner"],
     },
     {
-      title: "AI Credits",
+      title: "Billing",
       url: "/billing",
       icon: CreditCard,
       roles: ["owner"],
@@ -156,6 +168,8 @@ export function AppSidebar() {
   const filteredMainMenu = mainMenuItems.filter((item) => {
     if (!item.roles.includes(user?.role || "")) return false;
     if (item.url === "/compliance" && !complianceEnabled) return false;
+    if (item.url === "/hmo" && !hmoComplianceEnabled) return false;
+    if (item.url === "/community-moderation" && !tenanciesEnabled) return false;
     if (
       !maintenanceEnabled &&
       (item.url === "/maintenance" ||

@@ -53,7 +53,7 @@ export default function AdminLogin() {
       toast({
         variant: "destructive",
         title: "Login Failed",
-        description: error.message || "Invalid credentials",
+        description: error.message || "Invalid username. Please try again or register.",
       });
     } finally {
       setIsLoading(false);

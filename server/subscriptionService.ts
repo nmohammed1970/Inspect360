@@ -1,44 +1,28 @@
+import { eq, sql } from "drizzle-orm";
 import { storage } from "./storage";
-import type { Organization, CreditBatch, InsertCreditBatch, InsertCreditLedger, InstanceSubscription, InstanceAddonPurchase } from "@shared/schema";
+import { db } from "./db";
+import { creditBatches, creditLedger, type CreditBatch } from "@shared/schema";
 import { creditsConsumed } from "../shared/billingUnits";
+import { billingNowUtc } from "@shared/billingClock";
 
-/** Lower number = consumed first: bonus → pack/top-up → plan. */
-function creditSourceConsumePriority(source: string | null | undefined): number {
-  switch (source) {
-    case "admin_grant": // signup / welcome bonus
-    case "refund":
-    case "adjustment":
-      return 0;
-    case "addon_pack":
-    case "topup":
-      return 1;
-    case "plan_inclusion":
-      return 2;
-    default:
-      return 1;
-  }
-}
-
+/**
+ * PDF §4: FIFO by earliest expiry first (non-expiring last), then oldest grant.
+ * Source priority is secondary only when expiry ties.
+ */
 function sortBatchesForConsumption(batches: CreditBatch[]): CreditBatch[] {
   return batches.slice().sort((a, b) => {
-    const pa = creditSourceConsumePriority(a.grantSource);
-    const pb = creditSourceConsumePriority(b.grantSource);
-    if (pa !== pb) return pa - pb;
-
-    // Within the same source group: earliest expiry first (non-expiring last), then oldest grant
     const aExp = a.expiresAt ? new Date(a.expiresAt).getTime() : Number.MAX_SAFE_INTEGER;
     const bExp = b.expiresAt ? new Date(b.expiresAt).getTime() : Number.MAX_SAFE_INTEGER;
     if (aExp !== bExp) return aExp - bExp;
-
     return new Date(a.grantedAt).getTime() - new Date(b.grantedAt).getTime();
   });
 }
 
 export class SubscriptionService {
   /**
-   * Calculate credits needed for an inspection based on photo count (BILL-08).
-   * One credit includes up to 300 photos.
-   * creditsConsumed = MAX(1, CEIL(photoCount / 300))
+   * Calculate credits needed for an inspection based on photo count.
+   * One credit includes up to PHOTOS_PER_CREDIT photos (500 per Nov 2026 guide).
+   * creditsConsumed = MAX(1, CEIL(photoCount / PHOTOS_PER_CREDIT))
    */
   calculateInspectionCredits(imageCount: number): number {
     return creditsConsumed(imageCount);
@@ -93,71 +77,100 @@ export class SubscriptionService {
       throw new Error("Quantity must be positive");
     }
 
-    const batches = sortBatchesForConsumption(
-      await storage.getAvailableCreditBatches(organizationId),
-    );
-    
-    // First, calculate total available credits and plan deductions WITHOUT modifying database
-    let totalAvailable = 0;
-    const plannedDeductions: Array<{ 
-      batch: CreditBatch; 
-      toConsume: number; 
-      newRemaining: number;
-      unitCost?: number;
-    }> = [];
-    
-    let remainingToConsume = quantity;
-    
-    for (const batch of batches) {
-      totalAvailable += batch.remainingQuantity;
-      
-      if (remainingToConsume > 0) {
+    // Single transaction + row locks: concurrent consumes cannot double-spend.
+    await db.transaction(async (tx) => {
+      const now = billingNowUtc();
+      const locked = await tx.execute(sql`
+        SELECT id, remaining_quantity, unit_cost_minor_units, credit_kind, metadata_json, expires_at, granted_at
+        FROM ${creditBatches}
+        WHERE organization_id = ${organizationId}
+          AND remaining_quantity > 0
+          AND (expires_at IS NULL OR expires_at >= ${now})
+        FOR UPDATE
+      `);
+
+      const rows = (locked.rows || []) as Array<{
+        id: string;
+        remaining_quantity: number;
+        unit_cost_minor_units: number | null;
+        credit_kind: string | null;
+        metadata_json: any;
+        expires_at: Date | string | null;
+        granted_at: Date | string;
+      }>;
+
+      const inspectionRows = rows.filter((row) => {
+        const kind =
+          row.credit_kind ||
+          row.metadata_json?.creditKind ||
+          row.metadata_json?.kind;
+        return kind !== "sms";
+      });
+
+      const batches = sortBatchesForConsumption(
+        inspectionRows.map(
+          (row) =>
+            ({
+              id: row.id,
+              remainingQuantity: Number(row.remaining_quantity) || 0,
+              unitCostMinorUnits: row.unit_cost_minor_units,
+              expiresAt: row.expires_at,
+              grantedAt: row.granted_at,
+            }) as CreditBatch,
+        ),
+      );
+
+      let totalAvailable = 0;
+      const plannedDeductions: Array<{
+        batchId: string;
+        toConsume: number;
+        newRemaining: number;
+        unitCost?: number;
+      }> = [];
+      let remainingToConsume = quantity;
+
+      for (const batch of batches) {
+        totalAvailable += batch.remainingQuantity;
+        if (remainingToConsume <= 0) continue;
         const toConsume = Math.min(batch.remainingQuantity, remainingToConsume);
         plannedDeductions.push({
-          batch,
+          batchId: batch.id,
           toConsume,
           newRemaining: batch.remainingQuantity - toConsume,
           unitCost: batch.unitCostMinorUnits ?? undefined,
         });
         remainingToConsume -= toConsume;
       }
-    }
 
-    // Check if we have insufficient credits BEFORE making any changes
-    if (remainingToConsume > 0) {
-      throw new Error(`Insufficient credits. Needed ${quantity}, available ${totalAvailable}.`);
-    }
+      if (remainingToConsume > 0) {
+        throw new Error(
+          `Insufficient credits. Needed ${quantity}, available ${totalAvailable}.`,
+        );
+      }
 
-    // Only NOW apply the planned deductions to the database
-    const consumedBatches: Array<{ batchId: string; consumed: number; unitCost?: number }> = [];
-    
-    for (const deduction of plannedDeductions) {
-      await storage.updateCreditBatch(deduction.batch.id, {
-        remainingQuantity: deduction.newRemaining,
-      });
+      for (const deduction of plannedDeductions) {
+        await tx
+          .update(creditBatches)
+          .set({
+            remainingQuantity: deduction.newRemaining,
+            updatedAt: new Date(),
+          })
+          .where(eq(creditBatches.id, deduction.batchId));
 
-      consumedBatches.push({
-        batchId: deduction.batch.id,
-        consumed: deduction.toConsume,
-        unitCost: deduction.unitCost,
-      });
-    }
-
-    // Record consumption in credit ledger
-    for (const consumed of consumedBatches) {
-      await storage.createCreditLedgerEntry({
-        organizationId,
-        source: "consumption" as any,
-        quantity: -consumed.consumed,
-        batchId: consumed.batchId,
-        unitCostMinorUnits: consumed.unitCost,
-        notes: notes || `Consumed ${consumed.consumed} credits for ${linkedEntityType}`,
-        linkedEntityType,
-        linkedEntityId,
-      });
-    }
-
-    // Legacy creditsRemaining field removed - credits are now managed entirely through credit_batches
+        await tx.insert(creditLedger).values({
+          organizationId,
+          source: "consumption" as any,
+          quantity: -deduction.toConsume,
+          batchId: deduction.batchId,
+          unitCostMinorUnits: deduction.unitCost ?? null,
+          notes:
+            notes ||
+            `Consumed ${deduction.toConsume} credits for ${linkedEntityType}`,
+          linkedEntityType,
+          linkedEntityId,
+        });
+      }
+    });
   }
 
   /**
@@ -175,30 +188,27 @@ export class SubscriptionService {
     quantity: number,
     source: "plan_inclusion" | "topup" | "admin_grant" | "addon_pack",
     expiresAt?: Date,
-    metadata?: { subscriptionId?: string; topupOrderId?: string; addonPurchaseId?: string; adminNotes?: string; createdBy?: string; kind?: string },
+    metadata?: {
+      subscriptionId?: string;
+      topupOrderId?: string;
+      addonPurchaseId?: string;
+      adminNotes?: string;
+      createdBy?: string;
+      kind?: string;
+      creditKind?: string;
+      [key: string]: unknown;
+    },
     unitCostMinorUnits?: number
   ): Promise<CreditBatch> {
     if (quantity <= 0) {
       throw new Error("Quantity must be positive");
     }
 
-    // Create credit batch
-    const batch = await storage.createCreditBatch({
-      organizationId,
-      grantedQuantity: quantity,
-      remainingQuantity: quantity,
-      grantSource: source as any,
-      grantedAt: new Date(),
-      expiresAt: expiresAt ?? null,
-      unitCostMinorUnits: unitCostMinorUnits ?? null,
-      rolled: false,
-      metadataJson: metadata ?? null,
-    });
+    const creditKind =
+      metadata?.creditKind === "sms" || metadata?.kind === "sms" ? "sms" : "inspection";
 
-    // Determine linked entity type and ID based on source
     let linkedEntityType = "subscription";
     let linkedEntityId: string | null = null;
-    
     if (source === "topup") {
       linkedEntityType = "topup_order";
       linkedEntityId = metadata?.topupOrderId ?? null;
@@ -214,22 +224,38 @@ export class SubscriptionService {
       ? metadata.adminNotes
       : `Granted ${quantity} credits from ${source}`;
 
-    // Record in credit ledger
-    await storage.createCreditLedgerEntry({
-      organizationId,
-      createdBy: metadata?.createdBy ?? null,
-      source: source as any,
-      quantity,
-      batchId: batch.id,
-      unitCostMinorUnits: unitCostMinorUnits ?? null,
-      notes: `${baseNote}${expiryNote}`,
-      linkedEntityType,
-      linkedEntityId,
+    // Batch + ledger commit together so a partial grant cannot leave orphaned state.
+    return await db.transaction(async (tx) => {
+      const [batch] = await tx
+        .insert(creditBatches)
+        .values({
+          organizationId,
+          grantedQuantity: quantity,
+          remainingQuantity: quantity,
+          grantSource: source as any,
+          grantedAt: new Date(),
+          expiresAt: expiresAt ?? null,
+          unitCostMinorUnits: unitCostMinorUnits ?? null,
+          rolled: false,
+          creditKind,
+          metadataJson: metadata ?? null,
+        } as any)
+        .returning();
+
+      await tx.insert(creditLedger).values({
+        organizationId,
+        createdBy: metadata?.createdBy ?? null,
+        source: source as any,
+        quantity,
+        batchId: batch.id,
+        unitCostMinorUnits: unitCostMinorUnits ?? null,
+        notes: `${baseNote}${expiryNote}`,
+        linkedEntityType,
+        linkedEntityId,
+      });
+
+      return batch;
     });
-
-    // Legacy creditsRemaining field removed - credits are now managed entirely through credit_batches
-
-    return batch;
   }
 
   /**

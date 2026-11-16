@@ -91,7 +91,9 @@ export function TenantSidebar() {
       title: "Community",
       url: "/tenant/community",
       icon: Users,
-      enabled: organization?.tenantPortalCommunityEnabled ?? true,
+      enabled:
+        (organization?.tenantPortalCommunityEnabled ?? true) &&
+        isCompanyModuleEnabled(organization, "tenancies"),
     },
   ].filter(item => item.enabled);
 

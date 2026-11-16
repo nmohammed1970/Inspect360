@@ -1,11 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { Modal, View, Text, StyleSheet, ScrollView } from 'react-native';
+import { Modal, View, Text, StyleSheet, ScrollView, Linking } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEntitlement } from '../hooks/useEntitlement';
 import { useAuth, isTenantRole } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import Button from './ui/Button';
-import RequestCreditsSheet from './RequestCreditsSheet';
 import {
   subscribeEntitlementLock,
   type EntitlementLockCode,
@@ -17,11 +16,11 @@ import { getFontSize } from '../utils/responsive';
 const COPY: Record<EntitlementLockCode, { title: string; body: string }> = {
   TRIAL_EXPIRED: {
     title: 'Your trial has ended',
-    body: 'Access to Inspections, Maintenance, Work Orders, and other modules is locked. Please contact your administration to buy credits to unlock the app again.',
+    body: 'Access to Inspections, Maintenance, Work Orders, and other modules is locked. Open Pricing in the web app to subscribe or buy credits.',
   },
   CREDITS_EXPIRED: {
     title: 'Your credits have expired',
-    body: 'Access to Inspections, Maintenance, Work Orders, and other modules is locked. Please contact your administration to buy credits to unlock the app again.',
+    body: 'Access to Inspections, Maintenance, Work Orders, and other modules is locked. Open Pricing in the web app to top up or upgrade.',
   },
 };
 
@@ -30,9 +29,14 @@ type Props = {
   onDismissForce?: () => void;
 };
 
+function pricingUrl(): string {
+  const base = (process.env.EXPO_PUBLIC_WEB_URL || process.env.EXPO_PUBLIC_API_URL || '').replace(/\/$/, '');
+  if (base) return `${base}/pricing`;
+  return 'https://portal.inspect360.ai/pricing';
+}
+
 /**
  * Ops (owner / clerk / contractor) entitlement lock — mirrors web EntitlementLockHost.
- * Opens when org is locked or when a locked API returns 403 with TRIAL/CREDITS_EXPIRED.
  */
 export default function OpsEntitlementLockHost({ forceOpen, onDismissForce }: Props) {
   const { user, isAuthenticated } = useAuth();
@@ -43,7 +47,6 @@ export default function OpsEntitlementLockHost({ forceOpen, onDismissForce }: Pr
   const { locked, code: entitlementCode } = useEntitlement();
   const [open, setOpen] = useState(false);
   const [code, setCode] = useState<EntitlementLockCode>('TRIAL_EXPIRED');
-  const [creditRequestOpen, setCreditRequestOpen] = useState(false);
 
   const isOpsUser =
     isAuthenticated && !!user && !isTenantRole(user.role);
@@ -73,75 +76,71 @@ export default function OpsEntitlementLockHost({ forceOpen, onDismissForce }: Pr
   }, [forceOpen, entitlementCode]);
 
   if (!isOpsUser) return null;
-  if (!open && !forceOpen && !creditRequestOpen) return null;
-  if (!locked && !forceOpen && !creditRequestOpen) return null;
+  if (!open && !forceOpen) return null;
+  if (!locked && !forceOpen) return null;
 
   const copy = COPY[code] || COPY.TRIAL_EXPIRED;
 
   return (
-    <>
-      <Modal
-        visible={(open || !!forceOpen) && !creditRequestOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => {
-          setOpen(false);
-          onDismissForce?.();
-        }}
+    <Modal
+      visible={open || !!forceOpen}
+      transparent
+      animationType="fade"
+      onRequestClose={() => {
+        setOpen(false);
+        onDismissForce?.();
+      }}
+    >
+      <View
+        style={[
+          styles.backdrop,
+          {
+            paddingTop: insets.top + spacing.md,
+            paddingBottom: insets.bottom + spacing.lg,
+          },
+        ]}
       >
         <View
           style={[
-            styles.backdrop,
+            styles.card,
             {
-              paddingTop: insets.top + spacing.md,
-              paddingBottom: insets.bottom + spacing.lg,
+              backgroundColor: themeColors.card?.DEFAULT ?? '#fff',
+              maxWidth: formMaxWidth,
+              maxHeight: modalMaxHeight(isSmall ? 0.85 : 0.75),
+              width: '100%',
             },
           ]}
         >
-          <View
-            style={[
-              styles.card,
-              {
-                backgroundColor: themeColors.card?.DEFAULT ?? '#fff',
-                maxWidth: formMaxWidth,
-                maxHeight: modalMaxHeight(isSmall ? 0.85 : 0.75),
-                width: '100%',
-              },
-            ]}
+          <ScrollView
+            bounces={false}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.cardContent}
+            keyboardShouldPersistTaps="handled"
           >
-            <ScrollView
-              bounces={false}
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={styles.cardContent}
-              keyboardShouldPersistTaps="handled"
-            >
-              <Text style={[styles.title, { color: themeColors.text?.primary }]}>
-                {copy.title}
-              </Text>
-              <Text style={[styles.body, { color: themeColors.text?.secondary }]}>
-                {copy.body}
-              </Text>
-              <Button
-                title="Request Credits"
-                onPress={() => {
-                  setOpen(false);
-                  setCreditRequestOpen(true);
-                }}
-              />
-              <Button
-                title="Got it"
-                variant="outline"
-                onPress={() => {
-                  setOpen(false);
-                  onDismissForce?.();
-                }}
-              />
-            </ScrollView>
-          </View>
+            <Text style={[styles.title, { color: themeColors.text?.primary }]}>
+              {copy.title}
+            </Text>
+            <Text style={[styles.body, { color: themeColors.text?.secondary }]}>
+              {copy.body}
+            </Text>
+            <Button
+              title="Open pricing"
+              onPress={() => {
+                Linking.openURL(pricingUrl()).catch(() => undefined);
+              }}
+            />
+            <Button
+              title="Got it"
+              variant="outline"
+              onPress={() => {
+                setOpen(false);
+                onDismissForce?.();
+              }}
+            />
+          </ScrollView>
         </View>
-      </Modal>
-      <RequestCreditsSheet open={creditRequestOpen} onOpenChange={setCreditRequestOpen} />
-    </>
+      </View>
+    </Modal>
   );
 }
 
@@ -161,6 +160,12 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     gap: spacing.md,
   },
-  title: { fontSize: getFontSize(18), fontWeight: '700' },
-  body: { fontSize: getFontSize(14), lineHeight: 20 },
+  title: {
+    fontSize: getFontSize(18),
+    fontWeight: '700',
+  },
+  body: {
+    fontSize: getFontSize(14),
+    lineHeight: 20,
+  },
 });

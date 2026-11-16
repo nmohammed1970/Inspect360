@@ -10,7 +10,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { RequestCreditsDialog } from "@/components/RequestCreditsDialog";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { useAuth } from "@/hooks/useAuth";
 import { subscribeEntitlementLock } from "@/lib/queryClient";
@@ -18,17 +17,16 @@ import { subscribeEntitlementLock } from "@/lib/queryClient";
 const COPY: Record<LockCode, { title: string; body: string }> = {
   TRIAL_EXPIRED: {
     title: "Your trial has ended",
-    body: "Your trial period has expired. Access to Properties, Blocks, Inspections, Comparisons, Maintenance, Work Orders, Disputes, and other modules is locked. Purchase credits to continue.",
+    body: "Your trial period has expired. Access to Properties, Blocks, Inspections, Comparisons, Maintenance, Work Orders, Disputes, and other modules is locked. Choose a plan to continue.",
   },
   CREDITS_EXPIRED: {
     title: "Your credits have expired",
-    body: "Your credits have expired. Access to Properties, Blocks, Inspections, Comparisons, Maintenance, Work Orders, Disputes, and other modules is locked. Purchase credits to continue.",
+    body: "Your credits have expired. Access to Properties, Blocks, Inspections, Comparisons, Maintenance, Work Orders, Disputes, and other modules is locked. Top up or upgrade your plan to continue.",
   },
 };
 
 export function EntitlementLockHost() {
   const [open, setOpen] = useState(false);
-  const [creditRequestOpen, setCreditRequestOpen] = useState(false);
   const [code, setCode] = useState<LockCode>("TRIAL_EXPIRED");
   const [location, navigate] = useLocation();
   const { user } = useAuth();
@@ -54,31 +52,25 @@ export function EntitlementLockHost() {
 
   const copy = COPY[code];
 
-  const openBuyCredits = () => {
-    setOpen(false);
-    setCreditRequestOpen(true);
-  };
-
   return (
-    <>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{copy.title}</DialogTitle>
-            <DialogDescription>{copy.body}</DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button onClick={openBuyCredits} data-testid="button-contact-admin">
-              Buy Credits
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <RequestCreditsDialog
-        open={creditRequestOpen}
-        onOpenChange={setCreditRequestOpen}
-        user={user}
-      />
-    </>
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{copy.title}</DialogTitle>
+          <DialogDescription>{copy.body}</DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button
+            onClick={() => {
+              setOpen(false);
+              navigate("/pricing");
+            }}
+            data-testid="button-view-pricing"
+          >
+            View pricing
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -241,6 +241,16 @@ interface TemplateBuilderProps {
   categories: TemplateCategory[];
   onClose: () => void;
   onSave: (saved?: InspectionTemplate) => void;
+  /**
+   * Optional custom persist — when set, skips company /api/inspection-templates.
+   * Used by Admin Portal for platform/org template editing.
+   */
+  persistFn?: (
+    payload: Record<string, unknown>,
+    existingId: string | null,
+  ) => Promise<InspectionTemplate>;
+  /** Hide org-only fields (categories, completion checklists). */
+  hideOrgFields?: boolean;
 }
 
 type FieldDragState =
@@ -256,7 +266,14 @@ function reorderList<T>(list: T[], fromIndex: number, toIndex: number): T[] {
   return next;
 }
 
-export function TemplateBuilder({ template, categories, onClose, onSave }: TemplateBuilderProps) {
+export function TemplateBuilder({
+  template,
+  categories,
+  onClose,
+  onSave,
+  persistFn,
+  hideOrgFields = false,
+}: TemplateBuilderProps) {
   const { toast } = useToast();
   const [previewMode, setPreviewMode] = useState(false);
   const [persistedTemplate, setPersistedTemplate] = useState<InspectionTemplate | null>(template);
@@ -268,6 +285,7 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
       if (!res.ok) throw new Error("Failed to fetch completion checklists");
       return res.json();
     },
+    enabled: !hideOrgFields,
   });
   const [fieldDrag, setFieldDrag] = useState<FieldDragState | null>(null);
   const [fieldDropTarget, setFieldDropTarget] = useState<{
@@ -359,6 +377,9 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
     mutationFn: async (data: TemplateMetaForm) => {
       const payload = {
         ...data,
+        ...(hideOrgFields
+          ? { categoryId: null, completionChecklistId: null }
+          : {}),
         reportConfig: data.reportConfig
           ? {
               ...data.reportConfig,
@@ -374,6 +395,9 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
           }),
         ),
       };
+      if (persistFn) {
+        return persistFn(payload, persistedTemplate?.id ?? null);
+      }
       const res = persistedTemplate
         ? await apiRequest("PUT", `/api/inspection-templates/${persistedTemplate.id}`, payload)
         : await apiRequest("POST", "/api/inspection-templates", payload);
@@ -381,9 +405,13 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
     },
     onSuccess: async (saved) => {
       setPersistedTemplate(saved);
-      await queryClient.refetchQueries({ queryKey: ["/api/inspection-templates"] });
-      if (saved?.id) {
-        await queryClient.refetchQueries({ queryKey: ["/api/inspection-templates", saved.id] });
+      if (!persistFn) {
+        await queryClient.refetchQueries({ queryKey: ["/api/inspection-templates"] });
+        if (saved?.id) {
+          await queryClient.refetchQueries({ queryKey: ["/api/inspection-templates", saved.id] });
+        }
+      } else {
+        await queryClient.invalidateQueries({ queryKey: ["/api/admin/inspection-templates"] });
       }
       toast({
         title: "Success",
@@ -1099,66 +1127,70 @@ export function TemplateBuilder({ template, categories, onClose, onSave }: Templ
                           </FormItem>
                         )}
                       />
-                      <FormField
-                        control={form.control}
-                        name="categoryId"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Category</FormLabel>
-                            <Select 
-                              value={field.value || "none"} 
-                              onValueChange={(v) => field.onChange(v === "none" ? undefined : v)}
-                            >
-                              <FormControl>
-                                <SelectTrigger data-testid="select-template-category">
-                                  <SelectValue />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                <SelectItem value="none">No Category</SelectItem>
-                                {categories.map((cat) => (
-                                  <SelectItem key={cat.id} value={cat.id}>
-                                    {cat.name}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name="completionChecklistId"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Default completion checklist</FormLabel>
-                            <Select
-                              value={field.value || "none"}
-                              onValueChange={(v) => field.onChange(v === "none" ? null : v)}
-                            >
-                              <FormControl>
-                                <SelectTrigger data-testid="select-completion-checklist">
-                                  <SelectValue placeholder="None" />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                <SelectItem value="none">None</SelectItem>
-                                {completionChecklists.map((c) => (
-                                  <SelectItem key={c.id} value={c.id}>
-                                    {c.name}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <FormDescription>
-                              Auto-selected when creating an inspection with this template; can be
-                              changed on the create form.
-                            </FormDescription>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
+                      {!hideOrgFields && (
+                        <FormField
+                          control={form.control}
+                          name="categoryId"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Category</FormLabel>
+                              <Select
+                                value={field.value || "none"}
+                                onValueChange={(v) => field.onChange(v === "none" ? undefined : v)}
+                              >
+                                <FormControl>
+                                  <SelectTrigger data-testid="select-template-category">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value="none">No Category</SelectItem>
+                                  {categories.map((cat) => (
+                                    <SelectItem key={cat.id} value={cat.id}>
+                                      {cat.name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      )}
+                      {!hideOrgFields && (
+                        <FormField
+                          control={form.control}
+                          name="completionChecklistId"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Default completion checklist</FormLabel>
+                              <Select
+                                value={field.value || "none"}
+                                onValueChange={(v) => field.onChange(v === "none" ? null : v)}
+                              >
+                                <FormControl>
+                                  <SelectTrigger data-testid="select-completion-checklist">
+                                    <SelectValue placeholder="None" />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value="none">None</SelectItem>
+                                  {completionChecklists.map((c) => (
+                                    <SelectItem key={c.id} value={c.id}>
+                                      {c.name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <FormDescription>
+                                Auto-selected when creating an inspection with this template; can be
+                                changed on the create form.
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      )}
                       <FormField
                         control={form.control}
                         name="isActive"

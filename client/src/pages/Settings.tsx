@@ -34,6 +34,7 @@ import { PhoneInput } from "@/components/PhoneInput";
 import { useModules } from "@/hooks/use-modules";
 import { useCompanyModules } from "@/hooks/useCompanyModules";
 import { CompanyModulesSettings } from "@/components/CompanyModulesSettings";
+import { isCompanyModuleEnabled } from "@shared/companyModules";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { cn } from "@/lib/utils";
@@ -1494,12 +1495,15 @@ function TenantPortalConfiguration({
   const { data: user } = useQuery<User>({
     queryKey: ["/api/auth/user"],
   });
+  const tenanciesEnabled = isCompanyModuleEnabled(organization, "tenancies");
+  const communityPortalChecked = tenanciesEnabled && tenantPortalCommunityEnabled;
 
   const updateTenantPortalConfigMutation = useMutation({
     mutationFn: async () => {
       if (!user?.organizationId) return null;
       const response = await apiRequest("PATCH", `/api/organizations/${user.organizationId}/tenant-portal-config`, {
-        tenantPortalCommunityEnabled,
+        // Community follows Tenancies — never save ON when Tenancies is OFF
+        tenantPortalCommunityEnabled: tenanciesEnabled ? tenantPortalCommunityEnabled : false,
         tenantPortalComparisonEnabled,
         tenantPortalChatbotEnabled,
         tenantPortalMaintenanceEnabled,
@@ -1539,13 +1543,20 @@ function TenantPortalConfiguration({
               <div className="flex-1">
                 <Label className="text-base font-medium">Community</Label>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Allow tenants to access the community feature where they can interact with other tenants
+                  Allow tenants to access the community feature where they can interact with other
+                  tenants. Requires Tenancies (Internal Modules).
                 </p>
+                {!tenanciesEnabled && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Enable Tenancies in Internal Modules to turn Community on.
+                  </p>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 <Switch
-                  checked={tenantPortalCommunityEnabled}
+                  checked={communityPortalChecked}
                   onCheckedChange={onCommunityChange}
+                  disabled={!tenanciesEnabled}
                   data-testid="toggle-community"
                 />
               </div>

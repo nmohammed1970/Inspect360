@@ -388,7 +388,7 @@ function detectImageMimeType(buffer: Buffer): string {
     Array.from(buffer.slice(0, 8)).map(b => `0x${b.toString(16).padStart(2, '0')}`).join(' '));
   return 'image/jpeg';
 }
-import { setupAuth, isAuthenticated, requireRole, requireCompanyModule, hashPassword, comparePasswords, consumeAuthRateLimit } from "./auth";
+import { setupAuth, isAuthenticated, isAdminAuthenticated, requireRole, requireCompanyModule, hashPassword, comparePasswords, consumeAuthRateLimit } from "./auth";
 import { isCompanyModuleEnabled, normalizeCompanyModuleFlags, reportModuleSurfaces } from "@shared/companyModules";
 import { validateNewPassword } from "@shared/passwordPolicy";
 import {
@@ -455,7 +455,6 @@ function safeErrorLog(message: string, error: any): void {
 }
 import { devRouter } from "./devRoutes";
 import { sendInspectionCompleteEmail, sendTeamWorkOrderNotification, sendContractorWorkOrderNotification, sendComparisonReportToFinance } from "./resend";
-import { DEFAULT_TEMPLATES } from "./defaultTemplates";
 import { generateInspectionPDF } from "./pdfService";
 import {
   buildInspectionPdfCacheKey,
@@ -1743,23 +1742,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.error("Warning: Failed to record trial creation:", auditError);
       }
 
-      // Create default inspection templates (Check In and Check Out)
+      // Create default inspection templates from platform catalog
       // Use defensive error handling so org creation succeeds even if template seeding fails
       try {
-        for (const template of DEFAULT_TEMPLATES) {
-          await storage.createInspectionTemplate({
-            organizationId: organization.id,
-            name: template.name,
-            description: template.description,
-            scope: template.scope,
-            version: 1,
-            isActive: true,
-            structureJson: template.structureJson,
-            categoryId: template.categoryId,
-            createdBy: userId,
-          });
-        }
-        console.log(`✓ Created ${DEFAULT_TEMPLATES.length} default templates for organization ${organization.id}`);
+        const { seedOrganizationFromCatalog } = await import("./platformTemplatesService");
+        const created = await seedOrganizationFromCatalog(organization.id, userId);
+        console.log(`✓ Created ${created} catalog templates for organization ${organization.id}`);
       } catch (templateError) {
         // Log the error but don't fail the entire organization creation
         console.error("Warning: Failed to create default templates, but organization was created successfully:", templateError);
@@ -1866,6 +1854,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await storage.getUser(userId);
       if (!user?.organizationId || user.organizationId !== organizationId) {
         return res.status(403).json({ message: "Access denied" });
+      }
+
+      // AI Inspections plans keep Internal Modules forced OFF in DB + responses.
+      try {
+        const {
+          enforceAiPlanCompanyModuleLocks,
+          enforceDisallowedCompanyModules,
+        } = await import("./billing/companyModulePlanLocks");
+        await enforceAiPlanCompanyModuleLocks(organizationId);
+        await enforceDisallowedCompanyModules(organizationId);
+      } catch (lockErr) {
+        console.error("[organizations] plan module lock failed:", lockErr);
       }
 
       const organization = await storage.getOrganization(organizationId);
@@ -2101,8 +2101,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         checkInApprovalPeriodDays
       } = req.body;
 
+      const currentOrg = await storage.getOrganization(organizationId);
+      const {
+        getCompanyModulePlanContext,
+      } = await import("./billing/companyModulePlanLocks");
+      const { isCompanyModuleEnabled } = await import("@shared/companyModules");
+      const plan = await getCompanyModulePlanContext(organizationId);
+      const tenanciesOn = isCompanyModuleEnabled(currentOrg, "tenancies", {
+        planCode: plan.planCode,
+        planStatus: plan.planStatus,
+      });
+
+      // Community follows Tenancies — never persist Community ON while Tenancies is OFF
+      let communityEnabled =
+        typeof tenantPortalCommunityEnabled === "boolean"
+          ? tenantPortalCommunityEnabled
+          : undefined;
+      if (communityEnabled === true && !tenanciesOn) {
+        communityEnabled = false;
+      }
+
       const organization = await storage.updateOrganization(organizationId, {
-        tenantPortalCommunityEnabled: typeof tenantPortalCommunityEnabled === 'boolean' ? tenantPortalCommunityEnabled : undefined,
+        tenantPortalCommunityEnabled: communityEnabled,
         tenantPortalComparisonEnabled: typeof tenantPortalComparisonEnabled === 'boolean' ? tenantPortalComparisonEnabled : undefined,
         tenantPortalChatbotEnabled: typeof tenantPortalChatbotEnabled === 'boolean' ? tenantPortalChatbotEnabled : undefined,
         tenantPortalMaintenanceEnabled: typeof tenantPortalMaintenanceEnabled === 'boolean' ? tenantPortalMaintenanceEnabled : undefined,
@@ -2127,18 +2147,83 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Access denied" });
       }
 
-      const { rentalsEnabled, tenanciesEnabled, complianceEnabled, maintenanceEnabled } = req.body;
+      const {
+        getCompanyModulePlanContext,
+        enforceAiPlanCompanyModuleLocks,
+        enforceDisallowedCompanyModules,
+      } = await import("./billing/companyModulePlanLocks");
+      const {
+        PROPERTY_BUNDLE_UPGRADE_MESSAGE,
+        aiPlanForcedCompanyModuleFlags,
+        companyModuleLockMessage,
+        COMPANY_MODULE_META,
+      } = await import("@shared/companyModules");
+      const plan = await getCompanyModulePlanContext(organizationId);
+      if (plan.locked) {
+        await enforceAiPlanCompanyModuleLocks(organizationId);
+        const tryingToEnable =
+          req.body?.rentalsEnabled === true ||
+          req.body?.tenanciesEnabled === true ||
+          req.body?.complianceEnabled === true ||
+          req.body?.maintenanceEnabled === true ||
+          req.body?.hmoComplianceEnabled === true;
+        if (tryingToEnable) {
+          return res.status(403).json({
+            message: PROPERTY_BUNDLE_UPGRADE_MESSAGE,
+            code: "PROPERTY_PLAN_REQUIRED",
+          });
+        }
+        const organization = await storage.updateOrganization(
+          organizationId,
+          aiPlanForcedCompanyModuleFlags(),
+        );
+        return res.json(organization);
+      }
+
+      const {
+        rentalsEnabled,
+        tenanciesEnabled,
+        complianceEnabled,
+        maintenanceEnabled,
+        hmoComplianceEnabled,
+      } = req.body;
+
+      if (plan.companyModuleAccess) {
+        const attempted: Array<[keyof typeof plan.companyModuleAccess, unknown, string]> = [
+          ["tenancies", tenanciesEnabled, COMPANY_MODULE_META.tenancies.label],
+          ["rentals", rentalsEnabled, COMPANY_MODULE_META.rentals.label],
+          ["compliance", complianceEnabled, COMPANY_MODULE_META.compliance.label],
+          ["maintenance", maintenanceEnabled, COMPANY_MODULE_META.maintenance.label],
+          ["hmo_compliance", hmoComplianceEnabled, COMPANY_MODULE_META.hmo_compliance.label],
+        ];
+        const denied = attempted.filter(
+          ([key, value]) => value === true && !plan.companyModuleAccess![key].allowed,
+        );
+        if (denied.length > 0) {
+          const message =
+            companyModuleLockMessage(plan.companyModuleAccess[denied[0][0]]) ||
+            PROPERTY_BUNDLE_UPGRADE_MESSAGE;
+          return res.status(403).json({
+            message: `${denied.map(([, , label]) => label).join(", ")}: ${message}`,
+            code: "MODULE_NOT_ON_PLAN",
+          });
+        }
+      }
       // Tenancies OFF forces Rentals OFF (rent is tied to tenant assignments).
       const normalized = normalizeCompanyModuleFlags({
         rentalsEnabled: typeof rentalsEnabled === "boolean" ? rentalsEnabled : undefined,
         tenanciesEnabled: typeof tenanciesEnabled === "boolean" ? tenanciesEnabled : undefined,
         complianceEnabled: typeof complianceEnabled === "boolean" ? complianceEnabled : undefined,
         maintenanceEnabled: typeof maintenanceEnabled === "boolean" ? maintenanceEnabled : undefined,
+        hmoComplianceEnabled:
+          typeof hmoComplianceEnabled === "boolean" ? hmoComplianceEnabled : undefined,
       });
 
       const organization = await storage.updateOrganization(organizationId, normalized);
+      await enforceDisallowedCompanyModules(organizationId);
+      const refreshed = await storage.getOrganization(organizationId);
 
-      res.json(organization);
+      res.json(refreshed ?? organization);
     } catch (error) {
       console.error("Error updating company modules:", error);
       res.status(500).json({ message: "Failed to update company modules" });
@@ -5228,6 +5313,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (!user?.organizationId) {
         return res.status(400).json({ message: "User must belong to an organization" });
+      }
+
+      try {
+        const { assertCanAddProperty } = await import("./billing/planLimits");
+        const limit = await assertCanAddProperty(user.organizationId);
+        if (!limit.ok) {
+          return res.status(403).json({
+            message: limit.message,
+            code: limit.code,
+            action: limit.action,
+            max: limit.max,
+            current: limit.current,
+          });
+        }
+      } catch (limitErr) {
+        console.warn("[properties] limit check skipped:", limitErr);
       }
 
       // Validate request body
@@ -8687,6 +8788,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Update inspection with credit info
           updates.creditsConsumed = creditsNeeded;
           updates.imagesCount = imageCount;
+
+          try {
+            const { notifyLowBalanceIfNeeded } = await import("./billing/creditRules");
+            await notifyLowBalanceIfNeeded(ownerOrgId);
+          } catch {
+            /* non-fatal */
+          }
         } catch (creditError: any) {
           console.error('[Complete Inspection] Failed to check/consume credits:', creditError);
           // If insufficient credits or any credit-related error, block completion
@@ -8880,16 +8988,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Update inspection with credit info
           updates.creditsConsumed = creditsNeeded;
           updates.imagesCount = imageCount;
+
+          try {
+            const { notifyLowBalanceIfNeeded } = await import("./billing/creditRules");
+            await notifyLowBalanceIfNeeded(ownerOrgId);
+          } catch {
+            /* non-fatal */
+          }
         } catch (creditError: any) {
           console.error('[PUT Complete] Failed to check/consume credits:', creditError);
-          // If insufficient credits or any credit-related error, block completion
           if (creditError.message.includes("Insufficient credits") || creditError.message.includes("No subscription found")) {
             return res.status(402).json({
               message: "No credits available for inspection. Please subscribe to a plan to get inspection credits.",
               error: "insufficient_credits"
             });
           }
-          // For other errors, also block to be safe
           return res.status(402).json({
             message: "No credits available for inspection. Please subscribe to a plan to get inspection credits.",
             error: "insufficient_credits"
@@ -9052,6 +9165,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
             creditsConsumed: creditsNeeded,
             imagesCount: imageCount
           } as any);
+
+          try {
+            const { notifyLowBalanceIfNeeded } = await import("./billing/creditRules");
+            await notifyLowBalanceIfNeeded(ownerOrgId);
+          } catch {
+            /* non-fatal */
+          }
         } catch (creditError: any) {
           console.error('[Update Status] Failed to check/consume credits:', creditError);
           // If insufficient credits or any credit-related error, block completion
@@ -21054,6 +21174,15 @@ ${optionalNotes || "No details provided."}`;
   registerCreditRequestRoutes(app, isAuthenticated, isAdminAuthenticated);
   const { registerReapitRoutes } = await import("./reapitRoutes");
   registerReapitRoutes(app, isAuthenticated);
+  const { registerHmoRoutes } = await import("./hmo/routes");
+  registerHmoRoutes(app);
+  const { registerFeedbackRoutes } = await import("./feedback/routes");
+  registerFeedbackRoutes(app);
+
+  const { registerBillingCatalogRoutes } = await import("./billing/registerBillingRoutes");
+  registerBillingCatalogRoutes(app);
+  const { registerAdminInspectionTemplateRoutes } = await import("./adminInspectionTemplateRoutes");
+  registerAdminInspectionTemplateRoutes(app, isAdminAuthenticated);
 
   // Admin Login
   app.post("/api/admin/login", async (req, res) => {
@@ -21071,19 +21200,15 @@ ${optionalNotes || "No details provided."}`;
 
       if (!adminUser) {
         console.error(`[Admin Login] Admin user not found for email: ${normalizedEmail}`);
-        return res.status(401).json({ message: "Invalid credentials" });
+        return res.status(401).json({
+          message: "Invalid username. Please try again or register.",
+        });
       }
 
-      // Log for debugging (remove in production)
-      console.log(`[Admin Login] Retrieved password hash length: ${adminUser.password.length}, starts with: ${adminUser.password.substring(0, 10)}`);
-      console.log(`[Admin Login] Password hash format: ${adminUser.password.startsWith("$2") ? "bcrypt" : adminUser.password.includes(".") ? "scrypt" : "unknown"}`);
-
-      // Use comparePasswords which supports both scrypt (from hashPassword) and bcrypt formats
       const isValidPassword = await comparePasswords(password, adminUser.password);
-
       if (!isValidPassword) {
         console.error(`[Admin Login] Invalid password for admin: ${normalizedEmail}`);
-        return res.status(401).json({ message: "Invalid credentials" });
+        return res.status(401).json({ message: "Invalid password." });
       }
 
       console.log(`[Admin Login] Successful login for admin: ${normalizedEmail}`);
@@ -21181,6 +21306,8 @@ ${optionalNotes || "No details provided."}`;
 
         // Get credit balance from batch system (not legacy creditsRemaining)
         const creditBalance = await storage.getCreditBalance(org.id);
+        const { getBalances } = await import("./billing/creditRules");
+        const kindBalances = await getBalances(org.id);
         const entitlement = await getOrganizationAccessStatus(org.id);
 
         let enabledModuleCount = 0;
@@ -21216,6 +21343,7 @@ ${optionalNotes || "No details provided."}`;
             rolled: creditBalance.rolled,
             expiresOn: creditBalance.expiresOn,
           },
+          smsBalance: kindBalances.sms,
           entitlement,
           unitPricing,
         };
@@ -21237,6 +21365,8 @@ ${optionalNotes || "No details provided."}`;
       }
       const subscription = await storage.getInstanceSubscription(req.params.id);
       const creditBalance = await storage.getCreditBalance(req.params.id);
+      const { getBalances } = await import("./billing/creditRules");
+      const kindBalances = await getBalances(req.params.id);
       const { getOrganizationAccessStatus } = await import("./entitlementService");
       const entitlement = await getOrganizationAccessStatus(req.params.id);
       const tiers = await storage.getSubscriptionTiers();
@@ -21256,6 +21386,7 @@ ${optionalNotes || "No details provided."}`;
           rolled: creditBalance.rolled,
           expiresOn: creditBalance.expiresOn,
         },
+        smsBalance: kindBalances.sms,
         entitlement,
         instanceModules: enabledModules,
       });
@@ -21268,7 +21399,7 @@ ${optionalNotes || "No details provided."}`;
   // Update instance (tier, credits, active status, modules)
   app.patch("/api/admin/instances/:id", isAdminAuthenticated, async (req, res) => {
     try {
-      const { tierId, credits, isActive, enabledModules, preferredCurrency, creditReason, creditExpiresAt } = req.body;
+      const { tierId, credits, smsCredits, isActive, enabledModules, preferredCurrency, creditReason, creditExpiresAt } = req.body;
 
       // Get organization to get currency
       const org = await storage.getOrganization(req.params.id);
@@ -21375,6 +21506,84 @@ ${optionalNotes || "No details provided."}`;
         }
       }
 
+      // Absolute SMS credit balance (separate from inspection credits)
+      if (smsCredits !== undefined && smsCredits !== null) {
+        const targetSms = Number(smsCredits);
+        if (!Number.isFinite(targetSms) || targetSms < 0) {
+          return res.status(400).json({ message: "SMS credits must be a non-negative number" });
+        }
+
+        const creditRules = await import("./billing/creditRules");
+        const balances = await creditRules.getBalances(req.params.id);
+        const currentSms = balances.sms;
+        const smsToAdjust = targetSms - currentSms;
+        const adminId = (req.session as any).adminUser?.id || "admin";
+        const notes = creditReason
+          ? String(creditReason)
+          : `Admin SMS adjustment: Updated from ${currentSms} to ${targetSms}`;
+
+        const { billingNowUtc } = await import("@shared/billingClock");
+        const { parseCreditExpiryInput } = await import("@shared/entitlements");
+        const { recordEntitlementEvent } = await import("./entitlementService");
+
+        let parsedExpiry: { expiresAt: Date } | null = null;
+        const expiryProvided = typeof creditExpiresAt === "string" && creditExpiresAt.trim().length > 0;
+        if (smsToAdjust > 0 || expiryProvided) {
+          const parsed = parseCreditExpiryInput(creditExpiresAt, billingNowUtc());
+          if (!parsed.ok) {
+            return res.status(400).json({ message: parsed.message });
+          }
+          parsedExpiry = parsed;
+        }
+
+        if (smsToAdjust > 0) {
+          if (!parsedExpiry) {
+            return res.status(400).json({ message: "Credit expiration date is required" });
+          }
+          await creditRules.grantPdfCredits({
+            organizationId: req.params.id,
+            kind: "sms",
+            quantity: smsToAdjust,
+            source: "admin_grant",
+            expiresAt: parsedExpiry.expiresAt,
+            metadata: { adminNotes: notes, createdBy: adminId },
+          });
+          console.log(`[Admin] Granted ${smsToAdjust} SMS credits to org ${req.params.id} (new total: ${targetSms})`);
+        } else if (smsToAdjust < 0) {
+          await creditRules.consumeKindCredits({
+            organizationId: req.params.id,
+            kind: "sms",
+            quantity: Math.abs(smsToAdjust),
+            linkedEntityType: "admin_adjustment",
+            linkedEntityId: adminId,
+            notes,
+          });
+          console.log(`[Admin] Consumed ${Math.abs(smsToAdjust)} SMS credits from org ${req.params.id} (new total: ${targetSms})`);
+        }
+
+        if (parsedExpiry) {
+          const openBatches = await storage.getAvailableCreditBatches(req.params.id);
+          let updatedSmsBatches = 0;
+          for (const batch of openBatches) {
+            const kind =
+              (batch as any).creditKind ||
+              batch.metadataJson?.creditKind ||
+              batch.metadataJson?.kind;
+            if (kind !== "sms") continue;
+            await storage.updateCreditBatch(batch.id, { expiresAt: parsedExpiry.expiresAt });
+            updatedSmsBatches += 1;
+          }
+          await recordEntitlementEvent({
+            organizationId: req.params.id,
+            eventType: "credits_granted",
+            actorUserId: adminId,
+            notes: `SMS: ${notes}. Expires ${parsedExpiry.expiresAt.toISOString()} (${updatedSmsBatches} open SMS batches).`,
+          }).catch((auditError) => {
+            console.error("Failed to record SMS credit expiry audit:", auditError);
+          });
+        }
+      }
+
       // Update organization status
       const updated = await storage.updateOrganization(req.params.id, {
         isActive,
@@ -21459,6 +21668,8 @@ ${optionalNotes || "No details provided."}`;
       }
 
       const creditBalance = await storage.getCreditBalance(req.params.id);
+      const { getBalances } = await import("./billing/creditRules");
+      const kindBalances = await getBalances(req.params.id);
       res.json({
         ...updated,
         creditBalance: {
@@ -21467,6 +21678,7 @@ ${optionalNotes || "No details provided."}`;
           rolled: creditBalance.rolled,
           expiresOn: creditBalance.expiresOn,
         },
+        smsBalance: kindBalances.sms,
       });
     } catch (error: any) {
       console.error("Error updating instance:", error);
@@ -23964,27 +24176,53 @@ ${optionalNotes || "No details provided."}`;
     }
   });
 
-  // Stripe webhook handler
-  app.post("/api/billing/webhook", async (req, res) => {
-    const sig = req.headers["stripe-signature"] as string;
+  // Stripe webhook handler — raw body required for signature verification.
+  // Canonical: /api/billing/webhook. Legacy alias: /api/webhooks/stripe.
+  const stripeWebhookRaw = express.raw({ type: "application/json" });
+  app.post(["/api/billing/webhook", "/api/webhooks/stripe"], stripeWebhookRaw, async (req, res) => {
+    const sig = req.headers["stripe-signature"] as string | undefined;
 
     let event: any;
     try {
-      // Verify webhook signature if secret is configured
       const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
-      if (webhookSecret && sig) {
+      const rawBody = Buffer.isBuffer(req.body)
+        ? req.body
+        : typeof req.body === "string"
+          ? Buffer.from(req.body, "utf8")
+          : null;
+
+      if (webhookSecret) {
+        if (!sig) {
+          console.error("[Stripe Webhook] Missing stripe-signature header");
+          return res.status(400).json({ message: "Missing stripe-signature header" });
+        }
+        if (!rawBody) {
+          console.error(
+            "[Stripe Webhook] Raw body missing — JSON middleware likely consumed it before verify",
+          );
+          return res.status(400).json({ message: "Webhook raw body unavailable" });
+        }
         const stripe = await getUncachableStripeClient();
         try {
-          event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+          event = stripe.webhooks.constructEvent(rawBody, sig, webhookSecret);
           console.log(`[Stripe Webhook] Signature verified for event: ${event.type}`);
         } catch (err: any) {
           console.error(`[Stripe Webhook] Signature verification failed:`, err.message);
           return res.status(400).json({ message: "Webhook signature verification failed" });
         }
+      } else if (process.env.NODE_ENV === "production") {
+        console.error("[Stripe Webhook] STRIPE_WEBHOOK_SECRET is not configured");
+        return res.status(500).json({ message: "Webhook not configured" });
       } else {
-        // In development without webhook secret, accept raw body
-        event = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-        console.log(`[Stripe Webhook] Received event (unverified): ${event.type}`);
+        // Local/dev only: allow unsigned payloads (e.g. manual curl) when secret unset.
+        const parsed =
+          rawBody != null
+            ? JSON.parse(rawBody.toString("utf8"))
+            : typeof req.body === "string"
+              ? JSON.parse(req.body)
+              : req.body;
+        event = parsed;
+        console.log(`[Stripe Webhook] Received event (unverified, no secret): ${event?.type}`);
       }
 
       console.log(`[Stripe Webhook] Processing event: ${event.type}`);
@@ -23992,7 +24230,21 @@ ${optionalNotes || "No details provided."}`;
       switch (event.type) {
         case "checkout.session.completed": {
           const session = event.data.object;
-          const { organizationId, planId, includedCredits, topupOrderId, packSize } = session.metadata;
+
+          // Nov 2026 self-serve catalog (billingV2) — idempotent handler
+          if (session?.metadata?.billingV2 === "true") {
+            try {
+              const { processBillingV2WebhookEvent } = await import("./billing/stripeWebhookService");
+              await processBillingV2WebhookEvent(event);
+              console.log(`[Stripe Webhook] billingV2 checkout handled: ${session.id}`);
+            } catch (v2Err: any) {
+              console.error(`[Stripe Webhook] billingV2 checkout failed:`, v2Err);
+              throw v2Err;
+            }
+            break;
+          }
+
+          const { organizationId, planId, includedCredits, topupOrderId, packSize } = session.metadata || {};
 
           console.log(`[Stripe Webhook] Checkout completed:`, {
             organizationId,
@@ -24477,6 +24729,14 @@ ${optionalNotes || "No details provided."}`;
         }
 
         case "invoice.paid": {
+          {
+            const { processBillingV2WebhookEvent } = await import("./billing/stripeWebhookService");
+            const v2 = await processBillingV2WebhookEvent(event);
+            if (v2.handled) {
+              console.log(`[Stripe Webhook] billingV2 invoice.paid handled (duplicate=${!!v2.duplicate})`);
+              break;
+            }
+          }
           const invoice = event.data.object;
 
           if (invoice.subscription) {
@@ -25632,6 +25892,14 @@ ${optionalNotes || "No details provided."}`;
         }
 
         case "invoice.payment_failed": {
+          {
+            const { processBillingV2WebhookEvent } = await import("./billing/stripeWebhookService");
+            const v2 = await processBillingV2WebhookEvent(event);
+            if (v2.handled) {
+              console.log(`[Stripe Webhook] billingV2 invoice.payment_failed handled`);
+              break;
+            }
+          }
           const invoice = event.data.object;
 
           if (invoice.subscription) {
@@ -25766,6 +26034,14 @@ ${optionalNotes || "No details provided."}`;
         }
 
         case "customer.subscription.updated": {
+          {
+            const { processBillingV2WebhookEvent } = await import("./billing/stripeWebhookService");
+            const v2 = await processBillingV2WebhookEvent(event);
+            if (v2.handled) {
+              console.log(`[Stripe Webhook] billingV2 subscription.updated handled`);
+              break;
+            }
+          }
           const subscription = event.data.object;
           const dbSubscription = await storage.getSubscriptionByStripeId(subscription.id);
 
@@ -25911,6 +26187,14 @@ ${optionalNotes || "No details provided."}`;
         }
 
         case "customer.subscription.deleted": {
+          {
+            const { processBillingV2WebhookEvent } = await import("./billing/stripeWebhookService");
+            const v2 = await processBillingV2WebhookEvent(event);
+            if (v2.handled) {
+              console.log(`[Stripe Webhook] billingV2 subscription.deleted handled`);
+              break;
+            }
+          }
           const subscription = event.data.object;
           const dbSubscription = await storage.getSubscriptionByStripeId(subscription.id);
 
@@ -26118,7 +26402,8 @@ ${optionalNotes || "No details provided."}`;
   // Admin: Grant credits (eco-admin session)
   app.post("/api/admin/credits/grant", isAdminAuthenticated, async (req: any, res) => {
     try {
-      const { organizationId, quantity, reason, expiresAt } = req.body;
+      const { organizationId, quantity, reason, expiresAt, kind: rawKind } = req.body;
+      const kind = rawKind === "sms" ? "sms" : "inspection";
 
       if (!organizationId || !quantity || Number(quantity) <= 0) {
         return res.status(400).json({ message: "organizationId and a positive quantity are required" });
@@ -26137,34 +26422,53 @@ ${optionalNotes || "No details provided."}`;
       }
 
       const adminId = (req.session as any).adminUser?.id || "admin";
-      const { subscriptionService: subService } = await import("./subscriptionService");
       const { recordEntitlementEvent } = await import("./entitlementService");
-      await subService.grantCredits(
-        organizationId,
-        Number(quantity),
-        "admin_grant",
-        parsedExpiry.expiresAt,
-        { adminNotes: reason || "Admin grant", createdBy: adminId }
-      );
+      const grantNote = reason || (kind === "sms" ? "Admin SMS grant" : "Admin grant");
+
+      if (kind === "sms") {
+        const creditRules = await import("./billing/creditRules");
+        await creditRules.grantPdfCredits({
+          organizationId,
+          kind: "sms",
+          quantity: Number(quantity),
+          source: "admin_grant",
+          expiresAt: parsedExpiry.expiresAt,
+          metadata: { adminNotes: grantNote, createdBy: adminId },
+        });
+      } else {
+        const { subscriptionService: subService } = await import("./subscriptionService");
+        await subService.grantCredits(
+          organizationId,
+          Number(quantity),
+          "admin_grant",
+          parsedExpiry.expiresAt,
+          { adminNotes: grantNote, createdBy: adminId }
+        );
+      }
+
       await recordEntitlementEvent({
         organizationId,
         eventType: "credits_granted",
         actorUserId: adminId,
-        notes: `${reason || "Admin grant"}. Expires ${parsedExpiry.expiresAt.toISOString()}.`,
+        notes: `${kind === "sms" ? "SMS: " : ""}${grantNote}. Expires ${parsedExpiry.expiresAt.toISOString()}.`,
       }).catch((auditError) => {
         console.error("Failed to record credit grant audit:", auditError);
       });
 
       const creditBalance = await storage.getCreditBalance(organizationId);
+      const { getBalances } = await import("./billing/creditRules");
+      const kindBalances = await getBalances(organizationId);
       res.json({
         success: true,
         granted: Number(quantity),
+        kind,
         creditBalance: {
           total: creditBalance.total,
           current: creditBalance.current,
           rolled: creditBalance.rolled,
           expiresOn: creditBalance.expiresOn,
         },
+        smsBalance: kindBalances.sms,
       });
     } catch (error: any) {
       console.error("Error granting credits:", error);
@@ -31689,20 +31993,24 @@ You can help the tenant with:
 
       if (!user) {
         console.log(`[Tenant Login] User not found for email: ${normalizedEmail}`);
-        return res.status(401).json({ message: "Invalid credentials or not a tenant account" });
+        return res.status(401).json({
+          message: "Invalid username. Please try again or register.",
+        });
       }
 
       console.log(`[Tenant Login] User found: ${user.id}, role: ${user.role}, isActive: ${user.isActive}, hasPassword: ${!!user.password}`);
 
       if (user.role !== "tenant") {
         console.log(`[Tenant Login] User role is '${user.role}', expected 'tenant'`);
-        return res.status(401).json({ message: "Invalid credentials or not a tenant account" });
+        return res.status(401).json({
+          message: "Invalid username. Please try again or register.",
+        });
       }
 
       // Check if user has a password set
       if (!user.password) {
         console.warn(`[Tenant Login] User ${user.id} (${user.email}) has no password set`);
-        return res.status(401).json({ message: "Invalid credentials" });
+        return res.status(401).json({ message: "Invalid password." });
       }
 
       // Verify password - this is the same password that was set during tenant creation
@@ -31710,7 +32018,7 @@ You can help the tenant with:
 
       if (!isValid) {
         console.log(`[Tenant Login] Password mismatch for user: ${user.email}`);
-        return res.status(401).json({ message: "Invalid credentials" });
+        return res.status(401).json({ message: "Invalid password." });
       }
 
       if (!user.isActive) {
@@ -36102,85 +36410,15 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
     }
   });
 
-  // ==================== FEEDBACK SYSTEM ROUTES ====================
+  // ==================== LEGACY FEEDBACK ROUTES (superseded by server/feedback/routes.ts) ====================
+  // New handlers are registered earlier via registerFeedbackRoutes. These remain only as
+  // unreachable fallbacks for /api/feedback/my (old path) and must not write legacy tables.
 
-  // User: Submit feedback
-  app.post("/api/feedback", isAuthenticated, async (req: any, res) => {
-    try {
-      const user = await storage.getUser(req.user.id);
-      if (!user) {
-        return res.status(401).json({ message: "User not found" });
-      }
-
-      const { title, description, priority, category } = req.body;
-
-      if (!title || !description) {
-        return res.status(400).json({ message: "Title and description are required" });
-      }
-
-      let organizationName = null;
-      if (user.organizationId) {
-        const org = await storage.getOrganization(user.organizationId);
-        organizationName = org?.name;
-      }
-
-      const feedback = await storage.createFeedback({
-        title,
-        description,
-        priority: priority || "medium",
-        category: category || "feature",
-        userId: user.id,
-        userEmail: user.email,
-        userName: `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.username,
-        organizationId: user.organizationId || null,
-        organizationName,
-      });
-
-      // Send notification emails to central team
-      try {
-        const teamConfig = await storage.getCentralTeamConfig();
-        const activeEmails = teamConfig.filter(c => c.isActive).map(c => c.notificationEmail);
-
-        if (activeEmails.length > 0) {
-          const { sendEmail } = await import("./resend");
-          const priorityLabel = priority === "high" ? "HIGH" : priority === "medium" ? "Medium" : "Low";
-          const categoryLabel = category === "bug" ? "Bug Report" : category === "improvement" ? "Improvement" : "Feature Request";
-
-          for (const email of activeEmails) {
-            await sendEmail({
-              to: email,
-              subject: `[${priorityLabel}] New ${categoryLabel}: ${title}`,
-              html: `
-                <h2>New Feedback Submission</h2>
-                <p><strong>Title:</strong> ${title}</p>
-                <p><strong>Category:</strong> ${categoryLabel}</p>
-                <p><strong>Priority:</strong> ${priorityLabel}</p>
-                <p><strong>From:</strong> ${feedback.userName} (${feedback.userEmail})</p>
-                <p><strong>Organization:</strong> ${organizationName || 'N/A'}</p>
-                <hr />
-                <p><strong>Description:</strong></p>
-                <p>${description}</p>
-                <hr />
-                <p><small>View all feedback in the Eco-Admin panel.</small></p>
-              `,
-            });
-          }
-        }
-      } catch (emailError) {
-        console.error("Error sending feedback notification emails:", emailError);
-      }
-
-      res.json(feedback);
-    } catch (error: any) {
-      console.error("Error submitting feedback:", error);
-      res.status(500).json({ message: "Failed to submit feedback" });
-    }
-  });
-
-  // User: Get own feedback submissions
+  // User: Get own feedback submissions (legacy path → redirect clients to /api/feedback/mine)
   app.get("/api/feedback/my", isAuthenticated, async (req: any, res) => {
     try {
-      const feedback = await storage.getFeedbackByUser(req.user.id);
+      const { listMyFeedback } = await import("./feedback/storage");
+      const feedback = await listMyFeedback(req.user.id);
       res.json(feedback);
     } catch (error: any) {
       console.error("Error fetching user feedback:", error);
@@ -36188,8 +36426,8 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
     }
   });
 
-  // Admin: Get all feedback
-  app.get("/api/admin/feedback", isAuthenticated, async (req: any, res) => {
+  // Admin: Get all feedback (LEGACY — unreachable if registerFeedbackRoutes ran first)
+  app.get("/api/admin/feedback-legacy-unused", isAuthenticated, async (req: any, res) => {
     try {
       const adminUser = await storage.getAdminByEmail(req.user.email);
       if (!adminUser) {
@@ -36211,48 +36449,8 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
     }
   });
 
-  // Admin: Get single feedback
-  app.get("/api/admin/feedback/:id", isAuthenticated, async (req: any, res) => {
-    try {
-      const adminUser = await storage.getAdminByEmail(req.user.email);
-      if (!adminUser) {
-        return res.status(403).json({ message: "Access denied" });
-      }
-
-      const feedback = await storage.getFeedbackById(req.params.id);
-      if (!feedback) {
-        return res.status(404).json({ message: "Feedback not found" });
-      }
-      res.json(feedback);
-    } catch (error: any) {
-      console.error("Error fetching feedback:", error);
-      res.status(500).json({ message: "Failed to fetch feedback" });
-    }
-  });
-
-  // Admin: Update feedback status/assignment
-  app.patch("/api/admin/feedback/:id", isAuthenticated, async (req: any, res) => {
-    try {
-      const adminUser = await storage.getAdminByEmail(req.user.email);
-      if (!adminUser) {
-        return res.status(403).json({ message: "Access denied" });
-      }
-
-      const { status, assignedTo, assignedDepartment, resolutionNotes } = req.body;
-      const updates: any = {};
-
-      if (status) updates.status = status;
-      if (assignedTo !== undefined) updates.assignedTo = assignedTo;
-      if (assignedDepartment !== undefined) updates.assignedDepartment = assignedDepartment;
-      if (resolutionNotes !== undefined) updates.resolutionNotes = resolutionNotes;
-
-      const feedback = await storage.updateFeedback(req.params.id, updates);
-      res.json(feedback);
-    } catch (error: any) {
-      console.error("Error updating feedback:", error);
-      res.status(500).json({ message: "Failed to update feedback" });
-    }
-  });
+  // Legacy admin get/patch for feedback_submissions removed — use server/feedback/routes.ts
+  // (paths /api/admin/feedback and /api/admin/feedback/:id).
 
   // Admin: Get central team config
   app.get("/api/admin/feedback-team", isAuthenticated, async (req: any, res) => {
@@ -36792,7 +36990,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   // ==================== COMMUNITY DISCUSSION ROUTES ====================
 
   // Get community rules for tenant
-  app.get("/api/tenant-portal/community/rules", async (req, res) => {
+  app.get("/api/tenant-portal/community/rules", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || req.user?.role !== "tenant") {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -36819,7 +37017,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Accept community rules
-  app.post("/api/tenant-portal/community/rules/accept", async (req, res) => {
+  app.post("/api/tenant-portal/community/rules/accept", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || req.user?.role !== "tenant") {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -36850,7 +37048,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Get community groups for tenant's block
-  app.get("/api/tenant-portal/community/groups", async (req, res) => {
+  app.get("/api/tenant-portal/community/groups", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || req.user?.role !== "tenant") {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -36882,7 +37080,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Get a single community group
-  app.get("/api/tenant-portal/community/groups/:id", async (req, res) => {
+  app.get("/api/tenant-portal/community/groups/:id", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || req.user?.role !== "tenant") {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -36909,7 +37107,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Create a new community group (requires rule acceptance)
-  app.post("/api/tenant-portal/community/groups", async (req, res) => {
+  app.post("/api/tenant-portal/community/groups", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || req.user?.role !== "tenant") {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -36991,7 +37189,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Join a community group
-  app.post("/api/tenant-portal/community/groups/:id/join", async (req, res) => {
+  app.post("/api/tenant-portal/community/groups/:id/join", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || req.user?.role !== "tenant") {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37027,7 +37225,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Leave a community group
-  app.post("/api/tenant-portal/community/groups/:id/leave", async (req, res) => {
+  app.post("/api/tenant-portal/community/groups/:id/leave", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || req.user?.role !== "tenant") {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37043,7 +37241,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Get threads in a group
-  app.get("/api/tenant-portal/community/groups/:id/threads", async (req, res) => {
+  app.get("/api/tenant-portal/community/groups/:id/threads", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || req.user?.role !== "tenant") {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37082,7 +37280,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Get a single thread with its posts
-  app.get("/api/tenant-portal/community/threads/:id", async (req, res) => {
+  app.get("/api/tenant-portal/community/threads/:id", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || req.user?.role !== "tenant") {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37142,7 +37340,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Create a new thread
-  app.post("/api/tenant-portal/community/groups/:id/threads", async (req, res) => {
+  app.post("/api/tenant-portal/community/groups/:id/threads", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || req.user?.role !== "tenant") {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37204,7 +37402,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Create a post (reply) in a thread
-  app.post("/api/tenant-portal/community/threads/:id/posts", async (req, res) => {
+  app.post("/api/tenant-portal/community/threads/:id/posts", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || req.user?.role !== "tenant") {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37269,7 +37467,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Flag content
-  app.post("/api/tenant-portal/community/flag", async (req, res) => {
+  app.post("/api/tenant-portal/community/flag", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || req.user?.role !== "tenant") {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37300,7 +37498,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   // ==================== OPERATOR COMMUNITY MODERATION ROUTES ====================
 
   // Get/update community rules (operator)
-  app.get("/api/community/rules", async (req, res) => {
+  app.get("/api/community/rules", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || !["owner", "clerk"].includes(req.user?.role || "")) {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37315,7 +37513,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
     }
   });
 
-  app.post("/api/community/rules", async (req, res) => {
+  app.post("/api/community/rules", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || req.user?.role !== "owner") {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37335,7 +37533,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Get pending groups count for operator dashboard
-  app.get("/api/community/pending-count", async (req, res) => {
+  app.get("/api/community/pending-count", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || !["owner", "clerk"].includes(req.user?.role || "")) {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37351,7 +37549,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Get all groups for moderation (operator)
-  app.get("/api/community/groups", async (req, res) => {
+  app.get("/api/community/groups", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || !["owner", "clerk"].includes(req.user?.role || "")) {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37380,7 +37578,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Approve/reject a group (operator)
-  app.patch("/api/community/groups/:id", async (req, res) => {
+  app.patch("/api/community/groups/:id", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || !["owner", "clerk"].includes(req.user?.role || "")) {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37445,7 +37643,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Get flagged content (operator)
-  app.get("/api/community/flags", async (req, res) => {
+  app.get("/api/community/flags", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || !["owner", "clerk"].includes(req.user?.role || "")) {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37482,7 +37680,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Resolve a flag (operator)
-  app.post("/api/community/flags/:id/resolve", async (req, res) => {
+  app.post("/api/community/flags/:id/resolve", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || !["owner", "clerk"].includes(req.user?.role || "")) {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37520,7 +37718,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Moderate thread/post directly (operator)
-  app.patch("/api/community/threads/:id/moderate", async (req, res) => {
+  app.patch("/api/community/threads/:id/moderate", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || !["owner", "clerk"].includes(req.user?.role || "")) {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37565,7 +37763,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
     }
   });
 
-  app.patch("/api/community/posts/:id/moderate", async (req, res) => {
+  app.patch("/api/community/posts/:id/moderate", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || !["owner", "clerk"].includes(req.user?.role || "")) {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37609,7 +37807,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Operator create group (auto-approved)
-  app.post("/api/community/groups", async (req, res) => {
+  app.post("/api/community/groups", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || !["owner", "clerk"].includes(req.user?.role || "")) {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37687,7 +37885,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Operator get group threads
-  app.get("/api/community/groups/:id/threads", async (req, res) => {
+  app.get("/api/community/groups/:id/threads", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || !["owner", "clerk"].includes(req.user?.role || "")) {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37719,7 +37917,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Operator create thread
-  app.post("/api/community/groups/:id/threads", async (req, res) => {
+  app.post("/api/community/groups/:id/threads", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || !["owner", "clerk"].includes(req.user?.role || "")) {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37752,7 +37950,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Operator get thread with posts
-  app.get("/api/community/threads/:id", async (req, res) => {
+  app.get("/api/community/threads/:id", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || !["owner", "clerk"].includes(req.user?.role || "")) {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37803,7 +38001,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Operator create post
-  app.post("/api/community/threads/:id/posts", async (req, res) => {
+  app.post("/api/community/threads/:id/posts", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || !["owner", "clerk"].includes(req.user?.role || "")) {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37840,7 +38038,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Get moderation log (operator)
-  app.get("/api/community/moderation-log", async (req, res) => {
+  app.get("/api/community/moderation-log", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || !["owner", "clerk"].includes(req.user?.role || "")) {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37866,7 +38064,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Get blocked tenants list (operator)
-  app.get("/api/community/blocked-tenants", async (req, res) => {
+  app.get("/api/community/blocked-tenants", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || !["owner", "clerk"].includes(req.user?.role || "")) {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37895,7 +38093,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Block a tenant (operator)
-  app.post("/api/community/blocked-tenants", async (req, res) => {
+  app.post("/api/community/blocked-tenants", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || !["owner", "clerk"].includes(req.user?.role || "")) {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37939,7 +38137,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Unblock a tenant (operator)
-  app.delete("/api/community/blocked-tenants/:tenantUserId", async (req, res) => {
+  app.delete("/api/community/blocked-tenants/:tenantUserId", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated() || !["owner", "clerk"].includes(req.user?.role || "")) {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -37968,7 +38166,7 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
   });
 
   // Check if current user (tenant) is blocked
-  app.get("/api/community/am-i-blocked", async (req, res) => {
+  app.get("/api/community/am-i-blocked", isAuthenticated, requireCompanyModule("tenancies"), async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).json({ message: "Unauthorized" });
     }

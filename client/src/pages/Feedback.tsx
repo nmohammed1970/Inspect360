@@ -1,0 +1,160 @@
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Link } from "wouter";
+import { format } from "date-fns";
+import { MessageSquarePlus, Plus, Inbox } from "lucide-react";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { FeedbackSubmitForm } from "@/components/feedback/FeedbackSubmitForm";
+import { FeedbackStatusBadge, FeedbackTypeBadge } from "@/components/feedback/FeedbackBadges";
+import { pagePad } from "@/lib/responsive";
+import { cn } from "@/lib/utils";
+
+type FeedbackRow = {
+  id: string;
+  reference: string;
+  type: string;
+  subject: string;
+  status: string;
+  updatedAt: string;
+  createdAt: string;
+};
+
+export default function FeedbackPage() {
+  const [showForm, setShowForm] = useState(true);
+  const { data: rows = [], isLoading } = useQuery<FeedbackRow[]>({
+    queryKey: ["/api/feedback/mine"],
+  });
+
+  return (
+    <div className={cn(pagePad, "pb-10")}>
+      <div className="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-primary/10 via-background to-sky-50/60 mb-6">
+        <div className="absolute inset-y-0 right-0 w-1/3 bg-[radial-gradient(ellipse_at_top_right,hsl(var(--primary)/0.18),transparent_70%)] pointer-events-none" />
+        <div className="relative p-5 sm:p-7 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex items-start gap-3 min-w-0">
+            <div className="p-2.5 rounded-2xl bg-primary/15 shrink-0">
+              <MessageSquarePlus className="h-6 w-6 text-primary" />
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Feedback</h1>
+              <p className="text-muted-foreground mt-1 text-sm sm:text-base max-w-xl leading-relaxed">
+                Report issues, request features, or ask questions — and track every case you send.
+              </p>
+            </div>
+          </div>
+          {!showForm && (
+            <Button
+              onClick={() => setShowForm(true)}
+              className="shrink-0"
+              size="lg"
+              data-testid="button-new-feedback"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Submit Feedback
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <div className="space-y-6">
+        {showForm && (
+          <Card className="border shadow-sm overflow-hidden">
+            <CardHeader className="border-b bg-muted/30 pb-4">
+              <CardTitle className="text-lg">Submit feedback</CardTitle>
+              <CardDescription>
+                Choose a type, describe what you need, and attach screenshots if helpful.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="pt-6">
+              <FeedbackSubmitForm
+                onCancel={rows.length > 0 ? () => setShowForm(false) : undefined}
+              />
+            </CardContent>
+          </Card>
+        )}
+
+        <Card className="border shadow-sm overflow-hidden">
+          <CardHeader className="border-b bg-muted/20 pb-4">
+            <div className="flex items-center gap-2">
+              <Inbox className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-lg">My feedback</CardTitle>
+            </div>
+            <CardDescription>Cases you have submitted</CardDescription>
+          </CardHeader>
+          <CardContent className="pt-4">
+            {isLoading ? (
+              <div className="space-y-2">
+                <Skeleton className="h-11 w-full rounded-lg" />
+                <Skeleton className="h-11 w-full rounded-lg" />
+              </div>
+            ) : rows.length === 0 ? (
+              <div className="text-center py-10 px-4 space-y-3">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-muted">
+                  <Inbox className="h-6 w-6 text-muted-foreground" />
+                </div>
+                <p className="text-muted-foreground text-sm">You have not submitted any feedback yet.</p>
+                {!showForm && (
+                  <Button onClick={() => setShowForm(true)}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Submit Feedback
+                  </Button>
+                )}
+              </div>
+            ) : (
+              <div className="overflow-x-auto -mx-2 sm:mx-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Reference</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Subject</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Last updated</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {rows.map((row) => (
+                      <TableRow key={row.id} className="hover:bg-muted/40">
+                        <TableCell>
+                          <Link
+                            href={`/feedback/${row.id}`}
+                            className="font-mono text-sm text-primary hover:underline"
+                          >
+                            {row.reference}
+                          </Link>
+                        </TableCell>
+                        <TableCell>
+                          <FeedbackTypeBadge type={row.type} />
+                        </TableCell>
+                        <TableCell className="max-w-[280px] truncate">
+                          <Link href={`/feedback/${row.id}`} className="hover:underline font-medium">
+                            {row.subject}
+                          </Link>
+                        </TableCell>
+                        <TableCell>
+                          <FeedbackStatusBadge status={row.status} />
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                          {row.updatedAt ? format(new Date(row.updatedAt), "dd MMM yyyy HH:mm") : "—"}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}

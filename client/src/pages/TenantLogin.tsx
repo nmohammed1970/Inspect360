@@ -70,7 +70,7 @@ export default function TenantLogin() {
     } catch (error: any) {
       toast({
         title: "Login Failed",
-        description: error.message || "Invalid email or password",
+        description: error.message || "Invalid username. Please try again or register.",
         variant: "destructive",
       });
     } finally {

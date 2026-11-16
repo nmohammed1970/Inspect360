@@ -44,9 +44,13 @@ function layout(productName: string, bodyHtml: string, loginUrl: string, logoUrl
     ${logo}
     <p style="margin: 0 0 8px 0; font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase; color: #3B7A8C;">${safeProduct}</p>
     ${bodyHtml}
-    <p style="margin: 28px 0 0 0;">
-      <a href="${safeUrl}" style="display: inline-block; background: #04C6BD; color: #021F36; text-decoration: none; font-weight: 600; padding: 12px 18px; border-radius: 6px;">Open ${safeProduct}</a>
-    </p>
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin: 28px 0 0 0;">
+      <tr>
+        <td align="center" bgcolor="#0B6E68" style="border-radius: 6px; background-color: #0B6E68 !important;">
+          <a href="${safeUrl}" style="display: inline-block; background-color: #0B6E68 !important; color: #FFFFFF !important; -webkit-text-fill-color: #FFFFFF !important; text-decoration: none; font-weight: 700; font-size: 16px; line-height: 1.25; padding: 12px 20px; border-radius: 6px; border: 1px solid #0B6E68;">Open ${safeProduct}</a>
+        </td>
+      </tr>
+    </table>
     <p style="margin: 24px 0 0 0; font-size: 13px; color: #5c6b76;">Please contact your administrator to add credits or extend your access.</p>
   </div>
 </body>

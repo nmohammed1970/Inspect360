@@ -1,0 +1,14 @@
+{
+  "ruleCode": "ENG-HA2004-SCH4-1A",
+  "jurisdiction": "England",
+  "classification": "national_baseline",
+  "status": "APPROVED",
+  "requirements": {
+    "minSleepingRoomM2": 4.64,
+    "onePersonAged10OrAboveM2": 6.51,
+    "twoPersonsAged10OrAboveM2": 10.22,
+    "oneChildUnder10M2": 4.64,
+    "ignoreFloorAreaBelowCeilingM": 1.5,
+    "citation": "Housing Act 2004 Schedule 4 paragraph 1A"
+  }
+}

@@ -39,6 +39,8 @@ export default function Auth() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [countryCode, setCountryCode] = useState("GB");
+  const [registerErrors, setRegisterErrors] = useState<Record<string, string>>({});
+  const [loginErrors, setLoginErrors] = useState<Record<string, string>>({});
 
   // Auto-detect country on component mount
   useEffect(() => {
@@ -61,11 +63,18 @@ export default function Auth() {
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
-    
-    if (!loginEmail || !loginPassword) {
+    const errors: Record<string, string> = {};
+    const trimmedEmail = loginEmail.trim();
+    if (!trimmedEmail) errors.email = "Email is required";
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      errors.email = "Enter a valid email address";
+    }
+    if (!loginPassword) errors.password = "Password is required";
+    setLoginErrors(errors);
+    if (Object.keys(errors).length > 0) {
       toast({
         variant: "destructive",
-        title: "Error",
+        title: "Missing details",
         description: "Please fill in all fields",
       });
       return;
@@ -73,7 +82,7 @@ export default function Auth() {
 
     try {
       const result = await loginMutation.mutateAsync({
-        email: loginEmail,
+        email: trimmedEmail,
         password: loginPassword,
       });
       
@@ -99,42 +108,54 @@ export default function Auth() {
   async function handleRegister(e: React.FormEvent) {
     e.preventDefault();
 
-    // Validation
-    if (!firstName || !lastName || !email || !companyName || !password || !confirmPassword) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Please fill in all fields",
-      });
-      return;
+    const trimmed = {
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
+      email: email.trim(),
+      companyName: companyName.trim(),
+      countryCode: countryCode.trim(),
+      password,
+      confirmPassword,
+    };
+
+    const errors: Record<string, string> = {};
+    if (!trimmed.firstName) errors.firstName = "First name is required";
+    if (!trimmed.lastName) errors.lastName = "Last name is required";
+    if (!trimmed.email) errors.email = "Email is required";
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed.email)) {
+      errors.email = "Enter a valid email address";
+    }
+    if (!trimmed.companyName) errors.companyName = "Company name is required";
+    if (!trimmed.countryCode || trimmed.countryCode.length !== 2) {
+      errors.countryCode = "Country is required";
+    }
+    if (!trimmed.password) errors.password = "Password is required";
+    else if (trimmed.password.length < MIN_PASSWORD_LENGTH) {
+      errors.password = `Password must be at least ${MIN_PASSWORD_LENGTH} characters`;
+    }
+    if (!trimmed.confirmPassword) errors.confirmPassword = "Confirm your password";
+    else if (trimmed.password !== trimmed.confirmPassword) {
+      errors.confirmPassword = "Passwords don't match";
     }
 
-    if (password !== confirmPassword) {
+    setRegisterErrors(errors);
+    if (Object.keys(errors).length > 0) {
       toast({
         variant: "destructive",
-        title: "Error",
-        description: "Passwords don't match",
-      });
-      return;
-    }
-
-    if (password.length < MIN_PASSWORD_LENGTH) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: `Password must be at least ${MIN_PASSWORD_LENGTH} characters`,
+        title: "Missing details",
+        description: "Please complete all required fields",
       });
       return;
     }
 
     try {
       const result = await registerMutation.mutateAsync({
-        firstName,
-        lastName,
-        email,
-        companyName,
-        password,
-        countryCode,
+        firstName: trimmed.firstName,
+        lastName: trimmed.lastName,
+        email: trimmed.email,
+        companyName: trimmed.companyName,
+        password: trimmed.password,
+        countryCode: trimmed.countryCode,
         role: "owner", // All self-registrations are owners
       });
 
@@ -178,7 +199,7 @@ export default function Auth() {
             </CardHeader>
             <CardContent className="space-y-4">
               {isLogin ? (
-                <form onSubmit={handleLogin} className="space-y-4">
+                <form onSubmit={handleLogin} className="space-y-4" noValidate>
                   <div className="space-y-2">
                     <Label htmlFor="login-email">Email Address</Label>
                     <Input
@@ -186,10 +207,20 @@ export default function Auth() {
                       type="email"
                       placeholder="Enter your email address"
                       value={loginEmail}
-                      onChange={(e) => setLoginEmail(e.target.value)}
+                      onChange={(e) => {
+                        setLoginEmail(e.target.value);
+                        if (loginErrors.email) {
+                          setLoginErrors((prev) => ({ ...prev, email: "" }));
+                        }
+                      }}
+                      required
+                      aria-invalid={Boolean(loginErrors.email)}
                       disabled={loginMutation.isPending}
                       data-testid="input-email"
                     />
+                    {loginErrors.email ? (
+                      <p className="text-sm text-destructive">{loginErrors.email}</p>
+                    ) : null}
                   </div>
 
                   <div className="space-y-2">
@@ -200,7 +231,14 @@ export default function Auth() {
                         type={showPassword ? "text" : "password"}
                         placeholder="Enter your password"
                         value={loginPassword}
-                        onChange={(e) => setLoginPassword(e.target.value)}
+                        onChange={(e) => {
+                          setLoginPassword(e.target.value);
+                          if (loginErrors.password) {
+                            setLoginErrors((prev) => ({ ...prev, password: "" }));
+                          }
+                        }}
+                        required
+                        aria-invalid={Boolean(loginErrors.password)}
                         disabled={loginMutation.isPending}
                         data-testid="input-password"
                       />
@@ -217,6 +255,9 @@ export default function Auth() {
                         )}
                       </button>
                     </div>
+                    {loginErrors.password ? (
+                      <p className="text-sm text-destructive">{loginErrors.password}</p>
+                    ) : null}
                   </div>
 
                   <div className="flex items-center justify-end">
@@ -241,7 +282,7 @@ export default function Auth() {
                   </Button>
                 </form>
               ) : (
-                <form onSubmit={handleRegister} className="space-y-4">
+                <form onSubmit={handleRegister} className="space-y-4" noValidate>
                   <div className={formGrid2}>
                     <div className="space-y-2">
                       <Label htmlFor="first-name">First name</Label>
@@ -250,10 +291,20 @@ export default function Auth() {
                         type="text"
                         placeholder="John"
                         value={firstName}
-                        onChange={(e) => setFirstName(e.target.value)}
+                        onChange={(e) => {
+                          setFirstName(e.target.value);
+                          if (registerErrors.firstName) {
+                            setRegisterErrors((prev) => ({ ...prev, firstName: "" }));
+                          }
+                        }}
+                        required
+                        aria-invalid={Boolean(registerErrors.firstName)}
                         disabled={registerMutation.isPending}
                         data-testid="input-first-name"
                       />
+                      {registerErrors.firstName ? (
+                        <p className="text-sm text-destructive">{registerErrors.firstName}</p>
+                      ) : null}
                     </div>
 
                     <div className="space-y-2">
@@ -263,10 +314,20 @@ export default function Auth() {
                         type="text"
                         placeholder="Doe"
                         value={lastName}
-                        onChange={(e) => setLastName(e.target.value)}
+                        onChange={(e) => {
+                          setLastName(e.target.value);
+                          if (registerErrors.lastName) {
+                            setRegisterErrors((prev) => ({ ...prev, lastName: "" }));
+                          }
+                        }}
+                        required
+                        aria-invalid={Boolean(registerErrors.lastName)}
                         disabled={registerMutation.isPending}
                         data-testid="input-last-name"
                       />
+                      {registerErrors.lastName ? (
+                        <p className="text-sm text-destructive">{registerErrors.lastName}</p>
+                      ) : null}
                     </div>
                   </div>
 
@@ -277,10 +338,20 @@ export default function Auth() {
                       type="email"
                       placeholder="john@example.com"
                       value={email}
-                      onChange={(e) => setEmail(e.target.value)}
+                      onChange={(e) => {
+                        setEmail(e.target.value);
+                        if (registerErrors.email) {
+                          setRegisterErrors((prev) => ({ ...prev, email: "" }));
+                        }
+                      }}
+                      required
+                      aria-invalid={Boolean(registerErrors.email)}
                       disabled={registerMutation.isPending}
                       data-testid="input-email"
                     />
+                    {registerErrors.email ? (
+                      <p className="text-sm text-destructive">{registerErrors.email}</p>
+                    ) : null}
                   </div>
 
                   <div className="space-y-2">
@@ -290,20 +361,40 @@ export default function Auth() {
                       type="text"
                       placeholder="Acme Property Management"
                       value={companyName}
-                      onChange={(e) => setCompanyName(e.target.value)}
+                      onChange={(e) => {
+                        setCompanyName(e.target.value);
+                        if (registerErrors.companyName) {
+                          setRegisterErrors((prev) => ({ ...prev, companyName: "" }));
+                        }
+                      }}
+                      required
+                      aria-invalid={Boolean(registerErrors.companyName)}
                       disabled={registerMutation.isPending}
                       data-testid="input-register-company-name"
                     />
+                    {registerErrors.companyName ? (
+                      <p className="text-sm text-destructive">{registerErrors.companyName}</p>
+                    ) : null}
                   </div>
 
                   <div className="space-y-2">
                     <Label htmlFor="country">Country</Label>
                     <Select
                       value={countryCode}
-                      onValueChange={setCountryCode}
+                      onValueChange={(value) => {
+                        setCountryCode(value);
+                        if (registerErrors.countryCode) {
+                          setRegisterErrors((prev) => ({ ...prev, countryCode: "" }));
+                        }
+                      }}
                       disabled={registerMutation.isPending}
+                      required
                     >
-                      <SelectTrigger id="country" data-testid="select-country">
+                      <SelectTrigger
+                        id="country"
+                        data-testid="select-country"
+                        aria-invalid={Boolean(registerErrors.countryCode)}
+                      >
                         <SelectValue placeholder="Select country" />
                       </SelectTrigger>
                       <SelectContent>
@@ -318,6 +409,9 @@ export default function Auth() {
                         ))}
                       </SelectContent>
                     </Select>
+                    {registerErrors.countryCode ? (
+                      <p className="text-sm text-destructive">{registerErrors.countryCode}</p>
+                    ) : null}
                   </div>
 
                   <div className="space-y-2">
@@ -328,7 +422,15 @@ export default function Auth() {
                         type={showPassword ? "text" : "password"}
                         placeholder="Create a strong password"
                         value={password}
-                        onChange={(e) => setPassword(e.target.value)}
+                        onChange={(e) => {
+                          setPassword(e.target.value);
+                          if (registerErrors.password) {
+                            setRegisterErrors((prev) => ({ ...prev, password: "" }));
+                          }
+                        }}
+                        required
+                        minLength={MIN_PASSWORD_LENGTH}
+                        aria-invalid={Boolean(registerErrors.password)}
                         disabled={registerMutation.isPending}
                         data-testid="input-register-password"
                       />
@@ -345,6 +447,9 @@ export default function Auth() {
                         )}
                       </button>
                     </div>
+                    {registerErrors.password ? (
+                      <p className="text-sm text-destructive">{registerErrors.password}</p>
+                    ) : null}
                   </div>
 
                   <div className="space-y-2">
@@ -355,7 +460,14 @@ export default function Auth() {
                         type={showConfirmPassword ? "text" : "password"}
                         placeholder="Confirm your password"
                         value={confirmPassword}
-                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        onChange={(e) => {
+                          setConfirmPassword(e.target.value);
+                          if (registerErrors.confirmPassword) {
+                            setRegisterErrors((prev) => ({ ...prev, confirmPassword: "" }));
+                          }
+                        }}
+                        required
+                        aria-invalid={Boolean(registerErrors.confirmPassword)}
                         disabled={registerMutation.isPending}
                         data-testid="input-confirm-password"
                       />
@@ -372,6 +484,9 @@ export default function Auth() {
                         )}
                       </button>
                     </div>
+                    {registerErrors.confirmPassword ? (
+                      <p className="text-sm text-destructive">{registerErrors.confirmPassword}</p>
+                    ) : null}
                   </div>
 
                   <Button
@@ -402,7 +517,11 @@ export default function Auth() {
                   <button
                     type="button"
                     className="text-sm text-primary hover:underline font-medium transition-all"
-                    onClick={() => setIsLogin(false)}
+                    onClick={() => {
+                      setIsLogin(false);
+                      setLoginErrors({});
+                      setRegisterErrors({});
+                    }}
                     data-testid="button-switch-register"
                   >
                     Create your account
@@ -411,7 +530,11 @@ export default function Auth() {
                   <button
                     type="button"
                     className="text-sm text-primary hover:underline font-medium transition-all"
-                    onClick={() => setIsLogin(true)}
+                    onClick={() => {
+                      setIsLogin(true);
+                      setLoginErrors({});
+                      setRegisterErrors({});
+                    }}
                     data-testid="button-switch-login"
                   >
                     Sign in to your account

@@ -1,0 +1,121 @@
+{
+  "generatedAt": "2026-11-09T09:07:21.811Z",
+  "summary": {
+    "automatedPassed": 6,
+    "automatedFailed": 0,
+    "blocked": 0,
+    "manualUntested": 10
+  },
+  "automated": [
+    {
+      "id": "FIN-UNIT",
+      "name": "Financial math (photos, SMS, 10×, floor, proration, readonly, freeze)",
+      "phase": "A/C/E",
+      "result": "passed",
+      "ms": 4504,
+      "exitCode": 0,
+      "tail": "billingFinancialMath.test.ts: 64 passed, 0 failed"
+    },
+    {
+      "id": "CAT-UNIT",
+      "name": "Catalog validation core",
+      "phase": "A",
+      "result": "passed",
+      "ms": 4150,
+      "exitCode": 0,
+      "tail": "catalogValidation.test.ts: all assertions passed"
+    },
+    {
+      "id": "CAT-BOUND",
+      "name": "Catalog validation boundaries + seed",
+      "phase": "A",
+      "result": "passed",
+      "ms": 4060,
+      "exitCode": 0,
+      "tail": "catalogValidation.boundaries.test.ts: 13 passed, 0 failed"
+    },
+    {
+      "id": "WH-IDEM",
+      "name": "Webhook idempotency / duplicate / recovery",
+      "phase": "B",
+      "result": "passed",
+      "ms": 3501,
+      "exitCode": 0,
+      "tail": "webhookIdempotency.test.ts: 14 passed, 0 failed"
+    },
+    {
+      "id": "WF-GUARD",
+      "name": "Workflow guards (capture, evidence, authz, freeze)",
+      "phase": "C/E/F",
+      "result": "passed",
+      "ms": 3350,
+      "exitCode": 0,
+      "tail": "billingWorkflow.guards.test.ts: 21 passed, 0 failed"
+    },
+    {
+      "id": "ENT",
+      "name": "Entitlement + zero-credit capture",
+      "phase": "C",
+      "result": "passed",
+      "ms": 3655,
+      "exitCode": 0,
+      "tail": "74 passed"
+    }
+  ],
+  "manualUntested": [
+    {
+      "name": "M1 Amounts vs Stripe confirmed transaction",
+      "result": "untested",
+      "type": "manual"
+    },
+    {
+      "name": "M2 Credit ledger vs payment/usage events",
+      "result": "untested",
+      "type": "manual"
+    },
+    {
+      "name": "M3 Duplicate Stripe webhook resend",
+      "result": "untested",
+      "type": "manual"
+    },
+    {
+      "name": "M4 Delayed/out-of-order webhook",
+      "result": "untested",
+      "type": "manual"
+    },
+    {
+      "name": "M5 Zero-credit offline capture E2E",
+      "result": "untested",
+      "type": "manual"
+    },
+    {
+      "name": "M6 Cross-tenant isolation live",
+      "result": "untested",
+      "type": "manual"
+    },
+    {
+      "name": "M7 Price freeze after publish live",
+      "result": "untested",
+      "type": "manual"
+    },
+    {
+      "name": "E2E full Checkout → trial credits journey",
+      "result": "untested",
+      "type": "manual"
+    },
+    {
+      "name": "E2E payment failure → read_only after 7 days",
+      "result": "untested",
+      "type": "manual"
+    },
+    {
+      "name": "E2E concurrent consume race",
+      "result": "untested",
+      "type": "manual"
+    }
+  ],
+  "notes": [
+    "Happy-path alone is insufficient — see server/billing/TEST_PLAN.md",
+    "Stripe-dependent and Contabo-live scenarios remain manual until test-mode E2E harness exists"
+  ]
+}

@@ -62,18 +62,39 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
-// Use JSON parser for all routes except Stripe webhook which needs raw body
-// Increase limit for transcribe-base64 (base64 audio can be ~35MB for 25MB audio)
+/** Paths that must keep the raw request body for signature verification. */
+function isRawBodyWebhookPath(req: { originalUrl?: string; url?: string; path?: string }): boolean {
+  const pathOnly = String(req.originalUrl || req.url || req.path || "").split("?")[0];
+  return (
+    pathOnly === "/api/billing/webhook" ||
+    pathOnly === "/api/webhooks/stripe" || // legacy Stripe dashboard URL
+    pathOnly === "/api/webhooks/reapit"
+  );
+}
+
+// Use JSON parser for all routes except signed webhooks (need raw body) and multipart.
+// Increase limit for transcribe-base64 (base64 audio can be ~35MB for 25MB audio).
 app.use((req, res, next) => {
-  if (req.originalUrl === '/api/webhooks/stripe' || req.originalUrl === '/api/webhooks/reapit') {
-    next();
-  } else if (req.path === '/api/audio/transcribe-base64' || req.path === '/api/objects/upload-audio-base64') {
-    express.json({ limit: '35mb' })(req, res, next);
-  } else {
-    express.json()(req, res, next);
+  const contentType = String(req.headers["content-type"] || "");
+  if (contentType.includes("multipart/form-data")) {
+    return next();
   }
+  if (isRawBodyWebhookPath(req)) {
+    // Route-level express.raw() will parse the body for signature verify.
+    return next();
+  }
+  if (req.path === "/api/audio/transcribe-base64" || req.path === "/api/objects/upload-audio-base64") {
+    return express.json({ limit: "35mb" })(req, res, next);
+  }
+  return express.json()(req, res, next);
 });
-app.use(express.urlencoded({ extended: false }));
+app.use((req, res, next) => {
+  const contentType = String(req.headers["content-type"] || "");
+  if (contentType.includes("multipart/form-data") || isRawBodyWebhookPath(req)) {
+    return next();
+  }
+  return express.urlencoded({ extended: false })(req, res, next);
+});
 
 const SENSITIVE_LOG_KEYS = new Set([
   "apikey",
@@ -272,10 +293,85 @@ app.use((req, res, next) => {
     }
 
     try {
+      const billingReadonlyInterval = 60 * 60 * 1000;
+      const { applyPaymentFailureReadOnly } = await import("./billing/stripeWebhookService");
+      setImmediate(async () => {
+        try {
+          const n = await applyPaymentFailureReadOnly();
+          if (n > 0) console.log(`[BillingV2] Applied read-only to ${n} org(s)`);
+        } catch (error) {
+          console.error("[BillingV2] Initial read-only scan failed:", error);
+        }
+      });
+      setInterval(async () => {
+        try {
+          const n = await applyPaymentFailureReadOnly();
+          if (n > 0) console.log(`[BillingV2] Applied read-only to ${n} org(s)`);
+        } catch (error) {
+          console.error("[BillingV2] Scheduled read-only scan failed:", error);
+        }
+      }, billingReadonlyInterval);
+      console.log("✅ Billing V2 payment-failure read-only scheduler initialized (hourly)");
+    } catch (error) {
+      console.error("❌ Failed to initialize billing V2 read-only scheduler:", error);
+    }
+
+    try {
       const { startReapitWorker } = await import("./reapit/worker");
       startReapitWorker();
     } catch (error) {
       console.error("❌ Failed to initialize Reapit worker:", error);
+    }
+
+    // HMO Compliance: daily renewals, weekly source watcher, impact queue drain
+    try {
+      const hmoDayMs = 24 * 60 * 60 * 1000;
+      const hmoWeekMs = 7 * hmoDayMs;
+      const hmoImpactMs = 15 * 60 * 1000;
+      const { processAllRenewalAlerts } = await import("./hmo/renewalAlerts");
+      const { runScheduledSourceWatcher } = await import("./hmo/sourceWatcher");
+      const { processQueuedRuleImpactRuns } = await import("./hmo/impactWorker");
+
+      setImmediate(async () => {
+        try {
+          await processAllRenewalAlerts();
+        } catch (error) {
+          console.error("[HMO] Initial renewal alert scan failed:", error);
+        }
+        try {
+          await processQueuedRuleImpactRuns(10);
+        } catch (error) {
+          console.error("[HMO] Initial impact worker failed:", error);
+        }
+      });
+
+      setInterval(async () => {
+        try {
+          await processAllRenewalAlerts();
+        } catch (error) {
+          console.error("[HMO] Scheduled renewal alerts failed:", error);
+        }
+      }, hmoDayMs);
+
+      setInterval(async () => {
+        try {
+          await runScheduledSourceWatcher(null);
+        } catch (error) {
+          console.error("[HMO] Weekly source watcher failed:", error);
+        }
+      }, hmoWeekMs);
+
+      setInterval(async () => {
+        try {
+          await processQueuedRuleImpactRuns(20);
+        } catch (error) {
+          console.error("[HMO] Impact worker failed:", error);
+        }
+      }, hmoImpactMs);
+
+      console.log("✅ HMO schedulers initialized (renewals daily, sources weekly, impact every 15m)");
+    } catch (error) {
+      console.error("❌ Failed to initialize HMO schedulers:", error);
     }
 
     // Use traditional listen format for better Windows compatibility

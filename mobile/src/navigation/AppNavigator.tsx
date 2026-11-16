@@ -188,6 +188,9 @@ function MainTabNavigator() {
   const themeColors = theme && theme.colors ? theme.colors : colors;
   const isDark = !!theme?.isDark;
   const { maintenanceEnabled } = useCompanyModules();
+  const { user } = useAuth();
+  // Inspectors (clerk) must not see work orders in the inspector portal.
+  const showWorkOrdersTab = maintenanceEnabled && user?.role !== 'clerk';
   const barColor = themeColors.card.DEFAULT;
   const insetColor = isDark ? '#000000' : '#E8E8E8';
   const bottomInset = Math.max(insets.bottom, moderateScale(8, 0.3));
@@ -241,7 +244,7 @@ function MainTabNavigator() {
         }}
       />
       )}
-      {maintenanceEnabled && (
+      {showWorkOrdersTab && (
       <MainTabs.Screen
         name="WorkOrders"
         component={WorkOrdersNavigator}

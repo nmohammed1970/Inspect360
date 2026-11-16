@@ -1962,7 +1962,7 @@ export default function InspectionCaptureScreen() {
           </Card>
         )}
 
-        {/* Content â€” keyboard-safe FormScreen with sticky Prev/Next footer */}
+        {/* Content — keyboard-safe FormScreen with sticky Next footer */}
         <FormScreen
           style={{ flex: 1 }}
           edges={{ bottom: true }}
@@ -1987,22 +1987,6 @@ export default function InspectionCaptureScreen() {
             captureMode === 'gallery' || captureMode === 'checklist' ? null : (
             <View style={[styles.footerActions, { flexDirection: 'row' }]}>
               <Button
-                title="Previous"
-                onPress={() => {
-                  const newIndex = Math.max(0, currentSectionIndex - 1);
-                  setCurrentSectionIndex(newIndex);
-                  scrollCaptureToTop();
-                }}
-                disabled={!!(currentSectionIndex === 0 || sections.length === 0)}
-                variant="outline"
-                size="md"
-                icon={<ChevronLeft size={18} color={themeColors.text.primary} />}
-                style={[
-                  styles.footerButton,
-                  { minHeight: mdBtnHeight },
-                ]}
-              />
-              <Button
                 title="Next"
                 onPress={() => {
                   const newIndex = Math.min(sections.length - 1, currentSectionIndex + 1);
@@ -2010,9 +1994,14 @@ export default function InspectionCaptureScreen() {
                   scrollCaptureToTop();
                 }}
                 disabled={!!(currentSectionIndex >= sections.length - 1 || sections.length === 0)}
-                variant="outline"
+                variant="primary"
                 size="md"
-                icon={<ChevronRight size={18} color={themeColors.text.primary} />}
+                icon={
+                  <ChevronRight
+                    size={18}
+                    color={themeColors.primary.foreground || '#ffffff'}
+                  />
+                }
                 style={[
                   styles.footerButton,
                   { minHeight: mdBtnHeight },
