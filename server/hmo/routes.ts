@@ -17,6 +17,10 @@ import {
 } from "./regulatory";
 import { bulkImportLicences } from "./bulk";
 import { preAggregateDashboardMetrics } from "./metrics";
+import { triggerPropertyReassessment } from "./reassessmentTriggers";
+import { processQueuedRuleImpactRuns } from "./impactWorker";
+import { runScheduledSourceWatcher } from "./sourceWatcher";
+import { processRenewalAlertsForOrg } from "./renewalAlerts";
 import {
   assertAllowedMime,
   assertUploadSize,
@@ -459,10 +463,55 @@ export function registerHmoRoutes(app: Express) {
           extraction: req.body?.extraction || null,
         });
         if (!updated) return res.status(404).json({ message: "Licence version not found" });
-        res.json(updated);
+
+        const licence = await hmoStorage.getLicence(orgId(req), updated.licenceId);
+        let reassessment = null;
+        if (licence?.propertyId) {
+          try {
+            reassessment = await triggerPropertyReassessment({
+              organizationId: orgId(req),
+              propertyId: licence.propertyId,
+              userId: req.user.id,
+              reason: "licence_confirmed",
+            });
+          } catch (reErr: any) {
+            console.warn("[hmo] post-confirm reassessment:", reErr?.message || reErr);
+          }
+        }
+        res.json({ ...updated, reassessment });
       } catch (error) {
         console.error("[hmo] confirm failed:", error);
         res.status(500).json({ message: "Failed to confirm licence version" });
+      }
+    },
+  );
+
+  app.post(
+    "/api/hmo/findings/:id/alert-action",
+    isAuthenticated,
+    moduleGate,
+    requireHmoPermission("hmo.case.write"),
+    async (req: any, res) => {
+      try {
+        const action = req.body?.action === "snooze" ? "snooze" : "dismiss";
+        const reason = String(req.body?.reason || "").trim();
+        if (!reason) return res.status(400).json({ message: "reason is required" });
+        const updated = await hmoStorage.dismissOrSnoozeFinding({
+          organizationId: orgId(req),
+          findingId: req.params.id,
+          userId: req.user.id,
+          action,
+          reason,
+          snoozeDays: typeof req.body?.snoozeDays === "number" ? req.body.snoozeDays : 7,
+          reviewerDecision:
+            typeof req.body?.reviewerDecision === "string" ? req.body.reviewerDecision : null,
+        });
+        if (!updated) return res.status(404).json({ message: "Finding not found" });
+        res.json(updated);
+      } catch (error: any) {
+        console.error("[hmo] alert action failed:", error);
+        const status = error?.status || 500;
+        res.status(status).json({ message: error?.message || "Alert action failed" });
       }
     },
   );
@@ -1021,7 +1070,18 @@ export function registerHmoRoutes(app: Express) {
           userId: req.user.id,
           maxPersons,
         });
-        res.status(201).json(result);
+        let reassessment = null;
+        try {
+          reassessment = await triggerPropertyReassessment({
+            organizationId: orgId(req),
+            propertyId: property.id,
+            userId: req.user.id,
+            reason: "occupancy_changed",
+          });
+        } catch (reErr: any) {
+          console.warn("[hmo] post-occupancy reassessment:", reErr?.message || reErr);
+        }
+        res.status(201).json({ ...result, reassessment });
       } catch (error) {
         console.error("[hmo] occupancy snapshot failed:", error);
         res.status(500).json({ message: "Failed to create occupancy snapshot" });
@@ -1167,10 +1227,65 @@ export function registerHmoRoutes(app: Express) {
           approverId: req.user.id,
           propertyIds,
         });
-        res.json(result);
+        // Drain impact queue immediately for small cohorts
+        let impactResults = null;
+        try {
+          impactResults = await processQueuedRuleImpactRuns(10);
+        } catch (wErr) {
+          console.warn("[hmo] impact worker after approve:", wErr);
+        }
+        res.json({ ...result, impactResults });
       } catch (error: any) {
         console.error("[hmo] rule approve failed:", error);
         res.status(400).json({ message: error?.message || "Rule approve failed" });
+      }
+    },
+  );
+
+  app.post(
+    "/api/hmo/regulatory/impact-runs/process",
+    isAuthenticated,
+    moduleGate,
+    requireHmoPermission("hmo.rule.approve"),
+    async (_req: any, res) => {
+      try {
+        const results = await processQueuedRuleImpactRuns(20);
+        res.json({ results });
+      } catch (error) {
+        console.error("[hmo] impact process failed:", error);
+        res.status(500).json({ message: "Failed to process impact runs" });
+      }
+    },
+  );
+
+  app.post(
+    "/api/hmo/regulatory/sources/watch",
+    isAuthenticated,
+    moduleGate,
+    requireHmoPermission("hmo.rule.approve"),
+    async (req: any, res) => {
+      try {
+        const results = await runScheduledSourceWatcher(orgId(req));
+        res.json({ results });
+      } catch (error) {
+        console.error("[hmo] source watch failed:", error);
+        res.status(500).json({ message: "Source watch failed" });
+      }
+    },
+  );
+
+  app.post(
+    "/api/hmo/renewals/process",
+    isAuthenticated,
+    moduleGate,
+    requireHmoPermission("hmo.notification.send"),
+    async (req: any, res) => {
+      try {
+        const result = await processRenewalAlertsForOrg(orgId(req));
+        res.json(result);
+      } catch (error) {
+        console.error("[hmo] renewal process failed:", error);
+        res.status(500).json({ message: "Renewal processing failed" });
       }
     },
   );

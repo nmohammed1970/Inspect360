@@ -323,6 +323,57 @@ app.use((req, res, next) => {
       console.error("❌ Failed to initialize Reapit worker:", error);
     }
 
+    // HMO Compliance: daily renewals, weekly source watcher, impact queue drain
+    try {
+      const hmoDayMs = 24 * 60 * 60 * 1000;
+      const hmoWeekMs = 7 * hmoDayMs;
+      const hmoImpactMs = 15 * 60 * 1000;
+      const { processAllRenewalAlerts } = await import("./hmo/renewalAlerts");
+      const { runScheduledSourceWatcher } = await import("./hmo/sourceWatcher");
+      const { processQueuedRuleImpactRuns } = await import("./hmo/impactWorker");
+
+      setImmediate(async () => {
+        try {
+          await processAllRenewalAlerts();
+        } catch (error) {
+          console.error("[HMO] Initial renewal alert scan failed:", error);
+        }
+        try {
+          await processQueuedRuleImpactRuns(10);
+        } catch (error) {
+          console.error("[HMO] Initial impact worker failed:", error);
+        }
+      });
+
+      setInterval(async () => {
+        try {
+          await processAllRenewalAlerts();
+        } catch (error) {
+          console.error("[HMO] Scheduled renewal alerts failed:", error);
+        }
+      }, hmoDayMs);
+
+      setInterval(async () => {
+        try {
+          await runScheduledSourceWatcher(null);
+        } catch (error) {
+          console.error("[HMO] Weekly source watcher failed:", error);
+        }
+      }, hmoWeekMs);
+
+      setInterval(async () => {
+        try {
+          await processQueuedRuleImpactRuns(20);
+        } catch (error) {
+          console.error("[HMO] Impact worker failed:", error);
+        }
+      }, hmoImpactMs);
+
+      console.log("✅ HMO schedulers initialized (renewals daily, sources weekly, impact every 15m)");
+    } catch (error) {
+      console.error("❌ Failed to initialize HMO schedulers:", error);
+    }
+
     // Use traditional listen format for better Windows compatibility
     // Windows doesn't support reusePort option
     const totalStartupTime = Date.now() - startTime;

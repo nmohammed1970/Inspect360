@@ -145,4 +145,42 @@ function sampleExtraction(overrides: Partial<HmoLicenceExtraction> = {}): HmoLic
   assert.equal(fp, "prop-1::LIC-03::none::prop-1");
 }
 
+// OCC-01: Unknown occupants ≠ 0 (Needs attention)
+{
+  const findings = evaluateLicenceChecks({
+    propertyId: "prop-1",
+    propertyAddress: "38 Park View, Acton, W3 0PT",
+    extraction: sampleExtraction(),
+    documentId: "doc-1",
+    liveData: { confirmedPersons: null, rooms: [], safetyEvidence: [] },
+  });
+  const occ = findings.find((f) => f.check_id === "OCC-01");
+  assert.ok(occ);
+  assert.equal(occ!.status, "EVIDENCE_MISSING");
+  assert.equal(occ!.actual_value, "Unknown");
+}
+
+// OCC-01: confirmed breach → Non-compliant
+{
+  const findings = evaluateLicenceChecks({
+    propertyId: "prop-1",
+    propertyAddress: "38 Park View, Acton, W3 0PT",
+    extraction: sampleExtraction({ maximum_individuals: { value: 5 } }),
+    documentId: "doc-1",
+    liveData: {
+      confirmedPersons: 7,
+      rooms: [{ roomId: "r1", usableAreaM2: 12, occupantsAged10OrAbove: 1 }],
+      safetyEvidence: [
+        { kind: "gas", label: "Gas", present: true },
+        { kind: "electrical", label: "Electrical", present: true },
+        { kind: "fire", label: "Fire", present: true },
+      ],
+    },
+  });
+  const occ = findings.find((f) => f.check_id === "OCC-01");
+  assert.equal(occ!.status, "CONFIRMED_NON_COMPLIANT");
+  const saf = findings.find((f) => f.check_id === "SAF-01");
+  assert.equal(saf!.status, "VERIFIED_COMPLIANT");
+}
+
 console.log("shared/hmo/rules.test.ts: all assertions passed");

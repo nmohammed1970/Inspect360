@@ -191,6 +191,11 @@ export function assertUploadSize(byteLength: number): void {
 }
 
 /** Hook point for malware scanning integrations — never blocks locally without scanner. */
+/**
+ * Malware scan is explicitly deferred (queue + admin flag) until a scanner is wired.
+ * Callers must treat `deferred: true` as "not yet scanned" — never as a hard pass.
+ * See server/hmo/SECURITY_CHECKLIST.md.
+ */
 export async function malwareScanHook(_params: {
   contentHash: string;
   mime: string;

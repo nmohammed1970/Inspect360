@@ -110,6 +110,39 @@ export type HmoExtractedField<T = string | number | null> = {
   value: T;
   confidence?: number | null;
   source_pages?: number[];
+  /** Original document wording when available */
+  original_text?: string | null;
+  human_confirmed?: boolean;
+  last_updated?: string | null;
+};
+
+export type HmoExtractedRoom = {
+  room_identifier: string | null;
+  designated_use?: string | null;
+  authorised_occupants?: number | null;
+  floor_area_m2?: number | null;
+  restrictions?: string | null;
+  source_pages?: number[];
+  original_text?: string | null;
+  confidence?: number | null;
+};
+
+export type HmoExtractedCondition = {
+  condition_text: string;
+  category?:
+    | "fire"
+    | "gas"
+    | "electrical"
+    | "amenities"
+    | "management"
+    | "occupancy"
+    | "other"
+    | string;
+  source_pages?: number[];
+  original_text?: string | null;
+  effective_from?: string | null;
+  deadline?: string | null;
+  normalisation_status?: string;
 };
 
 export type HmoLicenceExtraction = {
@@ -117,20 +150,47 @@ export type HmoLicenceExtraction = {
   document_type: "HMO_LICENCE" | string;
   extraction_version: string;
   property_address: HmoExtractedField<string | null>;
+  postcode?: HmoExtractedField<string | null>;
+  borough?: HmoExtractedField<string | null>;
+  uprn?: HmoExtractedField<string | null>;
   licence_number: HmoExtractedField<string | null>;
+  licence_scheme?: HmoExtractedField<string | null>;
   issuing_authority: HmoExtractedField<string | null>;
+  /** Grant / issue date — not interchangeable with start/expiry */
   issue_date: HmoExtractedField<string | null>;
+  /** Effective / start date when expressly stated */
+  start_date?: HmoExtractedField<string | null>;
   expiry_date: HmoExtractedField<string | null>;
+  licence_status?: HmoExtractedField<string | null>;
   maximum_individuals: HmoExtractedField<number | null>;
+  maximum_households?: HmoExtractedField<number | null>;
   holder_name?: HmoExtractedField<string | null>;
   manager_name?: HmoExtractedField<string | null>;
-  conditions: Array<{
-    condition_text: string;
-    source_pages?: number[];
-    normalisation_status?: string;
-  }>;
+  holder_contact?: HmoExtractedField<string | null>;
+  rooms?: HmoExtractedRoom[];
+  conditions: HmoExtractedCondition[];
   referenced_missing_attachments: string[];
   warnings: string[];
+};
+
+/** Live property evidence assembled for deterministic assessment (not AI). */
+export type HmoAssessmentLiveData = {
+  confirmedPersons: number | null;
+  confirmedHouseholds?: number | null;
+  rooms?: Array<{
+    roomId: string;
+    usableAreaM2: number | null;
+    ceilingHeightM?: number | null;
+    occupantsAged10OrAbove?: number;
+    occupantsUnder10?: number;
+    localMinM2?: number | null;
+  }>;
+  safetyEvidence?: Array<{
+    kind: "gas" | "electrical" | "fire" | "other";
+    label: string;
+    present: boolean;
+    expiresAt?: string | null;
+  }>;
 };
 
 export type HmoFindingDraft = {

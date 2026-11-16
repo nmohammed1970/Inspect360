@@ -44,6 +44,7 @@ export type LicenceAssessmentInput = {
   extraction: HmoLicenceExtraction;
   documentId: string;
   asOf?: Date;
+  liveData?: import("./types").HmoAssessmentLiveData | null;
 };
 
 /** Deterministic LIC-01..05 (+ stubs for remaining checks as EVIDENCE_MISSING). */
@@ -303,21 +304,278 @@ export function evaluateLicenceChecks(input: LicenceAssessmentInput): HmoFinding
     );
   }
 
-  // Remaining checks — evidence missing until P2/P3 data exists
-  const stubs: Array<{ id: HmoCheckId; label: string }> = [
-    { id: "OCC-01", label: "Confirmed occupancy vs maximum" },
-    { id: "OCC-02", label: "Household restrictions" },
-    { id: "OCC-03", label: "Per-room occupancy" },
-    { id: "ROOM-01", label: "Sleeping-room floor area" },
-    { id: "ROOM-02", label: "Unauthorised room conversion" },
+  const live = input.liveData || null;
+  const maxPersons =
+    typeof extraction.maximum_individuals?.value === "number"
+      ? extraction.maximum_individuals.value
+      : null;
+  const maxHouseholds =
+    typeof extraction.maximum_households?.value === "number"
+      ? extraction.maximum_households.value
+      : null;
+
+  // OCC-01 total occupancy
+  findings.push(
+    evaluateOccupancyTotal({
+      propertyId,
+      maxPersons,
+      confirmedPersons: live?.confirmedPersons ?? null,
+    }),
+  );
+
+  // OCC-02 households
+  if (maxHouseholds == null) {
+    findings.push(
+      draft({
+        check_id: "OCC-02",
+        subject_id: propertyId,
+        status: "NOT_APPLICABLE",
+        severity: "INFORMATIONAL",
+        actual_value: "Not specified",
+        required_value: "Household limit when stated on licence",
+        reason: "Licence does not state a maximum household count",
+        human_review_required: false,
+        suggested_action_code: "NONE",
+      }),
+    );
+  } else if (live?.confirmedHouseholds == null || !Number.isFinite(live.confirmedHouseholds)) {
+    findings.push(
+      draft({
+        check_id: "OCC-02",
+        subject_id: propertyId,
+        status: "EVIDENCE_MISSING",
+        severity: "MEDIUM",
+        actual_value: "Unknown",
+        required_value: `≤ ${maxHouseholds} households`,
+        reason: "Verified household count unknown — never treat as zero",
+        human_review_required: true,
+        suggested_action_code: "VERIFY_OCCUPANTS",
+      }),
+    );
+  } else if (live.confirmedHouseholds > maxHouseholds) {
+    findings.push(
+      draft({
+        check_id: "OCC-02",
+        subject_id: propertyId,
+        status: "CONFIRMED_NON_COMPLIANT",
+        severity: "CRITICAL",
+        actual_value: String(live.confirmedHouseholds),
+        required_value: `≤ ${maxHouseholds}`,
+        reason: "Verified household count exceeds a clearly stated licence limit",
+        human_review_required: true,
+        suggested_action_code: "OCCUPANCY_REVIEW",
+      }),
+    );
+  } else {
+    findings.push(
+      draft({
+        check_id: "OCC-02",
+        subject_id: propertyId,
+        status: "VERIFIED_COMPLIANT",
+        severity: "INFORMATIONAL",
+        actual_value: String(live.confirmedHouseholds),
+        required_value: `≤ ${maxHouseholds}`,
+        reason: "Verified households within stated licence limit",
+        human_review_required: false,
+        suggested_action_code: "NONE",
+      }),
+    );
+  }
+
+  // OCC-03 / ROOM-01 — room-level checks
+  const rooms = live?.rooms || [];
+  if (rooms.length === 0) {
+    findings.push(
+      draft({
+        check_id: "OCC-03",
+        subject_id: propertyId,
+        status: "EVIDENCE_MISSING",
+        severity: "MEDIUM",
+        actual_value: "Unknown",
+        required_value: "Per-room occupancy evidence",
+        reason: "No room allocation records supplied — Needs attention, not a pass",
+        human_review_required: true,
+        suggested_action_code: "COLLECT_EVIDENCE",
+      }),
+    );
+    findings.push(
+      draft({
+        check_id: "ROOM-01",
+        subject_id: propertyId,
+        status: "EVIDENCE_MISSING",
+        severity: "MEDIUM",
+        actual_value: "Unknown",
+        required_value: "Verified sleeping-room measurements",
+        reason: "Room measurements missing — Needs attention",
+        human_review_required: true,
+        suggested_action_code: "MEASURE_SLEEPING_ROOMS",
+      }),
+    );
+  } else {
+    let anyRoomFail = false;
+    let anyRoomMissing = false;
+    for (const room of rooms) {
+      const occ =
+        (room.occupantsAged10OrAbove ?? 0) + (room.occupantsUnder10 ?? 0);
+      const authorised =
+        extraction.rooms?.find((r) => r.room_identifier === room.roomId)?.authorised_occupants ??
+        null;
+      if (authorised != null && occ > authorised) {
+        anyRoomFail = true;
+        findings.push(
+          draft({
+            check_id: "OCC-03",
+            subject_id: room.roomId,
+            status: "CONFIRMED_NON_COMPLIANT",
+            severity: "HIGH",
+            actual_value: String(occ),
+            required_value: `≤ ${authorised}`,
+            reason: "Occupants in room exceed licence-authorised number",
+            human_review_required: true,
+            suggested_action_code: "OCCUPANCY_REVIEW",
+          }),
+        );
+      }
+      const roomFinding = evaluateSleepingRoomArea({
+        usableAreaM2: room.usableAreaM2,
+        ceilingHeightM: room.ceilingHeightM,
+        occupantsAged10OrAbove: room.occupantsAged10OrAbove ?? 1,
+        occupantsUnder10: room.occupantsUnder10 ?? 0,
+        localMinM2: room.localMinM2,
+      });
+      if (!roomFinding) {
+        anyRoomMissing = true;
+      } else {
+        findings.push({ ...roomFinding, subject_id: room.roomId });
+        if (
+          roomFinding.status === "POTENTIAL_RISK" ||
+          roomFinding.status === "CONFIRMED_NON_COMPLIANT"
+        ) {
+          anyRoomFail = true;
+        }
+      }
+    }
+    if (!anyRoomFail && !findings.some((f) => f.check_id === "OCC-03")) {
+      findings.push(
+        draft({
+          check_id: "OCC-03",
+          subject_id: propertyId,
+          status: "VERIFIED_COMPLIANT",
+          severity: "INFORMATIONAL",
+          actual_value: `${rooms.length} rooms checked`,
+          required_value: "Within authorised per-room occupancy",
+          reason: "No room exceeded a clear authorised occupant limit",
+          human_review_required: false,
+          suggested_action_code: "NONE",
+        }),
+      );
+    }
+    if (anyRoomMissing && !findings.some((f) => f.check_id === "ROOM-01")) {
+      findings.push(
+        draft({
+          check_id: "ROOM-01",
+          subject_id: propertyId,
+          status: "EVIDENCE_MISSING",
+          severity: "MEDIUM",
+          actual_value: "Partial",
+          required_value: "Verified dimensions for all sleeping rooms",
+          reason: "One or more rooms lack measurements — Needs attention",
+          human_review_required: true,
+          suggested_action_code: "MEASURE_SLEEPING_ROOMS",
+        }),
+      );
+    }
+  }
+
+  findings.push(
+    draft({
+      check_id: "ROOM-02",
+      subject_id: propertyId,
+      status: "REQUIRES_HUMAN_REVIEW",
+      severity: "LOW",
+      actual_value: "Not auto-assessed",
+      required_value: "No unauthorised sleeping-room conversion",
+      reason: "Room conversion requires human review of floor plans vs licence",
+      human_review_required: true,
+      suggested_action_code: "COLLECT_EVIDENCE",
+    }),
+  );
+
+  // SAF-01 safety certificates from live compliance docs
+  const safety = live?.safetyEvidence || [];
+  if (safety.length === 0) {
+    findings.push(
+      draft({
+        check_id: "SAF-01",
+        subject_id: propertyId,
+        status: "EVIDENCE_MISSING",
+        severity: "HIGH",
+        actual_value: "Unknown",
+        required_value: "Current gas / electrical / fire evidence on file",
+        reason: "No safety evidence linked — request evidence, not an automatic breach",
+        human_review_required: true,
+        suggested_action_code: "COLLECT_EVIDENCE",
+      }),
+    );
+  } else {
+    const asOfMs = asOf.getTime();
+    const expired = safety.filter(
+      (s) => s.present && s.expiresAt && new Date(s.expiresAt).getTime() < asOfMs,
+    );
+    const missingKinds = safety.filter((s) => !s.present);
+    if (expired.length > 0) {
+      findings.push(
+        draft({
+          check_id: "SAF-01",
+          subject_id: propertyId,
+          status: "CONFIRMED_NON_COMPLIANT",
+          severity: "HIGH",
+          actual_value: expired.map((e) => e.label).join("; "),
+          required_value: "In-date safety certificates",
+          reason: "Safety record(s) known to have expired",
+          human_review_required: true,
+          suggested_action_code: "COLLECT_EVIDENCE",
+        }),
+      );
+    } else if (missingKinds.length > 0) {
+      findings.push(
+        draft({
+          check_id: "SAF-01",
+          subject_id: propertyId,
+          status: "EVIDENCE_MISSING",
+          severity: "HIGH",
+          actual_value: missingKinds.map((e) => e.label).join("; "),
+          required_value: "Required safety documents on file",
+          reason: "Licence or standards require evidence not currently on file",
+          human_review_required: true,
+          suggested_action_code: "COLLECT_EVIDENCE",
+        }),
+      );
+    } else {
+      findings.push(
+        draft({
+          check_id: "SAF-01",
+          subject_id: propertyId,
+          status: "VERIFIED_COMPLIANT",
+          severity: "INFORMATIONAL",
+          actual_value: safety.map((s) => s.label).join("; "),
+          required_value: "Current safety evidence",
+          reason: "Linked safety records are present and in date",
+          human_review_required: false,
+          suggested_action_code: "NONE",
+        }),
+      );
+    }
+  }
+
+  const remaining: Array<{ id: HmoCheckId; label: string }> = [
     { id: "AMEN-01", label: "Amenity provision" },
-    { id: "SAF-01", label: "Safety certificates" },
     { id: "COND-01", label: "Condition / HHSRS hazards" },
     { id: "LOC-01", label: "Local licensing standards" },
     { id: "PLAN-01", label: "Planning authorisation" },
     { id: "MGMT-01", label: "Licence display / notices" },
   ];
-  for (const s of stubs) {
+  for (const s of remaining) {
     findings.push(
       draft({
         check_id: s.id,
@@ -326,7 +584,7 @@ export function evaluateLicenceChecks(input: LicenceAssessmentInput): HmoFinding
         severity: "MEDIUM",
         actual_value: "Unknown",
         required_value: s.label,
-        reason: `${s.label} not assessed — required property/evidence records not yet supplied`,
+        reason: `${s.label} not yet verified against property records — Needs attention`,
         human_review_required: true,
         suggested_action_code: "COLLECT_EVIDENCE",
         confidence: 1,
@@ -506,11 +764,11 @@ export function evaluateOccupancyTotal(opts: {
     return draft({
       check_id: "OCC-01",
       subject_id: propertyId,
-      status: "POTENTIAL_RISK",
+      status: "CONFIRMED_NON_COMPLIANT",
       severity: "CRITICAL",
       actual_value: String(confirmedPersons),
       required_value: `≤ ${maxPersons}`,
-      reason: "Confirmed persons exceed applicable maximum — critical occupancy review",
+      reason: "Confirmed occupant count exceeds licence maximum — subject to authorised human review",
       human_review_required: true,
       suggested_action_code: "OCCUPANCY_REVIEW",
     });

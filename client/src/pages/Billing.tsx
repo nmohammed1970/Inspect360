@@ -37,6 +37,7 @@ import { Switch } from "@/components/ui/switch";
 import {
   COMPANY_MODULE_META,
   companyModuleAccessFromPlan,
+  isAiInspectionsPlanCode,
   isPropertyManagementPlanCode,
   type CatalogModuleFlag,
   type CompanyModuleKey,
@@ -406,10 +407,13 @@ export default function Billing() {
         queryClient.invalidateQueries({ queryKey: ["/api/organizations"] }),
         queryClient.invalidateQueries({ queryKey: ["/api/marketplace/my-modules"] }),
       ]);
+      const onTrial = v2?.subscription?.status === "trialing";
       toast({
         title: enabled ? "HMO add-on enabled" : "HMO add-on disabled",
         description: enabled
-          ? "HMO Compliance is available under Internal Modules."
+          ? onTrial
+            ? "HMO is on now. No charge during your plan trial — Stripe may show a £0 invoice. The add-on fee starts when the trial ends."
+            : "HMO Compliance is available under Internal Modules. The add-on is billed on your subscription."
           : "HMO screens are hidden. Existing HMO data is kept.",
       });
     } catch (e: any) {
@@ -436,11 +440,19 @@ export default function Billing() {
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.message || "Plan change failed");
-        await Promise.all([refetchV2(), refetchBalance()]);
+        await Promise.all([
+          refetchV2(),
+          refetchBalance(),
+          queryClient.invalidateQueries({ queryKey: ["/api/billing/v2/limits"] }),
+          queryClient.invalidateQueries({ queryKey: ["/api/organizations"] }),
+          queryClient.invalidateQueries({ queryKey: ["/api/marketplace/my-modules"] }),
+          queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] }),
+        ]);
         if (data.mode === "upgrade_confirmed") {
           toast({
             title: "Plan upgraded",
-            description: "Your plan is updated. Any charge due was completed (or deferred to after trial).",
+            description:
+              "Your plan and included modules are active now. Any charge due was completed (or deferred to after trial).",
           });
         } else if (data.mode === "upgrade_pending_payment") {
           toast({
@@ -959,6 +971,14 @@ export default function Billing() {
                   if (isCycleChange) {
                     return billingCycle === "yearly" ? "Switch to yearly" : "Switch to monthly";
                   }
+                  // AI Inspections → Property Management is always an upgrade (modules unlock now).
+                  if (
+                    hasActivePlan &&
+                    isAiInspectionsPlanCode(currentPlanCode) &&
+                    isPropertyManagementPlanCode(plan.code)
+                  ) {
+                    return "Upgrade";
+                  }
                   if (hasActivePlan) return "Switch plan";
                   return "Start trial";
                 })();
@@ -1217,6 +1237,17 @@ export default function Billing() {
                                 subCycleForAddon === "yearly" ? "year" : "month"
                               } · billed on your subscription`}
                         </p>
+                        {!hmoIncludedFree && subStatus === "trialing" ? (
+                          <p className="text-xs text-amber-800 mt-1.5 leading-relaxed">
+                            You’re on a plan trial
+                            {v2?.subscription?.trialEnd
+                              ? ` until ${format(new Date(v2.subscription.trialEnd), "dd MMM yyyy")}`
+                              : ""}
+                            . Enabling HMO now unlocks it immediately, but Stripe charges £0 until
+                            the trial ends — then the add-on fee is included on the next real invoice.
+                            There is no separate HMO trial.
+                          </p>
+                        ) : null}
                       </div>
                       {hmoIncludedFree ? (
                         <Badge variant="secondary" className="shrink-0">

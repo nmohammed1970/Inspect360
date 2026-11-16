@@ -67,17 +67,37 @@ export async function ensurePropertyProfile(
   return created!;
 }
 
+const DEFAULT_HMO_SLA = {
+  renewalWindowsDays: [90, 60, 30, 7],
+  renewalExpiredAlert: true,
+};
+
 export async function getOrCreateOrgSettings(organizationId: string, userId?: string | null) {
   const existing = await db
     .select()
     .from(hmoOrgSettings)
     .where(eq(hmoOrgSettings.organizationId, organizationId))
     .limit(1);
-  if (existing[0]) return existing[0];
+  if (existing[0]) {
+    const sla = (existing[0].slaJson || {}) as Record<string, unknown>;
+    if (!Array.isArray(sla.renewalWindowsDays)) {
+      const [patched] = await db
+        .update(hmoOrgSettings)
+        .set({
+          slaJson: { ...DEFAULT_HMO_SLA, ...sla },
+          updatedAt: new Date(),
+        })
+        .where(eq(hmoOrgSettings.id, existing[0].id))
+        .returning();
+      return patched || existing[0];
+    }
+    return existing[0];
+  }
   const [created] = await db
     .insert(hmoOrgSettings)
     .values({
       organizationId,
+      slaJson: DEFAULT_HMO_SLA,
       createdBy: userId ?? null,
       updatedBy: userId ?? null,
     })
@@ -252,6 +272,9 @@ export async function confirmLicenceVersion(input: {
     entityType: "hmo_licence_version",
     entityId: version.id,
     action: "licence.confirmed",
+    metadata: {
+      fieldEdits: Boolean(input.extraction),
+    },
   });
 
   return updated;
@@ -273,6 +296,76 @@ export async function getOverview(organizationId: string, propertyId: string) {
     .limit(10);
   const findings = await listFindings(organizationId, propertyId);
   const property = await appStorage.getProperty(propertyId);
+  const assessments = await db
+    .select()
+    .from(hmoAssessments)
+    .where(
+      and(
+        eq(hmoAssessments.organizationId, organizationId),
+        eq(hmoAssessments.propertyId, propertyId),
+      ),
+    )
+    .orderBy(desc(hmoAssessments.createdAt))
+    .limit(20);
+
+  const [latestOccupancy] = await db
+    .select()
+    .from(hmoOccupancySnapshots)
+    .where(
+      and(
+        eq(hmoOccupancySnapshots.organizationId, organizationId),
+        eq(hmoOccupancySnapshots.propertyId, propertyId),
+      ),
+    )
+    .orderBy(desc(hmoOccupancySnapshots.asOf))
+    .limit(1);
+
+  const primaryLicence = licences[0] || null;
+  const extraction = (primaryLicence?.versions?.[0]?.extractedJson || null) as HmoLicenceExtraction | null;
+  const borough =
+    extraction?.borough?.value ||
+    extraction?.issuing_authority?.value ||
+    (property as any)?.city ||
+    null;
+
+  const occupantsNow =
+    latestOccupancy?.personCount != null && Number.isFinite(latestOccupancy.personCount)
+      ? latestOccupancy.personCount
+      : null;
+  const occupantsPermitted =
+    typeof primaryLicence?.maxPersons === "number"
+      ? primaryLicence.maxPersons
+      : typeof extraction?.maximum_individuals?.value === "number"
+        ? extraction.maximum_individuals.value
+        : null;
+
+  const now = Date.now();
+  const activeFindings = findings.filter((f) => {
+    const meta = (f.actualJson || {}) as Record<string, unknown>;
+    if (meta.dismissedAt) return false;
+    if (meta.snoozedUntil && new Date(String(meta.snoozedUntil)).getTime() > now) return false;
+    return (
+      f.status === "EVIDENCE_MISSING" ||
+      f.status === "REQUIRES_HUMAN_REVIEW" ||
+      f.status === "CONFIRMED_NON_COMPLIANT" ||
+      f.status === "POTENTIAL_RISK"
+    );
+  });
+
+  const renewalJobs = await db
+    .select()
+    .from(hmoJobs)
+    .where(
+      and(
+        eq(hmoJobs.organizationId, organizationId),
+        eq(hmoJobs.propertyId, propertyId),
+        eq(hmoJobs.jobType, "RENEWAL_ALERT"),
+        eq(hmoJobs.status, "COMPLETED"),
+      ),
+    )
+    .orderBy(desc(hmoJobs.createdAt))
+    .limit(10);
+
   return {
     profile,
     property: property
@@ -280,12 +373,28 @@ export async function getOverview(organizationId: string, propertyId: string) {
           id: property.id,
           name: property.name,
           address: property.address,
+          city: (property as any).city || null,
           organizationId: property.organizationId,
         }
       : null,
+    header: {
+      address: property?.address || null,
+      borough,
+      licenceStatus: primaryLicence?.lifecycleStatus || null,
+      expiryDate: primaryLicence?.expiryDate || null,
+      occupantsNow,
+      occupantsPermitted,
+      attentionCount: activeFindings.length + renewalJobs.filter((j) => {
+        const age = j.createdAt ? now - new Date(j.createdAt).getTime() : 0;
+        return age < 90 * 24 * 60 * 60 * 1000;
+      }).length,
+    },
     licences,
     activeCases: cases.filter((c) => c.status !== "VERIFIED_CLOSED" && c.status !== "CANCELLED_AS_DUPLICATE"),
     recentFindings: findings.slice(0, 50),
+    assessments,
+    occupancy: latestOccupancy || null,
+    renewalAlerts: renewalJobs.map((j) => j.resultJson),
   };
 }
 
@@ -1055,6 +1164,29 @@ export async function listDashboardMetrics(organizationId: string) {
   const actionRequired = profiles.filter((p) => p.overallStatus === "ACTION_REQUIRED").length;
   const reviewRequired = profiles.filter((p) => p.overallStatus === "REVIEW_REQUIRED").length;
   const compliant = profiles.filter((p) => p.overallStatus === "VERIFIED_COMPLIANT").length;
+  // Spec vocabulary: Non-compliant ≈ ACTION_REQUIRED + CRITICAL; Needs attention ≈ REVIEW_REQUIRED
+  const nonCompliant = actionRequired + critical;
+  const needsAttention = reviewRequired;
+
+  const now = new Date();
+  const in90 = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
+  const licences = await db
+    .select()
+    .from(hmoLicences)
+    .where(eq(hmoLicences.organizationId, organizationId));
+  const renewalsDue = licences.filter((l) => {
+    if (!l.expiryDate) return false;
+    const exp = new Date(l.expiryDate);
+    return exp.getTime() <= in90.getTime();
+  }).length;
+
+  const rulesReviewNeeded = profiles.filter((p) => {
+    // REVIEW_REQUIRED after rule impact, or explicit audit-driven flag via profileStatus
+    return (
+      p.overallStatus === "REVIEW_REQUIRED" ||
+      p.profileStatus === "RULES_REVIEW_NEEDED"
+    );
+  }).length;
 
   const [{ value: taskOpenCount } = { value: 0 }] = await db
     .select({ value: count() })
@@ -1066,6 +1198,59 @@ export async function listDashboardMetrics(organizationId: string) {
       ),
     );
 
+  // Enrich profile rows for dashboard table
+  const licenceByProperty = new Map<string, (typeof licences)[0]>();
+  for (const l of licences) {
+    if (!licenceByProperty.has(l.propertyId)) licenceByProperty.set(l.propertyId, l);
+  }
+
+  const enrichedProfiles = [];
+  for (const p of profiles.slice(0, 200)) {
+    const lic = licenceByProperty.get(p.propertyId);
+    const property = await appStorage.getProperty(p.propertyId);
+    const findings = await listFindings(organizationId, p.propertyId);
+    const alertFindings = findings.filter((f) => {
+      const meta = (f.actualJson || {}) as Record<string, unknown>;
+      if (meta.dismissedAt) return false;
+      if (meta.snoozedUntil && new Date(String(meta.snoozedUntil)).getTime() > Date.now()) return false;
+      return (
+        f.status === "EVIDENCE_MISSING" ||
+        f.status === "REQUIRES_HUMAN_REVIEW" ||
+        f.status === "CONFIRMED_NON_COMPLIANT" ||
+        f.status === "POTENTIAL_RISK"
+      );
+    });
+    const [occ] = await db
+      .select()
+      .from(hmoOccupancySnapshots)
+      .where(
+        and(
+          eq(hmoOccupancySnapshots.organizationId, organizationId),
+          eq(hmoOccupancySnapshots.propertyId, p.propertyId),
+        ),
+      )
+      .orderBy(desc(hmoOccupancySnapshots.asOf))
+      .limit(1);
+
+    const nextActionFinding = alertFindings[0];
+    enrichedProfiles.push({
+      propertyId: p.propertyId,
+      overallStatus: p.overallStatus,
+      evidenceCompleteness: p.evidenceCompleteness,
+      lastAssessedAt: p.lastAssessedAt,
+      address: property?.address || null,
+      name: property?.name || null,
+      borough: (property as any)?.city || lic?.authorityName || null,
+      expiryDate: lic?.expiryDate || null,
+      licenceStatus: lic?.lifecycleStatus || null,
+      maxPersons: lic?.maxPersons ?? null,
+      occupantsNow: occ?.personCount ?? null,
+      alertCount: alertFindings.length,
+      nextAction: nextActionFinding?.suggestedActionCode || nextActionFinding?.explanation || null,
+      managerName: lic?.managerName || null,
+    });
+  }
+
   return {
     asOf: new Date().toISOString(),
     propertyCount: profiles.length,
@@ -1074,11 +1259,84 @@ export async function listDashboardMetrics(organizationId: string) {
     actionRequired,
     reviewRequired,
     compliant,
+    nonCompliant,
+    needsAttention,
+    renewalsDue,
+    rulesReviewNeeded,
     openCaseCount: openCases.length,
     openTaskCount: Number(taskOpenCount) || 0,
     cases: openCases.slice(0, 50),
-    profiles: profiles.slice(0, 100),
+    profiles: enrichedProfiles,
   };
+}
+
+export async function dismissOrSnoozeFinding(input: {
+  organizationId: string;
+  findingId: string;
+  userId: string;
+  action: "dismiss" | "snooze";
+  reason: string;
+  snoozeDays?: number;
+  /** Critical findings require an explicit reviewer decision recorded */
+  reviewerDecision?: string | null;
+}) {
+  const [finding] = await db
+    .select()
+    .from(hmoFindings)
+    .where(
+      and(
+        eq(hmoFindings.id, input.findingId),
+        eq(hmoFindings.organizationId, input.organizationId),
+      ),
+    )
+    .limit(1);
+  if (!finding) return null;
+
+  if (finding.severity === "CRITICAL" && !input.reviewerDecision?.trim()) {
+    throw Object.assign(new Error("Critical alerts require a recorded reviewer decision"), {
+      status: 400,
+      code: "REVIEWER_DECISION_REQUIRED",
+    });
+  }
+
+  const prev = (finding.actualJson || {}) as Record<string, unknown>;
+  const next: Record<string, unknown> = {
+    ...prev,
+    alertAction: input.action,
+    alertReason: input.reason,
+    alertActorId: input.userId,
+    alertAt: new Date().toISOString(),
+  };
+  if (input.action === "dismiss") {
+    next.dismissedAt = new Date().toISOString();
+    if (input.reviewerDecision) next.reviewerDecision = input.reviewerDecision;
+  } else {
+    const days = Math.max(1, Math.min(90, input.snoozeDays || 7));
+    next.snoozedUntil = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+    if (input.reviewerDecision) next.reviewerDecision = input.reviewerDecision;
+  }
+
+  const [updated] = await db
+    .update(hmoFindings)
+    .set({ actualJson: next, updatedAt: new Date() })
+    .where(eq(hmoFindings.id, finding.id))
+    .returning();
+
+  await writeHmoAuditEvent({
+    organizationId: input.organizationId,
+    actorType: "user",
+    actorId: input.userId,
+    action: input.action === "dismiss" ? "hmo.alert.dismiss" : "hmo.alert.snooze",
+    entityType: "hmo_finding",
+    entityId: finding.id,
+    metadata: {
+      reason: input.reason,
+      reviewerDecision: input.reviewerDecision || null,
+      severity: finding.severity,
+    },
+  });
+
+  return updated;
 }
 
 export async function getLicenceVersion(organizationId: string, versionId: string) {

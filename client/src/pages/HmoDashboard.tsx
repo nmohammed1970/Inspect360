@@ -1,50 +1,68 @@
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import {
-  Briefcase,
-  CheckCircle2,
-  FolderOpen,
-  Home,
+  AlertTriangle,
   ArrowRight,
+  Calendar,
+  CheckCircle2,
+  ClipboardList,
+  Home,
+  Scale,
 } from "lucide-react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { PageHeader } from "@/components/PageHeader";
-import { pagePad } from "@/lib/responsive";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
-  formatHmoDate,
-  hmoCaseStatusMeta,
-  hmoOverallStatusMeta,
-  hmoSeverityMeta,
-} from "@/components/hmo/hmoLabels";
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { PageHeader } from "@/components/PageHeader";
+import { FiltersSection } from "@/components/FiltersSection";
+import { ClearFiltersButton } from "@/components/ClearFiltersButton";
+import { pagePad } from "@/lib/responsive";
+import { formatHmoDate, hmoLifecycleLabel, hmoOverallStatusMeta } from "@/components/hmo/hmoLabels";
 import { cn } from "@/lib/utils";
+
+type DashboardProfile = {
+  propertyId: string;
+  overallStatus: string | null;
+  evidenceCompleteness: number | null;
+  lastAssessedAt?: string | null;
+  address?: string | null;
+  name?: string | null;
+  borough?: string | null;
+  expiryDate?: string | null;
+  licenceStatus?: string | null;
+  maxPersons?: number | null;
+  occupantsNow?: number | null;
+  alertCount?: number;
+  nextAction?: string | null;
+  managerName?: string | null;
+};
 
 type DashboardPayload = {
   asOf: string;
   propertyCount: number;
-  openCaseCount: number;
-  openTaskCount: number;
-  cases: Array<{
-    id: string;
-    caseReference: string;
-    propertyId: string;
-    severity: string;
-    status: string;
-    dueAt?: string | null;
-  }>;
-  profiles: Array<{
-    propertyId: string;
-    overallStatus: string | null;
-    evidenceCompleteness: number | null;
-    lastAssessedAt?: string | null;
-  }>;
-};
-
-type PropertyRow = {
-  id: string;
-  name?: string | null;
-  address?: string | null;
+  compliant: number;
+  nonCompliant: number;
+  needsAttention: number;
+  renewalsDue: number;
+  rulesReviewNeeded: number;
+  counters?: {
+    totalHmos: number;
+    compliant: number;
+    nonCompliant: number;
+    needsAttention: number;
+    renewalsDue: number;
+    rulesReviewNeeded: number;
+  };
+  profiles: DashboardProfile[];
 };
 
 export default function HmoDashboard() {
@@ -52,50 +70,107 @@ export default function HmoDashboard() {
     queryKey: ["/api/hmo/dashboard"],
   });
 
-  const { data: properties } = useQuery<PropertyRow[]>({
-    queryKey: ["/api/properties"],
-  });
+  const [addressQ, setAddressQ] = useState("");
+  const [boroughQ, setBoroughQ] = useState("");
+  const [licenceStatus, setLicenceStatus] = useState("all");
+  const [overallStatus, setOverallStatus] = useState("all");
+  const [managerQ, setManagerQ] = useState("");
+  const [renewalWindow, setRenewalWindow] = useState("all");
+  const [alertFilter, setAlertFilter] = useState("all");
 
-  const propertyNameById = new Map(
-    (properties || []).map((p) => [
-      p.id,
-      p.name?.trim() || p.address?.trim() || "Property",
-    ]),
-  );
-  const propertyAddressById = new Map(
-    (properties || []).map((p) => [p.id, p.address?.trim() || ""]),
-  );
+  const hasActiveFilters =
+    addressQ.trim() !== "" ||
+    boroughQ.trim() !== "" ||
+    licenceStatus !== "all" ||
+    overallStatus !== "all" ||
+    managerQ.trim() !== "" ||
+    renewalWindow !== "all" ||
+    alertFilter !== "all";
 
-  const sortedProfiles = [...(data?.profiles || [])].sort((a, b) => {
-    const rank = (s: string | null) => {
-      switch (s) {
-        case "CRITICAL_EXCEPTION":
-          return 0;
-        case "ACTION_REQUIRED":
-          return 1;
-        case "REVIEW_REQUIRED":
-          return 2;
-        case "NOT_ASSESSED":
-        case null:
-          return 3;
-        case "VERIFIED_COMPLIANT":
-          return 4;
-        default:
-          return 5;
+  const clearAllFilters = () => {
+    setAddressQ("");
+    setBoroughQ("");
+    setLicenceStatus("all");
+    setOverallStatus("all");
+    setManagerQ("");
+    setRenewalWindow("all");
+    setAlertFilter("all");
+  };
+
+  const filtered = useMemo(() => {
+    const rows = data?.profiles || [];
+    const now = Date.now();
+    return rows.filter((p) => {
+      const addr = (p.address || p.name || "").toLowerCase();
+      if (addressQ.trim() && !addr.includes(addressQ.trim().toLowerCase())) return false;
+      if (
+        boroughQ.trim() &&
+        !(p.borough || "").toLowerCase().includes(boroughQ.trim().toLowerCase())
+      ) {
+        return false;
       }
-    };
-    return rank(a.overallStatus) - rank(b.overallStatus);
-  });
+      if (licenceStatus !== "all" && p.licenceStatus !== licenceStatus) return false;
+      if (overallStatus !== "all" && (p.overallStatus || "NOT_ASSESSED") !== overallStatus) {
+        return false;
+      }
+      if (
+        managerQ.trim() &&
+        !(p.managerName || "").toLowerCase().includes(managerQ.trim().toLowerCase())
+      ) {
+        return false;
+      }
+      if (renewalWindow !== "all" && p.expiryDate) {
+        const days = Math.ceil(
+          (new Date(p.expiryDate).getTime() - now) / (24 * 60 * 60 * 1000),
+        );
+        if (renewalWindow === "expired" && days >= 0) return false;
+        if (renewalWindow === "7" && !(days >= 0 && days <= 7)) return false;
+        if (renewalWindow === "30" && !(days >= 0 && days <= 30)) return false;
+        if (renewalWindow === "90" && !(days >= 0 && days <= 90)) return false;
+      } else if (renewalWindow !== "all" && !p.expiryDate) {
+        return false;
+      }
+      if (alertFilter === "has" && !(p.alertCount && p.alertCount > 0)) return false;
+      if (alertFilter === "none" && p.alertCount && p.alertCount > 0) return false;
+      return true;
+    });
+  }, [
+    data?.profiles,
+    addressQ,
+    boroughQ,
+    licenceStatus,
+    overallStatus,
+    managerQ,
+    renewalWindow,
+    alertFilter,
+  ]);
+
+  const counters = data?.counters || {
+    totalHmos: data?.propertyCount || 0,
+    compliant: data?.compliant || 0,
+    nonCompliant: data?.nonCompliant || 0,
+    needsAttention: data?.needsAttention || 0,
+    renewalsDue: data?.renewalsDue || 0,
+    rulesReviewNeeded: data?.rulesReviewNeeded || 0,
+  };
 
   return (
-    <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)} data-testid="hmo-dashboard">
+    <div
+      className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}
+      data-testid="hmo-dashboard"
+    >
       <PageHeader
         title="HMO Compliance"
-        description="Portfolio licensing health, open remediation work, and every tracked HMO property — open a property tab to upload a licence or a case to clear findings."
+        description="Portfolio licensing health — open a row to work the property HMO tab."
         actions={
-          <Button asChild variant="outline">
-            <Link href="/properties">Browse properties</Link>
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild variant="outline">
+              <Link href="/hmo/rules">Council rules</Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link href="/properties">Browse properties</Link>
+            </Button>
+          </div>
         }
       />
 
@@ -105,9 +180,6 @@ export default function HmoDashboard() {
       {error && (
         <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-4">
           <p className="text-base font-medium text-destructive">Failed to load HMO dashboard</p>
-          <p className="text-sm text-muted-foreground mt-1 leading-relaxed">
-            Check that the HMO Compliance module is enabled for your organisation.
-          </p>
         </div>
       )}
 
@@ -117,188 +189,332 @@ export default function HmoDashboard() {
             Updated {new Date(data.asOf).toLocaleString()}
           </p>
 
-          <section className="space-y-3">
-            <div className="space-y-1">
-              <h2 className="text-lg md:text-xl font-semibold tracking-tight">Workload</h2>
-              <p className="text-sm text-muted-foreground leading-relaxed">
-                Active remediation across the portfolio. Cases hold tasks; tasks collect evidence.
-              </p>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4">
-              <StatCard
-                label="Properties tracked"
-                value={data.propertyCount}
-                hint="With an HMO profile"
-                icon={<Home className="h-5 w-5 text-primary" />}
-                borderClass="border-l-primary"
-                valueClass=""
-                iconWrapClass="bg-primary/10"
-              />
-              <StatCard
-                label="Open cases"
-                value={data.openCaseCount}
-                hint="Need remediation work"
-                icon={<FolderOpen className="h-5 w-5 text-amber-700" />}
-                borderClass="border-l-amber-500"
-                valueClass={data.openCaseCount > 0 ? "text-amber-800" : ""}
-                iconWrapClass="bg-amber-500/10"
-              />
-              <StatCard
-                label="Open tasks"
-                value={data.openTaskCount}
-                hint="Across all open cases"
-                icon={<Briefcase className="h-5 w-5 text-primary" />}
-                borderClass="border-l-primary"
-                valueClass=""
-                iconWrapClass="bg-primary/10"
-              />
-            </div>
-          </section>
-
-          <Card className="shadow-none">
-            <CardHeader className="space-y-1.5 pb-4">
-              <CardTitle className="text-lg md:text-xl">Open cases</CardTitle>
-              <CardDescription className="text-sm md:text-base leading-relaxed">
-                Click a case to assign work, request evidence, or close after review. Use “View
-                property” for that property’s licence panel.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {data.cases.length === 0 && (
-                <div className="rounded-xl border border-dashed px-4 py-12 text-center space-y-2">
-                  <CheckCircle2 className="h-9 w-9 mx-auto text-emerald-600/70" />
-                  <p className="text-base font-semibold">No open HMO cases</p>
-                  <p className="text-sm md:text-base text-muted-foreground max-w-md mx-auto leading-relaxed">
-                    When assessment finds critical expiry, missing schedules, or other licence
-                    issues, remediation cases appear here.
-                  </p>
-                </div>
-              )}
-              {data.cases.map((c) => {
-                const sev = hmoSeverityMeta(c.severity);
-                const evidencePct =
-                  data.profiles?.find((p) => p.propertyId === c.propertyId)?.evidenceCompleteness ??
-                  0;
-                const propName = propertyNameById.get(c.propertyId) || "Property";
-                const propAddress = propertyAddressById.get(c.propertyId);
-                return (
-                  <div
-                    key={c.id}
-                    className="rounded-xl border px-4 py-4 md:px-5 md:py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-muted/30 transition-colors"
-                  >
-                    <Link href={`/hmo/cases/${c.id}`} className="min-w-0 space-y-2 flex-1 block">
-                      <div className="text-base md:text-lg font-semibold text-foreground hover:underline">
-                        {c.caseReference}
-                      </div>
-                      <div className="text-sm text-muted-foreground leading-relaxed">
-                        <span className="font-medium text-foreground">{propName}</span>
-                        {propAddress ? ` · ${propAddress}` : null}
-                      </div>
-                      <div className="flex flex-wrap gap-2 items-center pt-0.5">
-                        <Badge variant="outline" className={sev.className}>
-                          {sev.label} priority
-                        </Badge>
-                        <Badge variant="outline" className={hmoCaseStatusMeta(c.status).className}>
-                          {hmoCaseStatusMeta(c.status).label}
-                        </Badge>
-                        <span className="text-sm text-muted-foreground">
-                          Evidence {evidencePct}%
-                        </span>
-                        {c.dueAt && (
-                          <span className="text-sm text-muted-foreground">
-                            Due {formatHmoDate(c.dueAt)}
-                          </span>
-                        )}
-                      </div>
-                    </Link>
-                    <div className="flex flex-wrap gap-2 items-center shrink-0">
-                      <Button asChild size="sm" variant="outline">
-                        <Link href={`/properties/${c.propertyId}?tab=hmo`}>View property</Link>
-                      </Button>
-                      <Button asChild size="sm">
-                        <Link href={`/hmo/cases/${c.id}`}>
-                          Open case
-                          <ArrowRight className="h-4 w-4 ml-1.5" />
-                        </Link>
-                      </Button>
-                    </div>
+          {/* Summary cards — same pattern as Compliance page */}
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 md:gap-4">
+            <Card>
+              <CardContent className="p-3 md:p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs md:text-sm font-medium text-muted-foreground">
+                      Total HMOs
+                    </p>
+                    <p className="text-xl md:text-2xl font-bold" data-testid="stat-total-hmos">
+                      {counters.totalHmos}
+                    </p>
                   </div>
-                );
-              })}
-            </CardContent>
-          </Card>
+                  <div className="p-1.5 md:p-2 bg-primary/10 rounded-full">
+                    <Home className="h-4 w-4 md:h-5 md:w-5 text-primary" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
 
-          <Card className="shadow-none">
-            <CardHeader className="space-y-1.5 pb-4">
-              <CardTitle className="text-lg md:text-xl">Properties</CardTitle>
-              <CardDescription className="text-sm md:text-base leading-relaxed">
-                Every property with an HMO profile, sorted so risk shows first. Open the HMO tab to
-                upload a licence or re-run assessment.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {sortedProfiles.length === 0 && (
-                <div className="rounded-xl border border-dashed px-4 py-10 text-center space-y-2">
-                  <Home className="h-8 w-8 mx-auto text-muted-foreground/60" />
-                  <p className="text-base font-semibold">No HMO properties yet</p>
-                  <p className="text-sm md:text-base text-muted-foreground max-w-md mx-auto leading-relaxed">
-                    Open a property and use the HMO tab to upload a licence — a profile is created
-                    when you start.
-                  </p>
-                  <Button asChild variant="outline" className="mt-2">
-                    <Link href="/properties">Browse properties</Link>
-                  </Button>
+            <Card className="border-l-4 border-l-green-500">
+              <CardContent className="p-3 md:p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs md:text-sm font-medium text-muted-foreground">
+                      Compliant
+                    </p>
+                    <p
+                      className="text-xl md:text-2xl font-bold text-green-600"
+                      data-testid="stat-compliant"
+                    >
+                      {counters.compliant}
+                    </p>
+                  </div>
+                  <div className="p-1.5 md:p-2 bg-green-500/10 rounded-full">
+                    <CheckCircle2 className="h-4 w-4 md:h-5 md:w-5 text-green-600" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-l-4 border-l-destructive">
+              <CardContent className="p-3 md:p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs md:text-sm font-medium text-muted-foreground">
+                      Non-compliant
+                    </p>
+                    <p
+                      className="text-xl md:text-2xl font-bold text-destructive"
+                      data-testid="stat-non-compliant"
+                    >
+                      {counters.nonCompliant}
+                    </p>
+                  </div>
+                  <div className="p-1.5 md:p-2 bg-destructive/10 rounded-full">
+                    <AlertTriangle className="h-4 w-4 md:h-5 md:w-5 text-destructive" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-l-4 border-l-yellow-500">
+              <CardContent className="p-3 md:p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs md:text-sm font-medium text-muted-foreground">
+                      Needs attention
+                    </p>
+                    <p
+                      className="text-xl md:text-2xl font-bold text-yellow-600"
+                      data-testid="stat-needs-attention"
+                    >
+                      {counters.needsAttention}
+                    </p>
+                  </div>
+                  <div className="p-1.5 md:p-2 bg-yellow-500/10 rounded-full">
+                    <ClipboardList className="h-4 w-4 md:h-5 md:w-5 text-yellow-600" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-l-4 border-l-orange-500">
+              <CardContent className="p-3 md:p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs md:text-sm font-medium text-muted-foreground">
+                      Renewals due
+                    </p>
+                    <p
+                      className="text-xl md:text-2xl font-bold text-orange-600"
+                      data-testid="stat-renewals-due"
+                    >
+                      {counters.renewalsDue}
+                    </p>
+                    <p className="text-xs text-muted-foreground hidden md:block">
+                      Within 90 days
+                    </p>
+                  </div>
+                  <div className="p-1.5 md:p-2 bg-orange-500/10 rounded-full">
+                    <Calendar className="h-4 w-4 md:h-5 md:w-5 text-orange-600" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-l-4 border-l-sky-500">
+              <CardContent className="p-3 md:p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs md:text-sm font-medium text-muted-foreground">
+                      Rules review
+                    </p>
+                    <p
+                      className="text-xl md:text-2xl font-bold text-sky-700"
+                      data-testid="stat-rules-review"
+                    >
+                      {counters.rulesReviewNeeded}
+                    </p>
+                  </div>
+                  <div className="p-1.5 md:p-2 bg-sky-500/10 rounded-full">
+                    <Scale className="h-4 w-4 md:h-5 md:w-5 text-sky-700" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {(counters.nonCompliant > 0 || counters.renewalsDue > 0) && (
+            <div
+              className={cn(
+                "rounded-lg border px-4 py-3 text-sm",
+                counters.nonCompliant > 0
+                  ? "border-destructive/40 bg-destructive/5 text-destructive"
+                  : "border-orange-500/40 bg-orange-50 text-orange-900",
+              )}
+            >
+              {counters.nonCompliant > 0 ? (
+                <>
+                  <span className="font-semibold">{counters.nonCompliant} property(ies)</span> need
+                  remediation for confirmed non-compliance.
+                </>
+              ) : (
+                <>
+                  <span className="font-semibold">{counters.renewalsDue} licence(s)</span> due for
+                  renewal within 90 days.
+                </>
+              )}
+            </div>
+          )}
+
+          <FiltersSection
+            headingId="hmo-filters-heading"
+            headingEnd={
+              <span className="text-xs text-muted-foreground whitespace-nowrap">
+                {filtered.length} shown
+              </span>
+            }
+          >
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Address</Label>
+                <Input
+                  value={addressQ}
+                  onChange={(e) => setAddressQ(e.target.value)}
+                  placeholder="Search…"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Borough</Label>
+                <Input
+                  value={boroughQ}
+                  onChange={(e) => setBoroughQ(e.target.value)}
+                  placeholder="Search…"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Licence status</Label>
+                <Select value={licenceStatus} onValueChange={setLicenceStatus}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All</SelectItem>
+                    <SelectItem value="CURRENT">Current</SelectItem>
+                    <SelectItem value="EXPIRED_DOCUMENT">Expired document</SelectItem>
+                    <SelectItem value="RENEWAL_PENDING_EVIDENCE">Renewal pending</SelectItem>
+                    <SelectItem value="UNDER_REVIEW">Under review</SelectItem>
+                    <SelectItem value="DRAFT">Draft</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Overall status</Label>
+                <Select value={overallStatus} onValueChange={setOverallStatus}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All</SelectItem>
+                    <SelectItem value="VERIFIED_COMPLIANT">Compliant</SelectItem>
+                    <SelectItem value="ACTION_REQUIRED">Non-compliant</SelectItem>
+                    <SelectItem value="CRITICAL_EXCEPTION">Critical / Non-compliant</SelectItem>
+                    <SelectItem value="REVIEW_REQUIRED">Needs attention</SelectItem>
+                    <SelectItem value="NOT_ASSESSED">Not assessed</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Manager</Label>
+                <Input
+                  value={managerQ}
+                  onChange={(e) => setManagerQ(e.target.value)}
+                  placeholder="Search…"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Renewal window</Label>
+                <Select value={renewalWindow} onValueChange={setRenewalWindow}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All</SelectItem>
+                    <SelectItem value="90">Within 90 days</SelectItem>
+                    <SelectItem value="30">Within 30 days</SelectItem>
+                    <SelectItem value="7">Within 7 days</SelectItem>
+                    <SelectItem value="expired">Expired</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Alerts</Label>
+                <Select value={alertFilter} onValueChange={setAlertFilter}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All</SelectItem>
+                    <SelectItem value="has">Has alerts</SelectItem>
+                    <SelectItem value="none">No alerts</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {hasActiveFilters && (
+                <div className="flex items-end">
+                  <ClearFiltersButton className="w-full" onClick={clearAllFilters} />
                 </div>
               )}
-              {sortedProfiles.map((p) => {
+            </div>
+          </FiltersSection>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg">Properties</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {filtered.length === 0 && (
+                <div className="rounded-xl border border-dashed px-4 py-10 text-center text-sm text-muted-foreground">
+                  No properties match these filters.
+                </div>
+              )}
+              <div className="hidden lg:grid grid-cols-[2fr_1fr_1fr_1fr_1fr_0.7fr_1.2fr_auto] gap-2 px-2 text-xs font-medium text-muted-foreground">
+                <span>Property</span>
+                <span>Borough</span>
+                <span>Expiry</span>
+                <span>Occupants</span>
+                <span>Compliance</span>
+                <span>Alerts</span>
+                <span>Next action</span>
+                <span />
+              </div>
+              {filtered.map((p) => {
                 const statusMeta = hmoOverallStatusMeta(p.overallStatus);
-                const name = propertyNameById.get(p.propertyId) || "Property";
-                const address = propertyAddressById.get(p.propertyId);
-                const evidencePct = p.evidenceCompleteness ?? 0;
+                const occ = p.occupantsNow == null ? "Unknown" : String(p.occupantsNow);
+                const allowed = p.maxPersons == null ? "Unknown" : String(p.maxPersons);
+                const isBad =
+                  p.overallStatus === "ACTION_REQUIRED" ||
+                  p.overallStatus === "CRITICAL_EXCEPTION";
                 return (
-                  <div
+                  <Link
                     key={p.propertyId}
-                    className="rounded-xl border px-4 py-4 md:px-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-muted/30 transition-colors"
+                    href={`/properties/${p.propertyId}?tab=hmo`}
+                    className={cn(
+                      "block rounded-xl border px-3 py-3 hover:bg-muted/30 transition-colors",
+                      isBad && "border-l-4 border-l-destructive",
+                      p.overallStatus === "REVIEW_REQUIRED" && "border-l-4 border-l-yellow-500",
+                      p.overallStatus === "VERIFIED_COMPLIANT" && "border-l-4 border-l-green-500",
+                    )}
                   >
-                    <div className="min-w-0 space-y-2 flex-1">
-                      <div className="text-base font-semibold">{name}</div>
-                      {address ? (
-                        <p className="text-sm text-muted-foreground leading-relaxed">{address}</p>
-                      ) : null}
-                      <div className="flex flex-wrap gap-2 items-center">
-                        <Badge variant="outline" className={statusMeta.className}>
-                          {statusMeta.label}
-                        </Badge>
-                        <span className="text-sm text-muted-foreground">
-                          Evidence {evidencePct}%
-                        </span>
-                        {p.lastAssessedAt && (
-                          <span className="text-sm text-muted-foreground">
-                            Assessed {formatHmoDate(String(p.lastAssessedAt))}
-                          </span>
+                    <div className="lg:grid lg:grid-cols-[2fr_1fr_1fr_1fr_1fr_0.7fr_1.2fr_auto] gap-2 items-center">
+                      <div className="min-w-0">
+                        <p className="font-semibold text-sm truncate">
+                          {p.name || p.address || "Property"}
+                        </p>
+                        {p.address && p.name && (
+                          <p className="text-xs text-muted-foreground truncate">{p.address}</p>
+                        )}
+                        {p.licenceStatus && (
+                          <p className="text-xs text-muted-foreground lg:hidden">
+                            {hmoLifecycleLabel(p.licenceStatus)}
+                          </p>
                         )}
                       </div>
-                      <div className="h-2 w-full max-w-xs rounded-full bg-muted overflow-hidden">
-                        <div
-                          className={cn(
-                            "h-full rounded-full",
-                            evidencePct >= 80
-                              ? "bg-emerald-500"
-                              : evidencePct >= 40
-                                ? "bg-amber-500"
-                                : "bg-rose-500",
-                          )}
-                          style={{ width: `${Math.max(0, Math.min(100, evidencePct))}%` }}
-                        />
-                      </div>
+                      <p className="text-sm text-muted-foreground mt-1 lg:mt-0">
+                        {p.borough || "—"}
+                      </p>
+                      <p className="text-sm">
+                        {p.expiryDate ? formatHmoDate(String(p.expiryDate)) : "—"}
+                      </p>
+                      <p className="text-sm tabular-nums">
+                        {occ} / {allowed}
+                      </p>
+                      <Badge variant="outline" className={cn("w-fit", statusMeta.className)}>
+                        {statusMeta.label}
+                      </Badge>
+                      <p className="text-sm tabular-nums">{p.alertCount ?? 0}</p>
+                      <p className="text-sm text-muted-foreground truncate">
+                        {p.nextAction || "—"}
+                      </p>
+                      <span className="inline-flex items-center text-sm text-primary font-medium">
+                        Open <ArrowRight className="h-3.5 w-3.5 ml-1" />
+                      </span>
                     </div>
-                    <Button asChild size="sm" className="shrink-0">
-                      <Link href={`/properties/${p.propertyId}?tab=hmo`}>
-                        Open HMO tab
-                        <ArrowRight className="h-4 w-4 ml-1.5" />
-                      </Link>
-                    </Button>
-                  </div>
+                  </Link>
                 );
               })}
             </CardContent>
@@ -306,42 +522,5 @@ export default function HmoDashboard() {
         </div>
       )}
     </div>
-  );
-}
-
-function StatCard({
-  label,
-  value,
-  hint,
-  icon,
-  borderClass,
-  valueClass,
-  iconWrapClass,
-  className,
-}: {
-  label: string;
-  value: number;
-  hint: string;
-  icon: React.ReactNode;
-  borderClass: string;
-  valueClass: string;
-  iconWrapClass: string;
-  className?: string;
-}) {
-  return (
-    <Card className={cn("border-l-4 shadow-none", borderClass, className)}>
-      <CardContent className="p-4 md:p-5">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0 space-y-1">
-            <p className="text-sm font-medium text-muted-foreground">{label}</p>
-            <p className={cn("text-2xl md:text-3xl font-bold tabular-nums tracking-tight", valueClass)}>
-              {value}
-            </p>
-            <p className="text-sm text-muted-foreground leading-relaxed">{hint}</p>
-          </div>
-          <div className={cn("p-2.5 rounded-full shrink-0", iconWrapClass)}>{icon}</div>
-        </div>
-      </CardContent>
-    </Card>
   );
 }

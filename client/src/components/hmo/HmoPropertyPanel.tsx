@@ -1,12 +1,18 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { ModernFilePickerInline } from "@/components/ModernFilePickerInline";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -16,141 +22,60 @@ import {
   ClipboardList,
   FileUp,
   FolderOpen,
-  HelpCircle,
+  History,
+  Shield,
   Users,
   X,
 } from "lucide-react";
 import {
   formatHmoDate,
   hmoCaseStatusMeta,
-  hmoCheckGroup,
   hmoCheckLabel,
-  hmoFindingStatusLabel,
+  hmoFindingSpecLabel,
   hmoLifecycleLabel,
   hmoOverallStatusMeta,
   hmoPreTenancyLabel,
-  hmoRelatedTaskCodes,
   hmoSeverityMeta,
   hmoTaskShortLabel,
+  hmoRelatedTaskCodes,
 } from "@/components/hmo/hmoLabels";
 import { cn } from "@/lib/utils";
 
 function formatDisplayDate(value: string | null | undefined): string {
-  if (!value) return "Not found";
+  if (!value) return "—";
   const formatted = formatHmoDate(value);
   return formatted === "Not set" ? value : formatted;
 }
 
-function fieldValue(field: any): string {
-  if (field == null) return "Not found";
+function rawField(extraction: any, key: string): any {
+  return extraction?.[key] ?? null;
+}
+
+function fieldVal(field: any): string {
+  if (field == null) return "";
   if (typeof field === "object" && "value" in field) {
-    const v = field.value;
-    if (v == null || v === "") return "Not found";
-    return String(v);
+    return field.value == null ? "" : String(field.value);
   }
-  if (field === "") return "Not found";
   return String(field);
 }
 
-function confidenceLabel(field: any): string | null {
-  const c = field?.confidence;
-  if (typeof c !== "number" || !Number.isFinite(c)) return null;
-  const pct = Math.round(c * 100);
-  if (pct >= 85) return "High confidence";
-  if (pct >= 60) return "Medium confidence";
-  return "Low confidence";
-}
-
-function LicenceExtractionSummary({ extraction }: { extraction: any }) {
-  if (!extraction || typeof extraction !== "object") {
-    return <p className="text-sm text-muted-foreground mt-2">No extracted details yet.</p>;
+function setExtractedField(extraction: any, key: string, value: string) {
+  const prev = extraction?.[key];
+  const numericKeys = new Set(["maximum_individuals", "maximum_households"]);
+  let parsed: string | number | null = value.trim() === "" ? null : value;
+  if (numericKeys.has(key) && parsed != null) {
+    const n = Number(parsed);
+    parsed = Number.isFinite(n) ? n : null;
   }
-
-  const rows: Array<{ label: string; value: string; hint?: string | null }> = [
-    { label: "Licence number", value: fieldValue(extraction.licence_number), hint: confidenceLabel(extraction.licence_number) },
-    { label: "Issuing authority", value: fieldValue(extraction.issuing_authority), hint: confidenceLabel(extraction.issuing_authority) },
-    { label: "Property address", value: fieldValue(extraction.property_address), hint: confidenceLabel(extraction.property_address) },
-    { label: "Issue date", value: formatDisplayDate(fieldValue(extraction.issue_date) === "Not found" ? null : fieldValue(extraction.issue_date)), hint: confidenceLabel(extraction.issue_date) },
-    { label: "Expiry date", value: formatDisplayDate(fieldValue(extraction.expiry_date) === "Not found" ? null : fieldValue(extraction.expiry_date)), hint: confidenceLabel(extraction.expiry_date) },
-    { label: "Maximum individuals", value: fieldValue(extraction.maximum_individuals), hint: confidenceLabel(extraction.maximum_individuals) },
-    { label: "Licence holder", value: fieldValue(extraction.holder_name), hint: confidenceLabel(extraction.holder_name) },
-    { label: "Manager", value: fieldValue(extraction.manager_name), hint: confidenceLabel(extraction.manager_name) },
-  ];
-
-  const missing = Array.isArray(extraction.referenced_missing_attachments)
-    ? extraction.referenced_missing_attachments.filter(Boolean)
-    : [];
-  const warnings = Array.isArray(extraction.warnings) ? extraction.warnings.filter(Boolean) : [];
-  const conditions = Array.isArray(extraction.conditions) ? extraction.conditions : [];
-
-  return (
-    <div className="mt-5 space-y-4">
-      <div className="rounded-xl border bg-card overflow-hidden divide-y">
-        {rows.map((row) => (
-          <div
-            key={row.label}
-            className="grid grid-cols-1 sm:grid-cols-[14rem_1fr] gap-1.5 sm:gap-5 px-4 py-3.5 md:px-5 md:py-4"
-          >
-            <div className="text-sm font-semibold text-muted-foreground sm:pt-0.5">
-              {row.label}
-            </div>
-            <div>
-              <div
-                className={cn(
-                  "text-base font-semibold break-words leading-snug",
-                  row.value === "Not found" && "text-amber-800",
-                )}
-              >
-                {row.value}
-              </div>
-              {row.hint && (
-                <div
-                  className={cn(
-                    "text-sm mt-1",
-                    row.hint.startsWith("Low")
-                      ? "text-amber-700 font-medium"
-                      : "text-muted-foreground",
-                  )}
-                >
-                  {row.hint}
-                </div>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {missing.length > 0 && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3.5">
-          <p className="text-sm font-semibold text-amber-900">
-            Missing attachments mentioned in the document
-          </p>
-          <ul className="mt-2 list-disc pl-5 text-sm md:text-base text-amber-950 space-y-1.5 leading-relaxed">
-            {missing.map((item: string, i: number) => (
-              <li key={i}>{item}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {conditions.length > 0 && (
-        <div className="rounded-xl border px-4 py-3.5">
-          <p className="text-sm font-semibold text-muted-foreground">Conditions noted</p>
-          <ul className="mt-2 list-disc pl-5 text-sm md:text-base space-y-1.5 leading-relaxed">
-            {conditions.slice(0, 8).map((c: any, i: number) => (
-              <li key={i}>{typeof c === "string" ? c : c.condition_text || "Condition"}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {warnings.length > 0 && (
-        <p className="text-sm text-muted-foreground leading-relaxed">
-          Note: {warnings[0]}
-        </p>
-      )}
-    </div>
-  );
+  return {
+    ...extraction,
+    [key]: {
+      ...(typeof prev === "object" && prev ? prev : {}),
+      value: parsed,
+      human_confirmed: true,
+      last_updated: new Date().toISOString(),
+    },
+  };
 }
 
 type Overview = {
@@ -159,6 +84,16 @@ type Overview = {
     evidenceCompleteness?: number | null;
     lastAssessedAt?: string | null;
   };
+  header?: {
+    address?: string | null;
+    borough?: string | null;
+    licenceStatus?: string | null;
+    expiryDate?: string | null;
+    occupantsNow?: number | null;
+    occupantsPermitted?: number | null;
+    attentionCount?: number;
+  };
+  property?: { address?: string | null; city?: string | null } | null;
   licences: Array<{
     id: string;
     licenceNumber?: string | null;
@@ -167,12 +102,17 @@ type Overview = {
     maxPersons?: number | null;
     lifecycleStatus?: string | null;
     currentVersionId?: string | null;
+    holderName?: string | null;
+    managerName?: string | null;
     versions: Array<{
       id: string;
       status?: string | null;
       fileName?: string | null;
       extractedJson?: any;
       confirmedAt?: string | null;
+      originalObjectUrl?: string | null;
+      createdAt?: string | null;
+      versionNo?: number | null;
     }>;
   }>;
   activeCases: Array<{ id: string; caseReference: string; status: string; severity: string }>;
@@ -182,7 +122,18 @@ type Overview = {
     status: string;
     severity: string;
     explanation?: string | null;
+    suggestedActionCode?: string | null;
+    actualJson?: Record<string, unknown> | null;
   }>;
+  assessments?: Array<{
+    id: string;
+    overallStatus?: string | null;
+    completedAt?: string | null;
+    runReason?: string | null;
+    createdAt?: string | null;
+  }>;
+  renewalAlerts?: Array<Record<string, unknown> | null>;
+  occupancy?: { personCount?: number | null } | null;
 };
 
 export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
@@ -191,7 +142,7 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
   const [showPasteFallback, setShowPasteFallback] = useState(false);
   const [extractedText, setExtractedText] = useState("");
   const [lastVersionId, setLastVersionId] = useState<string | null>(null);
-  const [lastObjectUrl, setLastObjectUrl] = useState<string | null>(null);
+  const [editExtraction, setEditExtraction] = useState<any>(null);
   const [maxPersons, setMaxPersons] = useState("5");
   const [confirmedPersons, setConfirmedPersons] = useState("");
   const [proposedAdditional, setProposedAdditional] = useState("1");
@@ -199,6 +150,8 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
     decision: string;
     reason: string;
   } | null>(null);
+  const [alertReason, setAlertReason] = useState<Record<string, string>>({});
+  const [reviewerDecision, setReviewerDecision] = useState<Record<string, string>>({});
 
   const { data, isLoading, error } = useQuery<Overview>({
     queryKey: ["/api/hmo/properties", propertyId, "overview"],
@@ -212,6 +165,31 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
     enabled: !!propertyId,
   });
 
+  const primaryLicence = data?.licences?.[0];
+  const primaryVersion =
+    primaryLicence?.versions?.find((v) => v.id === lastVersionId) ||
+    primaryLicence?.versions?.find((v) => v.id === primaryLicence.currentVersionId) ||
+    primaryLicence?.versions?.[0] ||
+    null;
+
+  useEffect(() => {
+    if (primaryVersion?.extractedJson) {
+      setEditExtraction(primaryVersion.extractedJson);
+      const max = fieldVal(primaryVersion.extractedJson.maximum_individuals);
+      if (max) setMaxPersons(max);
+    }
+  }, [primaryVersion?.id, primaryVersion?.extractedJson]);
+
+  useEffect(() => {
+    if (data?.occupancy?.personCount != null) {
+      setConfirmedPersons(String(data.occupancy.personCount));
+    }
+  }, [data?.occupancy?.personCount]);
+
+  const isConfirmed = Boolean(
+    primaryVersion?.confirmedAt || primaryVersion?.status === "CONFIRMED",
+  );
+
   const uploadMutation = useMutation({
     mutationFn: async () => {
       if (selectedFile) {
@@ -223,22 +201,17 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
           body: form,
         });
         const payload = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          throw new Error(payload.message || `Upload failed (${res.status})`);
-        }
+        if (!res.ok) throw new Error(payload.message || `Upload failed (${res.status})`);
         return payload;
       }
-
-      const res = await apiRequest(
-        "POST",
-        `/api/hmo/properties/${propertyId}/licences/uploads`,
-        { extractedText },
-      );
+      const res = await apiRequest("POST", `/api/hmo/properties/${propertyId}/licences/uploads`, {
+        extractedText,
+      });
       return res.json();
     },
     onSuccess: (payload) => {
       setLastVersionId(payload.licenceVersionId);
-      if (payload.objectUrl) setLastObjectUrl(payload.objectUrl);
+      setSelectedFile(null);
       queryClient.invalidateQueries({
         queryKey: ["/api/hmo/properties", propertyId, "overview"],
       });
@@ -246,13 +219,32 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
         title: payload.deduped ? "Duplicate document" : "Licence uploaded",
         description: payload.deduped
           ? "Identical file already stored — using existing version."
-          : payload.extractWarning
-            ? `Extracted with warning: ${payload.extractWarning}`
-            : "Extraction complete — review the fields below, then run assessment. Re-upload if anything looks wrong.",
+          : "Review and confirm extracted fields before assessment.",
       });
     },
     onError: (e: any) =>
       toast({ title: "Upload failed", description: e.message, variant: "destructive" }),
+  });
+
+  const confirmMutation = useMutation({
+    mutationFn: async (versionId: string) => {
+      const res = await apiRequest("POST", `/api/hmo/licence-versions/${versionId}/confirm`, {
+        extraction: editExtraction,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["/api/hmo/properties", propertyId, "overview"],
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/hmo/dashboard"] });
+      toast({
+        title: "Licence confirmed",
+        description: "Extracted details saved. Assessment can now run.",
+      });
+    },
+    onError: (e: any) =>
+      toast({ title: "Confirm failed", description: e.message, variant: "destructive" }),
   });
 
   const assessMutation = useMutation({
@@ -279,6 +271,48 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
       toast({ title: "Assessment failed", description: e.message, variant: "destructive" }),
   });
 
+  const alertMutation = useMutation({
+    mutationFn: async (opts: {
+      findingId: string;
+      action: "dismiss" | "snooze";
+      reason: string;
+      reviewerDecision?: string;
+    }) => {
+      const res = await apiRequest("POST", `/api/hmo/findings/${opts.findingId}/alert-action`, {
+        action: opts.action,
+        reason: opts.reason,
+        snoozeDays: 7,
+        reviewerDecision: opts.reviewerDecision || null,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["/api/hmo/properties", propertyId, "overview"],
+      });
+      toast({ title: "Alert updated" });
+    },
+    onError: (e: any) =>
+      toast({ title: "Could not update alert", description: e.message, variant: "destructive" }),
+  });
+
+  const editableFields = useMemo(
+    () => [
+      { key: "licence_number", label: "Licence number" },
+      { key: "issuing_authority", label: "Council / authority" },
+      { key: "borough", label: "Borough" },
+      { key: "property_address", label: "Property address" },
+      { key: "issue_date", label: "Grant / issue date" },
+      { key: "start_date", label: "Start date" },
+      { key: "expiry_date", label: "Expiry date" },
+      { key: "maximum_individuals", label: "Maximum persons" },
+      { key: "maximum_households", label: "Maximum households" },
+      { key: "holder_name", label: "Licence holder" },
+      { key: "manager_name", label: "Manager" },
+    ],
+    [],
+  );
+
   if (isLoading) {
     return <p className="text-base text-muted-foreground py-4">Loading HMO overview…</p>;
   }
@@ -286,606 +320,593 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
     return (
       <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-4">
         <p className="text-base font-medium text-destructive">Unable to load HMO data</p>
-        <p className="text-sm text-muted-foreground mt-1 leading-relaxed">
+        <p className="text-sm text-muted-foreground mt-1">
           Ensure the HMO Compliance module is enabled for your organisation.
         </p>
       </div>
     );
   }
 
-  const profile = data?.profile;
-  const currentVersionId =
-    lastVersionId ||
-    data?.licences?.[0]?.currentVersionId ||
-    data?.licences?.[0]?.versions?.[0]?.id ||
-    null;
-  const overallStatus = profile?.overallStatus || "NOT_ASSESSED";
-  const evidencePct = profile?.evidenceCompleteness ?? 0;
-  const statusMeta = hmoOverallStatusMeta(overallStatus);
+  const header = data?.header;
+  const statusMeta = hmoOverallStatusMeta(data?.profile?.overallStatus);
+  const currentVersionId = lastVersionId || primaryVersion?.id || null;
+  const conditions = Array.isArray(editExtraction?.conditions) ? editExtraction.conditions : [];
+  const rooms = Array.isArray(editExtraction?.rooms) ? editExtraction.rooms : [];
+  const missing = Array.isArray(editExtraction?.referenced_missing_attachments)
+    ? editExtraction.referenced_missing_attachments
+    : [];
 
-  const openCases = data?.activeCases?.length ?? 0;
+  const alerts = (data?.recentFindings || []).filter((f) => {
+    const meta = f.actualJson || {};
+    if (meta.dismissedAt) return false;
+    if (meta.snoozedUntil && new Date(String(meta.snoozedUntil)).getTime() > Date.now()) return false;
+    return (
+      f.status === "EVIDENCE_MISSING" ||
+      f.status === "REQUIRES_HUMAN_REVIEW" ||
+      f.status === "CONFIRMED_NON_COMPLIANT" ||
+      f.status === "POTENTIAL_RISK"
+    );
+  });
+
+  const occupantsLabel =
+    header?.occupantsNow == null ? "Unknown" : String(header.occupantsNow);
+  const permittedLabel =
+    header?.occupantsPermitted == null ? "Unknown" : String(header.occupantsPermitted);
 
   return (
-    <div className="space-y-8 md:space-y-10" data-testid="hmo-property-panel">
-      <div className="rounded-xl border bg-muted/30 px-4 py-5 md:px-6 md:py-6 space-y-4">
-        <div className="flex items-start gap-3">
-          <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 shrink-0">
-            <HelpCircle className="h-5 w-5 text-primary" />
-          </span>
-          <div className="min-w-0 space-y-1.5">
+    <div className="space-y-6 md:space-y-8" data-testid="hmo-property-panel">
+      <div className="rounded-xl border bg-muted/20 px-4 py-5 md:px-6 space-y-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0 space-y-1">
             <h2 className="text-lg md:text-xl font-semibold tracking-tight">
-              How HMO licensing works here
+              {header?.address || data?.property?.address || "Property"}
             </h2>
-            <p className="text-sm md:text-base text-muted-foreground leading-relaxed">
-              This panel tracks{" "}
-              <span className="font-medium text-foreground">licence documents and evidence</span> —
-              not a legal certificate. Follow the steps in order: upload the licence, review
-              extracted fields, run assessment, then check occupancy before a move-in.
+            <p className="text-sm text-muted-foreground">
+              {header?.borough || data?.property?.city || "Borough unknown"}
             </p>
           </div>
-        </div>
-        <ol className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-sm md:text-base">
-          {[
-            { n: "1", t: "Upload & extract", d: "Add the PDF or photo of the licence" },
-            { n: "2", t: "Review fields", d: "Confirm number, dates, authority, max persons" },
-            { n: "3", t: "Run assessment", d: "Score licence checks and open cases if needed" },
-            { n: "4", t: "Occupancy check", d: "Test a proposed move-in against the max" },
-          ].map((s) => (
-            <li key={s.n} className="rounded-lg border bg-card px-3.5 py-3">
-              <div className="flex items-center gap-2.5">
-                <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
-                  {s.n}
-                </span>
-                <span className="font-semibold">{s.t}</span>
-              </div>
-              <p className="text-sm text-muted-foreground mt-2 pl-9 leading-relaxed">{s.d}</p>
-            </li>
-          ))}
-        </ol>
-      </div>
-
-      <section className="space-y-4">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-          <div className="space-y-1">
-            <h2 className="text-lg md:text-xl font-semibold tracking-tight">Licensing overview</h2>
-            <p className="text-sm md:text-base text-muted-foreground leading-relaxed">
-              Current status for this property’s HMO evidence pack.
-            </p>
-          </div>
-          <Badge
-            variant="outline"
-            className={cn("self-start sm:self-auto text-sm px-2.5 py-1", statusMeta.className)}
-          >
+          <Badge variant="outline" className={cn("self-start text-sm", statusMeta.className)}>
             {statusMeta.label}
           </Badge>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4">
-          <Card className="border-l-4 border-l-primary shadow-none">
-            <CardContent className="p-4 md:p-5">
-              <p className="text-sm font-medium text-muted-foreground">Evidence completeness</p>
-              <p className="mt-1 text-2xl md:text-3xl font-bold tabular-nums">{evidencePct}%</p>
-              <div className="mt-3 h-2.5 w-full rounded-full bg-muted overflow-hidden">
-                <div
-                  className={cn(
-                    "h-full rounded-full",
-                    evidencePct >= 80
-                      ? "bg-emerald-500"
-                      : evidencePct >= 40
-                        ? "bg-amber-500"
-                        : "bg-rose-500",
-                  )}
-                  style={{ width: `${Math.max(0, Math.min(100, evidencePct))}%` }}
-                />
-              </div>
-              <p className="text-sm text-muted-foreground mt-2 leading-relaxed">
-                How much of the expected evidence set is present
-              </p>
-            </CardContent>
-          </Card>
-          <Card
-            className={cn(
-              "border-l-4 shadow-none",
-              openCases > 0 ? "border-l-amber-500" : "border-l-emerald-500",
-            )}
-          >
-            <CardContent className="p-4 md:p-5">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Open cases</p>
-                  <p
-                    className={cn(
-                      "mt-1 text-2xl md:text-3xl font-bold tabular-nums",
-                      openCases > 0 ? "text-amber-700" : "text-emerald-700",
-                    )}
-                  >
-                    {openCases}
-                  </p>
-                  <p className="text-sm text-muted-foreground mt-2 leading-relaxed">
-                    {openCases === 0 ? "No open remediation cases" : "See Active cases below"}
-                  </p>
-                </div>
-                <span className="p-2.5 rounded-full bg-muted">
-                  <FolderOpen className="h-5 w-5 text-muted-foreground" />
-                </span>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="border-l-4 border-l-primary shadow-none">
-            <CardContent className="p-4 md:p-5">
-              <p className="text-sm font-medium text-muted-foreground">Last assessed</p>
-              <p className="mt-1 text-xl md:text-2xl font-semibold tracking-tight">
-                {profile?.lastAssessedAt
-                  ? new Date(profile.lastAssessedAt).toLocaleDateString(undefined, {
-                      day: "numeric",
-                      month: "short",
-                      year: "numeric",
-                    })
-                  : "Not assessed yet"}
-              </p>
-              <p className="text-sm text-muted-foreground mt-2 leading-relaxed">
-                {profile?.lastAssessedAt
-                  ? new Date(profile.lastAssessedAt).toLocaleTimeString(undefined, {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })
-                  : "Upload a licence, then run assessment"}
-              </p>
-            </CardContent>
-          </Card>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <HeaderStat
+            label="Licence status"
+            value={hmoLifecycleLabel(header?.licenceStatus) || "—"}
+          />
+          <HeaderStat label="Expiry" value={formatDisplayDate(header?.expiryDate as any)} />
+          <HeaderStat label="Occupants / permitted" value={`${occupantsLabel} / ${permittedLabel}`} />
+          <HeaderStat
+            label="Needs attention"
+            value={String(header?.attentionCount ?? alerts.length)}
+          />
         </div>
-      </section>
+      </div>
 
-      <Card className="shadow-none">
-        <CardHeader className="space-y-1.5">
-          <div className="flex items-start gap-3">
-            <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 shrink-0">
-              <FileUp className="h-5 w-5 text-primary" />
+      <Accordion type="multiple" defaultValue={["licence", "alerts"]} className="space-y-2">
+        <AccordionItem value="licence" className="border rounded-xl px-4">
+          <AccordionTrigger className="hover:no-underline">
+            <span className="flex items-center gap-2 font-semibold">
+              <FileUp className="h-4 w-4 text-primary" /> Licence
             </span>
-            <div>
-              <CardTitle className="text-lg md:text-xl">Step 1 — Upload & extract licence</CardTitle>
-              <CardDescription className="mt-1 text-sm md:text-base leading-relaxed">
-                Add the HMO licence PDF or photo. The system reads key fields into a draft for you to
-                review in Step 2.
-              </CardDescription>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-5">
-          <div className="rounded-xl border border-dashed bg-muted/20 px-4 py-3 text-sm md:text-base text-muted-foreground leading-relaxed">
-            Tip: include schedules/annexes in the same upload when possible. Clear multi-page PDFs
-            extract better than blurry photos.
-          </div>
-          <div className="space-y-2">
-            <Label className="text-base font-medium">Licence file</Label>
-            <p className="text-sm text-muted-foreground">
-              Accepted: PDF, JPG/JPEG, PNG, WebP, HEIC/HEIF, GIF, BMP · Max 25 MB
-            </p>
-            <ModernFilePickerInline
-              onFilesSelected={(files) => {
-                const file = files[0] || null;
-                setSelectedFile(file);
-              }}
-              maxFiles={1}
-              maxFileSize={25 * 1024 * 1024}
-              accept="image/*,.pdf,application/pdf,.jpg,.jpeg,.jpe,.png,.webp,.heic,.heif,.gif,.bmp,image/jpeg,image/png,image/webp,image/heic,image/heif"
-              multiple={false}
-              isUploading={uploadMutation.isPending}
-              height={220}
-              className="mt-1"
-            />
-            {selectedFile && (
-              <div className="flex items-center justify-between gap-2 rounded-lg border bg-muted/40 px-3 py-2.5 text-sm">
-                <span className="truncate font-medium">
-                  {selectedFile.name}{" "}
-                  <span className="text-muted-foreground font-normal">
-                    ({Math.round(selectedFile.size / 1024)} KB)
-                  </span>
-                </span>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 shrink-0"
-                  onClick={() => setSelectedFile(null)}
-                  aria-label="Clear selected file"
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-            )}
-          </div>
-
-          <button
-            type="button"
-            className="text-sm text-muted-foreground underline underline-offset-2"
-            onClick={() => setShowPasteFallback((v) => !v)}
-          >
-            {showPasteFallback ? "Hide paste fallback" : "Paste text instead (advanced)"}
-          </button>
-          {showPasteFallback && (
-            <div className="space-y-2 rounded-xl border bg-muted/20 p-4">
-              <Label htmlFor="hmo-text" className="text-base">
-                Pasted licence text
-              </Label>
-              <Textarea
-                id="hmo-text"
-                rows={6}
-                value={extractedText}
-                onChange={(e) => setExtractedText(e.target.value)}
-                placeholder="Only if you already have OCR text…"
+          </AccordionTrigger>
+          <AccordionContent className="space-y-5 pb-5">
+            <div className="space-y-2">
+              <Label>Upload or replace licence</Label>
+              <ModernFilePickerInline
+                onFilesSelected={(files) => setSelectedFile(files[0] || null)}
+                maxFiles={1}
+                maxFileSize={25 * 1024 * 1024}
+                accept="image/*,.pdf,application/pdf"
+                multiple={false}
+                isUploading={uploadMutation.isPending}
+                height={160}
               />
-            </div>
-          )}
-
-          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center pt-1">
-            <Button
-              size="lg"
-              onClick={() => uploadMutation.mutate()}
-              disabled={
-                uploadMutation.isPending ||
-                (!selectedFile && !extractedText.trim())
-              }
-            >
-              {uploadMutation.isPending ? "Uploading…" : "Upload & extract"}
-            </Button>
-            <Button
-              size="lg"
-              variant="secondary"
-              onClick={() => currentVersionId && assessMutation.mutate(currentVersionId)}
-              disabled={!currentVersionId || assessMutation.isPending || uploadMutation.isPending}
-            >
-              {assessMutation.isPending ? "Assessing…" : "Step 3 — Run assessment"}
-            </Button>
-            {!currentVersionId && (
-              <p className="text-sm text-muted-foreground sm:ml-1 leading-relaxed">
-                Assessment unlocks after a successful extract.
-              </p>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      {data?.licences && data.licences.length > 0 && (
-        <Card className="shadow-none">
-          <CardHeader className="space-y-1.5">
-            <div className="flex items-start gap-3">
-              <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 shrink-0">
-                <ClipboardList className="h-5 w-5 text-primary" />
-              </span>
-              <div>
-                <CardTitle className="text-lg md:text-xl">Step 2 — Review extracted details</CardTitle>
-                <CardDescription className="mt-1 text-sm md:text-base leading-relaxed">
-                  Confirm these fields before assessment. Yellow “Not found” or low confidence usually
-                  means re-upload a clearer file.
-                </CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            {data.licences.map((lic) => (
-              <div key={lic.id} className="rounded-xl border p-4 md:p-6 space-y-4">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="min-w-0 space-y-1">
-                    <div className="text-lg font-semibold">
-                      {lic.licenceNumber || "Draft licence"}
-                    </div>
-                    <div className="text-base text-muted-foreground">
-                      {lic.authorityName || "Unknown authority"}
-                    </div>
-                  </div>
-                  <Badge variant="secondary" className="self-start shrink-0 text-sm">
-                    {hmoLifecycleLabel(lic.lifecycleStatus)}
-                  </Badge>
+              {selectedFile && (
+                <div className="flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm">
+                  <span className="truncate font-medium">{selectedFile.name}</span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={() => setSelectedFile(null)}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
                 </div>
-                <div className="flex flex-wrap gap-x-5 gap-y-1.5 text-sm md:text-base text-muted-foreground">
-                  {lic.expiryDate && (
-                    <span>Expires {formatDisplayDate(String(lic.expiryDate))}</span>
-                  )}
-                  {lic.maxPersons != null && <span>Max persons: {lic.maxPersons}</span>}
-                  {lic.versions?.[0]?.fileName && <span>File: {lic.versions[0].fileName}</span>}
-                </div>
-                <LicenceExtractionSummary extraction={lic.versions?.[0]?.extractedJson} />
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
-
-      {data?.activeCases && data.activeCases.length > 0 && (
-        <Card className="shadow-none">
-          <CardHeader className="space-y-1.5">
-            <div className="flex items-start gap-3">
-              <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-amber-500/10 shrink-0">
-                <FolderOpen className="h-5 w-5 text-amber-700" />
-              </span>
-              <div>
-                <CardTitle className="text-lg md:text-xl">Active remediation cases</CardTitle>
-                <CardDescription className="mt-1 text-sm md:text-base leading-relaxed">
-                  Open work for this property. Click a case to assign tasks or request evidence.
-                </CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {data.activeCases.map((c) => {
-              const sev = hmoSeverityMeta(c.severity);
-              return (
-                <Link
-                  key={c.id}
-                  href={`/hmo/cases/${c.id}`}
-                  className="block rounded-xl border px-4 py-4 hover:bg-muted/40 transition-colors"
-                >
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="min-w-0 space-y-1">
-                      <div className="text-base font-semibold">{c.caseReference}</div>
-                      <div className="text-sm text-muted-foreground">
-                        Click to open tasks and evidence requests
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap gap-2 items-center shrink-0">
-                      <Badge variant="outline" className={sev.className}>
-                        {sev.label} priority
-                      </Badge>
-                      <Badge variant="outline" className={hmoCaseStatusMeta(c.status).className}>
-                        {hmoCaseStatusMeta(c.status).label}
-                      </Badge>
-                    </div>
-                  </div>
-                </Link>
-              );
-            })}
-          </CardContent>
-        </Card>
-      )}
-
-      <Card className="shadow-none">
-        <CardHeader className="space-y-1.5">
-          <div className="flex items-start gap-3">
-            <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 shrink-0">
-              <Users className="h-5 w-5 text-primary" />
-            </span>
-            <div>
-              <CardTitle className="text-lg md:text-xl">Step 4 — Room and occupancy</CardTitle>
-              <CardDescription className="mt-1 text-sm md:text-base leading-relaxed">
-                Before a move-in, check whether current + proposed people fit the licence maximum.
-              </CardDescription>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-5">
-          <div className="rounded-xl border bg-muted/20 px-4 py-4 text-sm md:text-base text-muted-foreground leading-relaxed">
-            <p className="font-semibold text-foreground mb-2">How to read the fields</p>
-            <ul className="list-disc pl-5 space-y-2">
-              <li>
-                <span className="font-medium text-foreground">Licence maximum</span> — max people
-                allowed on the HMO licence.
-              </li>
-              <li>
-                <span className="font-medium text-foreground">Currently living there</span> — leave
-                blank if unsure. Blank means <em>Unknown</em>, never treated as zero.
-              </li>
-              <li>
-                <span className="font-medium text-foreground">Extra people proposed</span> — how many
-                new people you want to add.
-              </li>
-            </ul>
-          </div>
-          <div className="grid gap-4 md:grid-cols-3">
-            <div className="space-y-2 rounded-xl border p-4 md:p-5">
-              <Label className="text-base font-semibold">Licence maximum people</Label>
-              <Input
-                inputMode="numeric"
-                value={maxPersons}
-                onChange={(e) => setMaxPersons(e.target.value)}
-                className="text-base font-semibold tabular-nums h-11"
-              />
-              <p className="text-sm text-muted-foreground leading-relaxed">
-                Usually taken from the extracted licence.
-              </p>
-            </div>
-            <div className="space-y-2 rounded-xl border p-4 md:p-5">
-              <Label className="text-base font-semibold">People currently living there</Label>
-              <Input
-                inputMode="numeric"
-                value={confirmedPersons}
-                onChange={(e) => setConfirmedPersons(e.target.value)}
-                placeholder="Leave blank if unknown"
-                className="text-base tabular-nums h-11"
-              />
-              <p className="text-sm text-muted-foreground leading-relaxed">
-                Or use “Save from current tenancies”.
-              </p>
-            </div>
-            <div className="space-y-2 rounded-xl border p-4 md:p-5">
-              <Label className="text-base font-semibold">Extra people proposed</Label>
-              <Input
-                inputMode="numeric"
-                value={proposedAdditional}
-                onChange={(e) => setProposedAdditional(e.target.value)}
-                className="text-base font-semibold tabular-nums h-11"
-              />
-              <p className="text-sm text-muted-foreground leading-relaxed">
-                New occupants you plan to place.
-              </p>
-            </div>
-          </div>
-          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-            <Button
-              size="lg"
-              onClick={async () => {
-                try {
-                  const res = await apiRequest(
-                    "POST",
-                    `/api/hmo/properties/${propertyId}/occupancy-check`,
-                    {
-                      maxPersons: maxPersons === "" ? null : Number(maxPersons),
-                      confirmedPersons:
-                        confirmedPersons.trim() === "" ? null : Number(confirmedPersons),
-                      proposedAdditional: Number(proposedAdditional) || 0,
-                      roomEvidenceComplete: false,
-                    },
-                  );
-                  const json = await res.json();
-                  setPreTenancyResult(json);
-                } catch (e: any) {
-                  toast({
-                    title: "Occupancy check failed",
-                    description: e.message,
-                    variant: "destructive",
-                  });
-                }
-              }}
-            >
-              Check proposed occupancy
-            </Button>
-            <Button
-              size="lg"
-              variant="outline"
-              onClick={async () => {
-                try {
-                  await apiRequest(
-                    "POST",
-                    `/api/hmo/properties/${propertyId}/occupancy-snapshots`,
-                    {
-                      maxPersons: maxPersons === "" ? null : Number(maxPersons),
-                    },
-                  );
-                  toast({ title: "Current occupancy saved from tenancies" });
-                } catch (e: any) {
-                  toast({
-                    title: "Could not save occupancy",
-                    description: e.message,
-                    variant: "destructive",
-                  });
-                }
-              }}
-            >
-              Save from current tenancies
-            </Button>
-          </div>
-          {preTenancyResult && (
-            <div
-              className={cn(
-                "rounded-xl border px-4 py-4 text-sm md:text-base space-y-2",
-                preTenancyResult.decision === "ALLOW_FOR_CHECKED_CONSTRAINTS" &&
-                  "border-emerald-300 bg-emerald-50",
-                preTenancyResult.decision === "BLOCK_REVIEW_REQUIRED" &&
-                  "border-rose-300 bg-rose-50",
-                preTenancyResult.decision === "INSUFFICIENT_EVIDENCE" &&
-                  "border-amber-300 bg-amber-50",
               )}
-            >
-              <div className="flex items-center gap-2.5 font-semibold text-base">
-                {preTenancyResult.decision === "ALLOW_FOR_CHECKED_CONSTRAINTS" ? (
-                  <CheckCircle2 className="h-5 w-5 text-emerald-700" />
-                ) : (
-                  <AlertCircle className="h-5 w-5 text-amber-800" />
-                )}
-                {hmoPreTenancyLabel(preTenancyResult.decision)}
-              </div>
-              <p className="text-muted-foreground leading-relaxed pl-7">
-                {preTenancyResult.reason}
-              </p>
+              <button
+                type="button"
+                className="text-sm text-muted-foreground underline"
+                onClick={() => setShowPasteFallback((v) => !v)}
+              >
+                {showPasteFallback ? "Hide paste fallback" : "Paste text instead"}
+              </button>
+              {showPasteFallback && (
+                <Textarea
+                  rows={4}
+                  value={extractedText}
+                  onChange={(e) => setExtractedText(e.target.value)}
+                  placeholder="OCR text…"
+                />
+              )}
+              <Button
+                onClick={() => uploadMutation.mutate()}
+                disabled={uploadMutation.isPending || (!selectedFile && !extractedText.trim())}
+              >
+                {uploadMutation.isPending ? "Uploading…" : "Upload & extract"}
+              </Button>
             </div>
-          )}
-        </CardContent>
-      </Card>
 
-      <Card className="shadow-none">
-        <CardHeader className="space-y-1.5">
-          <div className="flex items-start gap-3">
-            <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 shrink-0">
-              <ClipboardList className="h-5 w-5 text-primary" />
-            </span>
-            <div>
-              <CardTitle className="text-lg md:text-xl">Assessment findings</CardTitle>
-              <CardDescription className="mt-1 text-sm md:text-base leading-relaxed">
-                Licence checks can open a case. Later checks stay “evidence missing” until occupancy,
-                rooms, or safety data exists — that is not a confirmed breach by itself.
-              </CardDescription>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {!data?.recentFindings?.length && (
-            <div className="rounded-xl border border-dashed px-4 py-8 text-center space-y-1">
-              <p className="text-base font-semibold">No findings yet</p>
-              <p className="text-sm md:text-base text-muted-foreground leading-relaxed">
-                Upload a licence and run assessment to score licence checks here.
-              </p>
-            </div>
-          )}
-          {(() => {
-            const findings = data?.recentFindings || [];
-            const licence = findings.filter((f) => hmoCheckGroup(f.checkId) === "licence");
-            const later = findings.filter((f) => hmoCheckGroup(f.checkId) === "later");
-            const renderFinding = (f: (typeof findings)[number]) => {
-              const sev = hmoSeverityMeta(f.severity);
-              const related = hmoRelatedTaskCodes(f.checkId);
-              return (
-                <div key={f.id} className="rounded-xl border px-4 py-4 space-y-2.5">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="min-w-0 space-y-1">
-                      <div className="font-semibold text-base leading-snug">
-                        {hmoCheckLabel(f.checkId)}
-                      </div>
-                      <div className="text-sm text-muted-foreground">{f.checkId}</div>
+            {primaryVersion?.originalObjectUrl && (
+              <div className="flex flex-wrap gap-2">
+                <Button asChild variant="outline" size="sm">
+                  <a href={primaryVersion.originalObjectUrl} target="_blank" rel="noreferrer">
+                    Preview / download
+                  </a>
+                </Button>
+                {primaryVersion.fileName && (
+                  <span className="text-sm text-muted-foreground self-center">
+                    {primaryVersion.fileName}
+                  </span>
+                )}
+              </div>
+            )}
+
+            {editExtraction && (
+              <div className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  Edit extracted fields, then confirm. Assessment stays locked until confirmed.
+                </p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {editableFields.map((f) => (
+                    <div key={f.key} className="space-y-1.5">
+                      <Label className="text-sm">{f.label}</Label>
+                      <Input
+                        value={fieldVal(rawField(editExtraction, f.key))}
+                        onChange={(e) =>
+                          setEditExtraction(setExtractedField(editExtraction, f.key, e.target.value))
+                        }
+                      />
                     </div>
-                    <div className="flex flex-wrap gap-2 shrink-0">
-                      <Badge variant="outline" className={sev.className}>
-                        {sev.label}
-                      </Badge>
-                      <Badge variant="secondary">{hmoFindingStatusLabel(f.status)}</Badge>
-                    </div>
+                  ))}
+                </div>
+                {missing.length > 0 && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm">
+                    Missing document / schedule: {missing.join("; ")}
                   </div>
-                  {f.explanation && (
-                    <p className="text-sm md:text-base text-muted-foreground leading-relaxed">
-                      {f.explanation}
+                )}
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    onClick={() => currentVersionId && confirmMutation.mutate(currentVersionId)}
+                    disabled={!currentVersionId || confirmMutation.isPending}
+                  >
+                    {confirmMutation.isPending
+                      ? "Confirming…"
+                      : isConfirmed
+                        ? "Re-confirm details"
+                        : "Confirm extracted details"}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => currentVersionId && assessMutation.mutate(currentVersionId)}
+                    disabled={!currentVersionId || !isConfirmed || assessMutation.isPending}
+                  >
+                    {assessMutation.isPending ? "Assessing…" : "Run assessment"}
+                  </Button>
+                  {!isConfirmed && (
+                    <p className="text-sm text-amber-800 self-center">
+                      Confirm before assessment
                     </p>
                   )}
-                  {related.length > 0 && (
-                    <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                      <span className="text-sm text-muted-foreground">Related task:</span>
-                      {related.map((code) => (
-                        <Badge key={code} variant="outline" className="font-normal">
-                          {code} · {hmoTaskShortLabel(code)}
-                        </Badge>
-                      ))}
+                </div>
+              </div>
+            )}
+          </AccordionContent>
+        </AccordionItem>
+
+        <AccordionItem value="restrictions" className="border rounded-xl px-4">
+          <AccordionTrigger className="hover:no-underline">
+            <span className="flex items-center gap-2 font-semibold">
+              <Users className="h-4 w-4 text-primary" /> Restrictions
+            </span>
+          </AccordionTrigger>
+          <AccordionContent className="space-y-4 pb-5">
+            <div className="grid sm:grid-cols-2 gap-3 text-sm">
+              <p>
+                <span className="text-muted-foreground">Persons: </span>
+                {fieldVal(editExtraction?.maximum_individuals) || "Unknown"}
+              </p>
+              <p>
+                <span className="text-muted-foreground">Households: </span>
+                {fieldVal(editExtraction?.maximum_households) || "Unknown"}
+              </p>
+            </div>
+            {rooms.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Sleeping rooms</p>
+                <ul className="text-sm space-y-1 list-disc pl-5">
+                  {rooms.map((r: any, i: number) => (
+                    <li key={i}>
+                      {r.room_identifier || `Room ${i + 1}`}
+                      {r.floor_area_m2 != null ? ` · ${r.floor_area_m2} m²` : ""}
+                      {r.authorised_occupants != null
+                        ? ` · up to ${r.authorised_occupants}`
+                        : ""}
+                      {r.restrictions ? ` · ${r.restrictions}` : ""}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {conditions.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Other conditions</p>
+                <ul className="text-sm space-y-1 list-disc pl-5">
+                  {conditions.slice(0, 12).map((c: any, i: number) => (
+                    <li key={i}>
+                      {c.category ? `[${c.category}] ` : ""}
+                      {c.condition_text || c.original_text || "Condition"}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {!rooms.length && !conditions.length && (
+              <p className="text-sm text-muted-foreground">
+                No room restrictions or conditions extracted yet.
+              </p>
+            )}
+
+            <Card className="shadow-none">
+              <CardHeader className="py-3">
+                <CardTitle className="text-base">Pre-tenancy occupancy check</CardTitle>
+                <CardDescription>
+                  Unknown occupants are never treated as zero.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="space-y-1">
+                    <Label>Licence max</Label>
+                    <Input
+                      value={maxPersons}
+                      onChange={(e) => setMaxPersons(e.target.value)}
+                      inputMode="numeric"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Currently living there</Label>
+                    <Input
+                      value={confirmedPersons}
+                      onChange={(e) => setConfirmedPersons(e.target.value)}
+                      placeholder="Blank = Unknown"
+                      inputMode="numeric"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Extra proposed</Label>
+                    <Input
+                      value={proposedAdditional}
+                      onChange={(e) => setProposedAdditional(e.target.value)}
+                      inputMode="numeric"
+                    />
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    onClick={async () => {
+                      try {
+                        const res = await apiRequest(
+                          "POST",
+                          `/api/hmo/properties/${propertyId}/occupancy-check`,
+                          {
+                            maxPersons: maxPersons === "" ? null : Number(maxPersons),
+                            confirmedPersons:
+                              confirmedPersons.trim() === "" ? null : Number(confirmedPersons),
+                            proposedAdditional: Number(proposedAdditional) || 0,
+                            roomEvidenceComplete: false,
+                          },
+                        );
+                        setPreTenancyResult(await res.json());
+                      } catch (e: any) {
+                        toast({
+                          title: "Occupancy check failed",
+                          description: e.message,
+                          variant: "destructive",
+                        });
+                      }
+                    }}
+                  >
+                    Check proposed occupancy
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={async () => {
+                      try {
+                        await apiRequest(
+                          "POST",
+                          `/api/hmo/properties/${propertyId}/occupancy-snapshots`,
+                          {
+                            maxPersons: maxPersons === "" ? null : Number(maxPersons),
+                          },
+                        );
+                        queryClient.invalidateQueries({
+                          queryKey: ["/api/hmo/properties", propertyId, "overview"],
+                        });
+                        toast({ title: "Occupancy saved from tenancies" });
+                      } catch (e: any) {
+                        toast({
+                          title: "Could not save occupancy",
+                          description: e.message,
+                          variant: "destructive",
+                        });
+                      }
+                    }}
+                  >
+                    Save from current tenancies
+                  </Button>
+                </div>
+                {preTenancyResult && (
+                  <div
+                    className={cn(
+                      "rounded-lg border px-3 py-2 text-sm",
+                      preTenancyResult.decision === "ALLOW_FOR_CHECKED_CONSTRAINTS" &&
+                        "border-emerald-300 bg-emerald-50",
+                      preTenancyResult.decision === "BLOCK_REVIEW_REQUIRED" &&
+                        "border-rose-300 bg-rose-50",
+                      preTenancyResult.decision === "INSUFFICIENT_EVIDENCE" &&
+                        "border-amber-300 bg-amber-50",
+                    )}
+                  >
+                    <div className="flex items-center gap-2 font-medium">
+                      {preTenancyResult.decision === "ALLOW_FOR_CHECKED_CONSTRAINTS" ? (
+                        <CheckCircle2 className="h-4 w-4" />
+                      ) : (
+                        <AlertCircle className="h-4 w-4" />
+                      )}
+                      {hmoPreTenancyLabel(preTenancyResult.decision)}
                     </div>
+                    <p className="text-muted-foreground mt-1">{preTenancyResult.reason}</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </AccordionContent>
+        </AccordionItem>
+
+        <AccordionItem value="safety" className="border rounded-xl px-4">
+          <AccordionTrigger className="hover:no-underline">
+            <span className="flex items-center gap-2 font-semibold">
+              <Shield className="h-4 w-4 text-primary" /> Safety and evidence
+            </span>
+          </AccordionTrigger>
+          <AccordionContent className="space-y-3 pb-5">
+            {(data?.recentFindings || [])
+              .filter((f) => ["SAF-01", "AMEN-01", "MGMT-01", "LIC-05"].includes(f.checkId))
+              .map((f) => (
+                <div key={f.id} className="rounded-lg border px-3 py-3 text-sm space-y-1">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-medium">{hmoCheckLabel(f.checkId)}</span>
+                    <Badge variant="secondary">{hmoFindingSpecLabel(f.status)}</Badge>
+                  </div>
+                  {f.explanation && (
+                    <p className="text-muted-foreground">{f.explanation}</p>
+                  )}
+                  {f.suggestedActionCode && (
+                    <p className="text-xs text-muted-foreground">
+                      Next: {f.suggestedActionCode}
+                    </p>
                   )}
                 </div>
+              ))}
+            {!(data?.recentFindings || []).some((f) =>
+              ["SAF-01", "AMEN-01", "MGMT-01", "LIC-05"].includes(f.checkId),
+            ) && (
+              <p className="text-sm text-muted-foreground">
+                Run assessment after confirming the licence to score safety and evidence checks.
+              </p>
+            )}
+          </AccordionContent>
+        </AccordionItem>
+
+        <AccordionItem value="alerts" className="border rounded-xl px-4">
+          <AccordionTrigger className="hover:no-underline">
+            <span className="flex items-center gap-2 font-semibold">
+              <AlertCircle className="h-4 w-4 text-amber-700" /> Alerts
+              {alerts.length > 0 && (
+                <Badge variant="secondary" className="ml-1">
+                  {alerts.length}
+                </Badge>
+              )}
+            </span>
+          </AccordionTrigger>
+          <AccordionContent className="space-y-4 pb-5">
+            {(data?.renewalAlerts || []).slice(0, 3).map((a: any, i: number) => (
+              <div key={i} className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm">
+                <p className="font-medium">
+                  {a?.window === "expired"
+                    ? "Licence document expired — verify licensing position"
+                    : `Renewal due within ${a?.window} days`}
+                </p>
+                <p className="text-muted-foreground mt-1">
+                  Expiry {a?.expiryDate || "—"}. Never treated as automatic unlawful operation.
+                </p>
+              </div>
+            ))}
+
+            {alerts.length === 0 && !(data?.renewalAlerts || []).length && (
+              <p className="text-sm text-muted-foreground">No open alerts.</p>
+            )}
+
+            {alerts.map((f) => {
+              const caseLink = data?.activeCases?.[0];
+              const related = hmoRelatedTaskCodes(f.checkId);
+              return (
+                <div key={f.id} className="rounded-lg border px-3 py-3 space-y-2 text-sm">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <p className="font-medium">{hmoCheckLabel(f.checkId)}</p>
+                      <p className="text-muted-foreground">{f.explanation}</p>
+                    </div>
+                    <div className="flex gap-1.5">
+                      <Badge variant="outline" className={hmoSeverityMeta(f.severity).className}>
+                        {hmoSeverityMeta(f.severity).label}
+                      </Badge>
+                      <Badge variant="secondary">{hmoFindingSpecLabel(f.status)}</Badge>
+                    </div>
+                  </div>
+                  <p className="text-muted-foreground">
+                    Next action: {f.suggestedActionCode || "Review evidence"}
+                    {related[0] ? ` · ${related[0]} (${hmoTaskShortLabel(related[0])})` : ""}
+                  </p>
+                  {caseLink && (
+                    <Link href={`/hmo/cases/${caseLink.id}`} className="text-primary underline text-sm">
+                      Open case {caseLink.caseReference}
+                    </Link>
+                  )}
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <Input
+                      placeholder="Reason"
+                      value={alertReason[f.id] || ""}
+                      onChange={(e) =>
+                        setAlertReason((m) => ({ ...m, [f.id]: e.target.value }))
+                      }
+                    />
+                    {f.severity === "CRITICAL" && (
+                      <Input
+                        placeholder="Reviewer decision (required)"
+                        value={reviewerDecision[f.id] || ""}
+                        onChange={(e) =>
+                          setReviewerDecision((m) => ({ ...m, [f.id]: e.target.value }))
+                        }
+                      />
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={alertMutation.isPending || !(alertReason[f.id] || "").trim()}
+                      onClick={() =>
+                        alertMutation.mutate({
+                          findingId: f.id,
+                          action: "snooze",
+                          reason: alertReason[f.id],
+                          reviewerDecision: reviewerDecision[f.id],
+                        })
+                      }
+                    >
+                      Snooze 7 days
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={alertMutation.isPending || !(alertReason[f.id] || "").trim()}
+                      onClick={() =>
+                        alertMutation.mutate({
+                          findingId: f.id,
+                          action: "dismiss",
+                          reason: alertReason[f.id],
+                          reviewerDecision: reviewerDecision[f.id],
+                        })
+                      }
+                    >
+                      Dismiss
+                    </Button>
+                  </div>
+                </div>
               );
-            };
-            return (
-              <>
-                {licence.length > 0 && (
-                  <div className="space-y-3">
-                    <div className="space-y-1">
-                      <h3 className="text-base font-semibold">Licence checks</h3>
-                      <p className="text-sm text-muted-foreground leading-relaxed">
-                        These come from the uploaded document and can open / drive the case.
-                      </p>
+            })}
+
+            {data?.activeCases && data.activeCases.length > 0 && (
+              <div className="space-y-2 pt-2">
+                <p className="text-sm font-medium flex items-center gap-2">
+                  <FolderOpen className="h-4 w-4" /> Linked cases
+                </p>
+                {data.activeCases.map((c) => (
+                  <Link
+                    key={c.id}
+                    href={`/hmo/cases/${c.id}`}
+                    className="block rounded-lg border px-3 py-2 hover:bg-muted/40 text-sm"
+                  >
+                    <span className="font-medium">{c.caseReference}</span>{" "}
+                    <Badge variant="outline" className={hmoCaseStatusMeta(c.status).className}>
+                      {hmoCaseStatusMeta(c.status).label}
+                    </Badge>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </AccordionContent>
+        </AccordionItem>
+
+        <AccordionItem value="history" className="border rounded-xl px-4">
+          <AccordionTrigger className="hover:no-underline">
+            <span className="flex items-center gap-2 font-semibold">
+              <History className="h-4 w-4 text-primary" /> History
+            </span>
+          </AccordionTrigger>
+          <AccordionContent className="space-y-4 pb-5">
+            <div className="space-y-2">
+              <p className="text-sm font-medium flex items-center gap-2">
+                <ClipboardList className="h-4 w-4" /> Licence versions
+              </p>
+              {(data?.licences || []).flatMap((lic) =>
+                (lic.versions || []).map((v) => (
+                  <div key={v.id} className="rounded-lg border px-3 py-2 text-sm">
+                    <div className="flex flex-wrap justify-between gap-2">
+                      <span>
+                        v{v.versionNo || "?"} · {v.fileName || "Document"}
+                      </span>
+                      <Badge variant="secondary">
+                        {v.confirmedAt || v.status === "CONFIRMED"
+                          ? "Confirmed"
+                          : v.status || "Draft"}
+                      </Badge>
                     </div>
-                    {licence.map(renderFinding)}
+                    <p className="text-muted-foreground mt-1">
+                      Uploaded {formatDisplayDate(v.createdAt)}
+                      {v.confirmedAt ? ` · Confirmed ${formatDisplayDate(v.confirmedAt)}` : ""}
+                    </p>
                   </div>
-                )}
-                {later.length > 0 && (
-                  <div className="space-y-3">
-                    <div className="space-y-1">
-                      <h3 className="text-base font-semibold">Later checks</h3>
-                      <p className="text-sm text-muted-foreground leading-relaxed">
-                        Placeholders until occupancy, rooms, safety, or local evidence is supplied.
-                        Use the matching case task when you collect that evidence.
-                      </p>
-                    </div>
-                    {later.map(renderFinding)}
-                  </div>
-                )}
-              </>
-            );
-          })()}
-        </CardContent>
-      </Card>
+                )),
+              )}
+              {!data?.licences?.length && (
+                <p className="text-sm text-muted-foreground">No licence versions yet.</p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Assessments</p>
+              {(data?.assessments || []).map((a) => (
+                <div key={a.id} className="rounded-lg border px-3 py-2 text-sm flex justify-between gap-2">
+                  <span>
+                    {formatDisplayDate(a.completedAt || a.createdAt)} · {a.runReason || "run"}
+                  </span>
+                  <Badge variant="outline" className={hmoOverallStatusMeta(a.overallStatus).className}>
+                    {hmoOverallStatusMeta(a.overallStatus).label}
+                  </Badge>
+                </div>
+              ))}
+              {!data?.assessments?.length && (
+                <p className="text-sm text-muted-foreground">No assessments yet.</p>
+              )}
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
+    </div>
+  );
+}
+
+function HeaderStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border bg-card px-3 py-2.5">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="text-sm font-semibold mt-0.5 break-words">{value}</p>
     </div>
   );
 }

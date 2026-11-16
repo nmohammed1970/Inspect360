@@ -78,6 +78,7 @@ import DisputeResolution from "@/pages/DisputeResolution";
 import HmoDashboard from "@/pages/HmoDashboard";
 import HmoCaseDetail from "@/pages/HmoCaseDetail";
 import HmoEvidencePublic from "@/pages/HmoEvidencePublic";
+import HmoRulesReview from "@/pages/HmoRulesReview";
 import { Loader2 } from "lucide-react";
 import { PWAInstallPrompt } from "@/components/PWAInstallPrompt";
 import { UserProfileMenu } from "@/components/UserProfileMenu";
@@ -658,6 +659,13 @@ function AppContent() {
                   {() => (
                     <CompanyModuleRoute module="hmo_compliance">
                       <HmoCaseDetail />
+                    </CompanyModuleRoute>
+                  )}
+                </Route>
+                <Route path="/hmo/rules">
+                  {() => (
+                    <CompanyModuleRoute module="hmo_compliance">
+                      <HmoRulesReview />
                     </CompanyModuleRoute>
                   )}
                 </Route>

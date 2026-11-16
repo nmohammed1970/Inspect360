@@ -404,7 +404,12 @@ export async function changePlan(input: {
   }
 
   const currentAmount = sub.amountMinorFrozen || 0;
+  // Moving from AI Inspections → Property Management always counts as an upgrade
+  // (unlocks PM modules immediately), even if the sticker price is lower.
+  const isAiToPropertyManagement =
+    currentPlan?.tab === "ai_inspections" && nextPlan.tab === "property_management";
   const isUpgrade =
+    isAiToPropertyManagement ||
     price.amountMinor > currentAmount ||
     (input.cycle === "yearly" && sub.cycle === "monthly");
 

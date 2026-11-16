@@ -1,19 +1,52 @@
 /** Human-readable labels for HMO Compliance UI (non-technical). */
 
+/** Spec user-facing vocabulary mapped from engine overall status. */
+export function hmoSpecOverallLabel(status: string | null | undefined): string {
+  switch (status) {
+    case "VERIFIED_COMPLIANT":
+      return "Compliant";
+    case "ACTION_REQUIRED":
+    case "CRITICAL_EXCEPTION":
+      return "Non-compliant";
+    case "REVIEW_REQUIRED":
+      return "Needs attention";
+    case "NOT_ASSESSED":
+    default:
+      return status === "ASSESSMENT_DELAYED" ? "Assessment delayed" : "Not assessed";
+  }
+}
+
+export function hmoFindingSpecLabel(status: string | null | undefined): string {
+  switch (status) {
+    case "VERIFIED_COMPLIANT":
+      return "Compliant";
+    case "CONFIRMED_NON_COMPLIANT":
+      return "Non-compliant";
+    case "EVIDENCE_MISSING":
+    case "REQUIRES_HUMAN_REVIEW":
+    case "POTENTIAL_RISK":
+      return "Needs attention";
+    case "NOT_APPLICABLE":
+      return "Not applicable";
+    default:
+      return status?.replace(/_/g, " ") || "Unknown";
+  }
+}
+
 export function hmoOverallStatusMeta(status: string | null | undefined): {
   label: string;
   className: string;
 } {
   switch (status) {
     case "CRITICAL_EXCEPTION":
-      return { label: "Critical exception", className: "border-rose-300 bg-rose-50 text-rose-800" };
+      return { label: "Non-compliant", className: "border-rose-300 bg-rose-50 text-rose-800" };
     case "ACTION_REQUIRED":
-      return { label: "Action required", className: "border-amber-300 bg-amber-50 text-amber-900" };
+      return { label: "Non-compliant", className: "border-amber-300 bg-amber-50 text-amber-900" };
     case "REVIEW_REQUIRED":
-      return { label: "Review required", className: "border-sky-300 bg-sky-50 text-sky-900" };
+      return { label: "Needs attention", className: "border-sky-300 bg-sky-50 text-sky-900" };
     case "VERIFIED_COMPLIANT":
       return {
-        label: "Verified compliant",
+        label: "Compliant",
         className: "border-emerald-300 bg-emerald-50 text-emerald-900",
       };
     case "ASSESSMENT_DELAYED":
