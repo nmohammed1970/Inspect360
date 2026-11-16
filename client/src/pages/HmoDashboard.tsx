@@ -318,29 +318,6 @@ export default function HmoDashboard() {
             </Card>
           </div>
 
-          {(counters.nonCompliant > 0 || counters.renewalsDue > 0) && (
-            <div
-              className={cn(
-                "rounded-lg border px-4 py-3 text-sm",
-                counters.nonCompliant > 0
-                  ? "border-destructive/40 bg-destructive/5 text-destructive"
-                  : "border-orange-500/40 bg-orange-50 text-orange-900",
-              )}
-            >
-              {counters.nonCompliant > 0 ? (
-                <>
-                  <span className="font-semibold">{counters.nonCompliant} property(ies)</span> need
-                  remediation for confirmed non-compliance.
-                </>
-              ) : (
-                <>
-                  <span className="font-semibold">{counters.renewalsDue} licence(s)</span> due for
-                  renewal within 90 days.
-                </>
-              )}
-            </div>
-          )}
-
           <FiltersSection
             headingId="hmo-filters-heading"
             headingEnd={

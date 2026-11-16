@@ -3770,6 +3770,9 @@ export type InsertCreditNote = typeof creditNotes.$inferInsert;
 /** HMO Compliance Intelligence tables + types */
 export * from "./hmoSchema";
 
+/** Feedback & Feature Requests MVP tables + types */
+export * from "./feedbackSchema";
+
 /** Nov 2026 self-serve billing catalog + subscriptions */
 export * from "./billingCatalogSchema";
 

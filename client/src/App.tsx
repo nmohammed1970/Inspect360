@@ -73,6 +73,12 @@ import TenantCommunity from "@/pages/TenantCommunity";
 import TenantProfile from "@/pages/TenantProfile";
 import CommunityModeration from "@/pages/CommunityModeration";
 import MyFeedback from "@/pages/MyFeedback";
+import FeedbackPage from "@/pages/Feedback";
+import FeedbackDetailPage from "@/pages/FeedbackDetail";
+import AdminFeedbackInbox from "@/pages/admin/AdminFeedbackInbox";
+import AdminFeedbackDetail from "@/pages/admin/AdminFeedbackDetail";
+import AdminFeatureRequests from "@/pages/admin/AdminFeatureRequests";
+import AdminFeedbackTeam from "@/pages/admin/AdminFeedbackTeam";
 import BulkImport from "@/pages/BulkImport";
 import DisputeResolution from "@/pages/DisputeResolution";
 import HmoDashboard from "@/pages/HmoDashboard";
@@ -80,7 +86,6 @@ import HmoCaseDetail from "@/pages/HmoCaseDetail";
 import HmoEvidencePublic from "@/pages/HmoEvidencePublic";
 import HmoRulesReview from "@/pages/HmoRulesReview";
 import { Loader2 } from "lucide-react";
-import { PWAInstallPrompt } from "@/components/PWAInstallPrompt";
 import { UserProfileMenu } from "@/components/UserProfileMenu";
 import { TenantProfileMenu } from "@/components/TenantProfileMenu";
 import { AIChatbot } from "@/components/AIChatbot";
@@ -137,6 +142,7 @@ function AppContent() {
     "/admin/credit-requests",
     "/admin/billing-pricing",
     "/admin/templates",
+    "/admin/feedback",
     "/tenant/login",
     "/hmo/evidence",
   ];
@@ -307,6 +313,34 @@ function AppContent() {
               </AdminPageWrapper>
             )}
           </Route>
+          <Route path="/admin/feedback/feature-requests">
+            {() => (
+              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Feedback", href: "/admin/feedback" }, { label: "Feature Requests" }]}>
+                <AdminFeatureRequests />
+              </AdminPageWrapper>
+            )}
+          </Route>
+          <Route path="/admin/feedback/team">
+            {() => (
+              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Feedback", href: "/admin/feedback" }, { label: "Team" }]}>
+                <AdminFeedbackTeam />
+              </AdminPageWrapper>
+            )}
+          </Route>
+          <Route path="/admin/feedback/:id">
+            {() => (
+              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Feedback", href: "/admin/feedback" }, { label: "Case" }]}>
+                <AdminFeedbackDetail />
+              </AdminPageWrapper>
+            )}
+          </Route>
+          <Route path="/admin/feedback">
+            {() => (
+              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Feedback" }]}>
+                <AdminFeedbackInbox />
+              </AdminPageWrapper>
+            )}
+          </Route>
           <Route path="*">
             {() => (
               <div className="flex items-center justify-center h-screen">
@@ -315,7 +349,6 @@ function AppContent() {
             )}
           </Route>
         </Switch>
-        <PWAInstallPrompt />
         <Toaster />
       </TooltipProvider>
     );
@@ -455,12 +488,39 @@ function AppContent() {
               </AdminPageWrapper>
             )}
           </Route>
+          <Route path="/admin/feedback/feature-requests">
+            {() => (
+              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Feedback", href: "/admin/feedback" }, { label: "Feature Requests" }]}>
+                <AdminFeatureRequests />
+              </AdminPageWrapper>
+            )}
+          </Route>
+          <Route path="/admin/feedback/team">
+            {() => (
+              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Feedback", href: "/admin/feedback" }, { label: "Team" }]}>
+                <AdminFeedbackTeam />
+              </AdminPageWrapper>
+            )}
+          </Route>
+          <Route path="/admin/feedback/:id">
+            {() => (
+              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Feedback", href: "/admin/feedback" }, { label: "Case" }]}>
+                <AdminFeedbackDetail />
+              </AdminPageWrapper>
+            )}
+          </Route>
+          <Route path="/admin/feedback">
+            {() => (
+              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Feedback" }]}>
+                <AdminFeedbackInbox />
+              </AdminPageWrapper>
+            )}
+          </Route>
           <Route path="/pricing" component={Pricing} />
           <Route path="/tenant/login" component={TenantLogin} />
           <Route path="/hmo/evidence/:token" component={HmoEvidencePublic} />
           <Route component={NotFound} />
         </Switch>
-        <PWAInstallPrompt />
         <Toaster />
       </TooltipProvider>
     );
@@ -520,7 +580,6 @@ function AppContent() {
         <NotificationSystem />
         {/* Show AI Chatbot for tenants only if enabled */}
         {showChatbot && <AIChatbot />}
-        <PWAInstallPrompt />
         <Toaster />
       </TooltipProvider>
     );
@@ -534,7 +593,6 @@ function AppContent() {
         <Switch>
           <Route path="*" component={OrganizationSetup} />
         </Switch>
-        <PWAInstallPrompt />
         <Toaster />
       </TooltipProvider>
     );
@@ -740,6 +798,8 @@ function AppContent() {
                   )}
                 </Route>
                 <Route path="/disputes" component={DisputeResolution} />
+                <Route path="/feedback/:id" component={FeedbackDetailPage} />
+                <Route path="/feedback" component={FeedbackPage} />
                 <Route path="/my-feedback" component={MyFeedback} />
                 <Route component={NotFound} />
               </Switch>
@@ -750,7 +810,6 @@ function AppContent() {
       <NotificationSystem />
       {/* Show Ivy chatbot for all authenticated operators (non-tenants) */}
       <IvyChatbot />
-      <PWAInstallPrompt />
       <Toaster />
     </TooltipProvider>
   );

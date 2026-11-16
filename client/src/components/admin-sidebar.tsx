@@ -7,6 +7,9 @@ import {
   Box,
   Tags,
   ClipboardList,
+  MessageSquarePlus,
+  Lightbulb,
+  UserCog,
 } from "lucide-react";
 import {
   Sidebar,
@@ -61,6 +64,21 @@ export function AdminSidebar() {
       url: "/admin/billing-pricing",
       icon: Tags,
     },
+    {
+      title: "Feedback",
+      url: "/admin/feedback",
+      icon: MessageSquarePlus,
+    },
+    {
+      title: "Feature Requests",
+      url: "/admin/feedback/feature-requests",
+      icon: Lightbulb,
+    },
+    {
+      title: "Feedback Team",
+      url: "/admin/feedback/team",
+      icon: UserCog,
+    },
   ];
 
   return (
@@ -79,7 +97,11 @@ export function AdminSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               {menuItems.map((item) => {
-                const isActive = location === item.url || location.startsWith(item.url + "/");
+                const isActive =
+                  item.url === "/admin/feedback"
+                    ? location === "/admin/feedback" ||
+                      /^\/admin\/feedback\/[^/]+$/.test(location)
+                    : location === item.url || location.startsWith(item.url + "/");
                 const handleClick = () => {
                   if (isMobile) {
                     setOpenMobile(false);

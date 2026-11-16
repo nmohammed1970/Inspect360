@@ -21176,6 +21176,8 @@ ${optionalNotes || "No details provided."}`;
   registerReapitRoutes(app, isAuthenticated);
   const { registerHmoRoutes } = await import("./hmo/routes");
   registerHmoRoutes(app);
+  const { registerFeedbackRoutes } = await import("./feedback/routes");
+  registerFeedbackRoutes(app);
 
   const { registerBillingCatalogRoutes } = await import("./billing/registerBillingRoutes");
   registerBillingCatalogRoutes(app);
@@ -36408,85 +36410,15 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
     }
   });
 
-  // ==================== FEEDBACK SYSTEM ROUTES ====================
+  // ==================== LEGACY FEEDBACK ROUTES (superseded by server/feedback/routes.ts) ====================
+  // New handlers are registered earlier via registerFeedbackRoutes. These remain only as
+  // unreachable fallbacks for /api/feedback/my (old path) and must not write legacy tables.
 
-  // User: Submit feedback
-  app.post("/api/feedback", isAuthenticated, async (req: any, res) => {
-    try {
-      const user = await storage.getUser(req.user.id);
-      if (!user) {
-        return res.status(401).json({ message: "User not found" });
-      }
-
-      const { title, description, priority, category } = req.body;
-
-      if (!title || !description) {
-        return res.status(400).json({ message: "Title and description are required" });
-      }
-
-      let organizationName = null;
-      if (user.organizationId) {
-        const org = await storage.getOrganization(user.organizationId);
-        organizationName = org?.name;
-      }
-
-      const feedback = await storage.createFeedback({
-        title,
-        description,
-        priority: priority || "medium",
-        category: category || "feature",
-        userId: user.id,
-        userEmail: user.email,
-        userName: `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.username,
-        organizationId: user.organizationId || null,
-        organizationName,
-      });
-
-      // Send notification emails to central team
-      try {
-        const teamConfig = await storage.getCentralTeamConfig();
-        const activeEmails = teamConfig.filter(c => c.isActive).map(c => c.notificationEmail);
-
-        if (activeEmails.length > 0) {
-          const { sendEmail } = await import("./resend");
-          const priorityLabel = priority === "high" ? "HIGH" : priority === "medium" ? "Medium" : "Low";
-          const categoryLabel = category === "bug" ? "Bug Report" : category === "improvement" ? "Improvement" : "Feature Request";
-
-          for (const email of activeEmails) {
-            await sendEmail({
-              to: email,
-              subject: `[${priorityLabel}] New ${categoryLabel}: ${title}`,
-              html: `
-                <h2>New Feedback Submission</h2>
-                <p><strong>Title:</strong> ${title}</p>
-                <p><strong>Category:</strong> ${categoryLabel}</p>
-                <p><strong>Priority:</strong> ${priorityLabel}</p>
-                <p><strong>From:</strong> ${feedback.userName} (${feedback.userEmail})</p>
-                <p><strong>Organization:</strong> ${organizationName || 'N/A'}</p>
-                <hr />
-                <p><strong>Description:</strong></p>
-                <p>${description}</p>
-                <hr />
-                <p><small>View all feedback in the Eco-Admin panel.</small></p>
-              `,
-            });
-          }
-        }
-      } catch (emailError) {
-        console.error("Error sending feedback notification emails:", emailError);
-      }
-
-      res.json(feedback);
-    } catch (error: any) {
-      console.error("Error submitting feedback:", error);
-      res.status(500).json({ message: "Failed to submit feedback" });
-    }
-  });
-
-  // User: Get own feedback submissions
+  // User: Get own feedback submissions (legacy path → redirect clients to /api/feedback/mine)
   app.get("/api/feedback/my", isAuthenticated, async (req: any, res) => {
     try {
-      const feedback = await storage.getFeedbackByUser(req.user.id);
+      const { listMyFeedback } = await import("./feedback/storage");
+      const feedback = await listMyFeedback(req.user.id);
       res.json(feedback);
     } catch (error: any) {
       console.error("Error fetching user feedback:", error);
@@ -36494,8 +36426,8 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
     }
   });
 
-  // Admin: Get all feedback
-  app.get("/api/admin/feedback", isAuthenticated, async (req: any, res) => {
+  // Admin: Get all feedback (LEGACY — unreachable if registerFeedbackRoutes ran first)
+  app.get("/api/admin/feedback-legacy-unused", isAuthenticated, async (req: any, res) => {
     try {
       const adminUser = await storage.getAdminByEmail(req.user.email);
       if (!adminUser) {
@@ -36517,48 +36449,8 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
     }
   });
 
-  // Admin: Get single feedback
-  app.get("/api/admin/feedback/:id", isAuthenticated, async (req: any, res) => {
-    try {
-      const adminUser = await storage.getAdminByEmail(req.user.email);
-      if (!adminUser) {
-        return res.status(403).json({ message: "Access denied" });
-      }
-
-      const feedback = await storage.getFeedbackById(req.params.id);
-      if (!feedback) {
-        return res.status(404).json({ message: "Feedback not found" });
-      }
-      res.json(feedback);
-    } catch (error: any) {
-      console.error("Error fetching feedback:", error);
-      res.status(500).json({ message: "Failed to fetch feedback" });
-    }
-  });
-
-  // Admin: Update feedback status/assignment
-  app.patch("/api/admin/feedback/:id", isAuthenticated, async (req: any, res) => {
-    try {
-      const adminUser = await storage.getAdminByEmail(req.user.email);
-      if (!adminUser) {
-        return res.status(403).json({ message: "Access denied" });
-      }
-
-      const { status, assignedTo, assignedDepartment, resolutionNotes } = req.body;
-      const updates: any = {};
-
-      if (status) updates.status = status;
-      if (assignedTo !== undefined) updates.assignedTo = assignedTo;
-      if (assignedDepartment !== undefined) updates.assignedDepartment = assignedDepartment;
-      if (resolutionNotes !== undefined) updates.resolutionNotes = resolutionNotes;
-
-      const feedback = await storage.updateFeedback(req.params.id, updates);
-      res.json(feedback);
-    } catch (error: any) {
-      console.error("Error updating feedback:", error);
-      res.status(500).json({ message: "Failed to update feedback" });
-    }
-  });
+  // Legacy admin get/patch for feedback_submissions removed — use server/feedback/routes.ts
+  // (paths /api/admin/feedback and /api/admin/feedback/:id).
 
   // Admin: Get central team config
   app.get("/api/admin/feedback-team", isAuthenticated, async (req: any, res) => {
