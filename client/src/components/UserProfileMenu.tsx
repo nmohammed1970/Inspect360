@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { User, CreditCard, LogOut } from "lucide-react";
+import { User, CreditCard, LogOut, MessageSquarePlus } from "lucide-react";
 
 export function UserProfileMenu() {
   const { user, logoutMutation } = useAuth();
@@ -81,6 +81,12 @@ export function UserProfileMenu() {
             </Link>
           </DropdownMenuItem>
         )}
+        <DropdownMenuItem asChild>
+          <Link href="/feedback" className="cursor-pointer" data-testid="link-feedback">
+            <MessageSquarePlus className="mr-2 h-4 w-4" />
+            <span>Feedback</span>
+          </Link>
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
           onClick={() => logoutMutation.mutate()}

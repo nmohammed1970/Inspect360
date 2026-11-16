@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { Bug, Lightbulb, HelpCircle, CheckCircle2 } from "lucide-react";
+import { Bug, Lightbulb, HelpCircle, CheckCircle2, Check, Send } from "lucide-react";
 import { Link } from "wouter";
-import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -21,18 +20,30 @@ const TYPE_OPTIONS = [
     title: "Report an Issue",
     description: "Something is broken or not working as expected.",
     icon: Bug,
+    accent: "text-rose-700",
+    well: "bg-rose-500/10",
+    selected:
+      "border-rose-400 bg-rose-50/80 ring-2 ring-rose-300/50 shadow-sm",
   },
   {
     value: "feature_request",
     title: "Feature Request",
     description: "Suggest a new capability or improvement for the product.",
     icon: Lightbulb,
+    accent: "text-amber-700",
+    well: "bg-amber-500/10",
+    selected:
+      "border-amber-400 bg-amber-50/80 ring-2 ring-amber-300/50 shadow-sm",
   },
   {
     value: "question",
     title: "General Question",
     description: "Ask how something works or request clarification.",
     icon: HelpCircle,
+    accent: "text-sky-700",
+    well: "bg-sky-500/10",
+    selected:
+      "border-sky-400 bg-sky-50/80 ring-2 ring-sky-300/50 shadow-sm",
   },
 ] as const;
 
@@ -100,44 +111,49 @@ export function FeedbackSubmitForm({ onCancel, className }: Props) {
 
   if (success) {
     return (
-      <Card className={cn("border-l-4 border-l-emerald-500", className)}>
-        <CardContent className="p-6 space-y-4">
-          <div className="flex items-start gap-3">
-            <div className="p-2 rounded-full bg-emerald-500/10">
-              <CheckCircle2 className="h-6 w-6 text-emerald-600" />
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold">Thank you — we received your feedback</h3>
-              <p className="text-sm text-muted-foreground mt-1">
-                Your reference is{" "}
-                <span className="font-mono font-semibold text-foreground">{success.reference}</span>.
-                Our team will review it when they can.
-              </p>
-            </div>
+      <div
+        className={cn(
+          "rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-6 md:p-8 space-y-5",
+          className,
+        )}
+      >
+        <div className="flex items-start gap-4">
+          <div className="p-3 rounded-2xl bg-emerald-500/15 shrink-0">
+            <CheckCircle2 className="h-7 w-7 text-emerald-600" />
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Button asChild>
-              <Link href={`/feedback/${success.id}`}>View My Feedback</Link>
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setSuccess(null);
-                setType("");
-                setSubject("");
-                setDescription("");
-              }}
-            >
-              Submit Another
-            </Button>
-            {onCancel && (
-              <Button variant="ghost" onClick={onCancel}>
-                Close
-              </Button>
-            )}
+          <div>
+            <h3 className="text-xl font-semibold tracking-tight">Thank you — we received it</h3>
+            <p className="text-sm text-muted-foreground mt-2 leading-relaxed">
+              Your reference is{" "}
+              <span className="font-mono font-semibold text-emerald-800 bg-emerald-100/80 px-1.5 py-0.5 rounded">
+                {success.reference}
+              </span>
+              . Our team will review it when they can.
+            </p>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+        <div className="flex flex-wrap gap-2 pt-1">
+          <Button asChild>
+            <Link href={`/feedback/${success.id}`}>View conversation</Link>
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setSuccess(null);
+              setType("");
+              setSubject("");
+              setDescription("");
+            }}
+          >
+            Submit another
+          </Button>
+          {onCancel && (
+            <Button variant="ghost" onClick={onCancel}>
+              Close
+            </Button>
+          )}
+        </div>
+      </div>
     );
   }
 
@@ -148,10 +164,14 @@ export function FeedbackSubmitForm({ onCancel, className }: Props) {
     !submitMutation.isPending;
 
   return (
-    <div className={cn("space-y-6", className)}>
-      <div>
-        <Label className="text-base">What would you like to share?</Label>
-        <div className="grid gap-3 mt-3 sm:grid-cols-3">
+    <div className={cn("space-y-8", className)}>
+      <section className="space-y-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wider text-primary/80">Step 1</p>
+          <Label className="text-base font-semibold">What would you like to share?</Label>
+          <p className="text-sm text-muted-foreground mt-0.5">Choose one — this helps us route your case.</p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-3">
           {TYPE_OPTIONS.map((opt) => {
             const selected = type === opt.value;
             const Icon = opt.icon;
@@ -161,64 +181,99 @@ export function FeedbackSubmitForm({ onCancel, className }: Props) {
                 type="button"
                 onClick={() => setType(opt.value)}
                 className={cn(
-                  "text-left rounded-xl border p-4 transition-colors min-h-[120px]",
-                  selected
-                    ? "border-primary bg-primary/5 ring-2 ring-primary/30"
-                    : "hover:bg-muted/40",
+                  "group relative text-left rounded-2xl border bg-card p-4 min-h-[132px] transition-all duration-200",
+                  "hover:-translate-y-0.5 hover:shadow-md motion-reduce:hover:translate-y-0",
+                  selected ? opt.selected : "border-border/80 hover:border-primary/40",
                 )}
                 aria-pressed={selected}
               >
-                <Icon className={cn("h-6 w-6 mb-2", selected ? "text-primary" : "text-muted-foreground")} />
-                <p className="font-semibold text-sm">{opt.title}</p>
-                <p className="text-xs text-muted-foreground mt-1">{opt.description}</p>
+                {selected && (
+                  <span className="absolute top-3 right-3 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                    <Check className="h-3 w-3" strokeWidth={3} />
+                  </span>
+                )}
+                <div className={cn("inline-flex p-2.5 rounded-xl mb-3", opt.well)}>
+                  <Icon className={cn("h-5 w-5", opt.accent)} />
+                </div>
+                <p className="font-semibold text-sm pr-6">{opt.title}</p>
+                <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">{opt.description}</p>
               </button>
             );
           })}
         </div>
-      </div>
+      </section>
 
-      <div className="space-y-2">
-        <Label htmlFor="feedback-subject">Subject</Label>
-        <Input
-          id="feedback-subject"
-          value={subject}
-          maxLength={150}
-          placeholder="Short summary"
-          onChange={(e) => setSubject(e.target.value)}
-        />
-        <p className="text-xs text-muted-foreground text-right">{subject.length}/150</p>
-      </div>
+      <section className="space-y-5 rounded-2xl border bg-muted/20 p-4 sm:p-5">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wider text-primary/80">Step 2</p>
+          <p className="text-base font-semibold">Tell us more</p>
+        </div>
 
-      <div className="space-y-2">
-        <Label htmlFor="feedback-description">Description</Label>
-        <Textarea
-          id="feedback-description"
-          value={description}
-          maxLength={10000}
-          rows={6}
-          placeholder="Tell us what happened, what you expected, or what you'd like to see."
-          onChange={(e) => setDescription(e.target.value)}
-        />
-        <p className="text-xs text-muted-foreground text-right">{description.length}/10,000</p>
-      </div>
+        <div className="space-y-2">
+          <div className="flex items-end justify-between gap-2">
+            <Label htmlFor="feedback-subject" className="font-medium">
+              Subject
+            </Label>
+            <span className="text-[11px] tabular-nums text-muted-foreground">{subject.length}/150</span>
+          </div>
+          <Input
+            id="feedback-subject"
+            value={subject}
+            maxLength={150}
+            placeholder="Short summary"
+            className="h-11 bg-background"
+            onChange={(e) => setSubject(e.target.value)}
+          />
+        </div>
 
-      <div className="space-y-2">
-        <Label>Screenshots (optional)</Label>
+        <div className="space-y-2">
+          <div className="flex items-end justify-between gap-2">
+            <Label htmlFor="feedback-description" className="font-medium">
+              Description
+            </Label>
+            <span className="text-[11px] tabular-nums text-muted-foreground">
+              {description.length.toLocaleString()}/10,000
+            </span>
+          </div>
+          <Textarea
+            id="feedback-description"
+            value={description}
+            maxLength={10000}
+            rows={6}
+            placeholder="Tell us what happened, what you expected, or what you'd like to see."
+            className="min-h-[140px] bg-background resize-y"
+            onChange={(e) => setDescription(e.target.value)}
+          />
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wider text-primary/80">Step 3</p>
+          <Label className="text-base font-semibold">Screenshots</Label>
+          <p className="text-sm text-muted-foreground mt-0.5">Optional — paste or upload up to 3 images.</p>
+        </div>
         <FeedbackImageDropzone files={images} onChange={setImages} disabled={submitMutation.isPending} />
-      </div>
+      </section>
 
-      <div className="flex flex-wrap gap-2 sticky bottom-0 bg-background/95 py-3 border-t sm:border-0 sm:static sm:py-0">
+      <div className="flex flex-wrap items-center gap-2 sticky bottom-0 z-10 -mx-1 px-1 py-3 bg-background/90 backdrop-blur-sm border-t sm:static sm:border-0 sm:bg-transparent sm:backdrop-blur-none sm:py-0">
         <Button
+          size="lg"
           disabled={!canSubmit}
           onClick={() => submitMutation.mutate()}
           data-testid="button-submit-feedback"
+          className="min-w-[160px]"
         >
+          <Send className="h-4 w-4 mr-2" />
           {submitMutation.isPending ? "Submitting…" : "Submit Feedback"}
         </Button>
         {onCancel && (
-          <Button type="button" variant="outline" onClick={onCancel} disabled={submitMutation.isPending}>
+          <Button type="button" variant="outline" size="lg" onClick={onCancel} disabled={submitMutation.isPending}>
             Cancel
           </Button>
+        )}
+        {!type && (
+          <p className="text-xs text-muted-foreground w-full sm:w-auto sm:ml-2">Select a type to continue</p>
         )}
       </div>
     </div>

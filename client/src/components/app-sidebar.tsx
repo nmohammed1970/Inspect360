@@ -16,7 +16,6 @@ import {
   FileBarChart,
   CreditCard,
   Shield,
-  MessageSquarePlus,
 } from "lucide-react";
 import {
   Sidebar,
@@ -157,12 +156,6 @@ export function AppSidebar() {
       url: "/community-moderation",
       icon: Shield,
       roles: ["owner"],
-    },
-    {
-      title: "Feedback",
-      url: "/feedback",
-      icon: MessageSquarePlus,
-      roles: ["owner", "compliance", "clerk", "contractor"],
     },
     {
       title: "Billing",

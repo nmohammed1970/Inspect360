@@ -87,7 +87,7 @@ export function FeedbackImageDropzone({ files, onChange, disabled, className }: 
   };
 
   return (
-    <div className={cn("space-y-2", className)}>
+    <div className={cn("space-y-3", className)}>
       <div
         tabIndex={0}
         role="button"
@@ -112,17 +112,22 @@ export function FeedbackImageDropzone({ files, onChange, disabled, className }: 
           }
         }}
         className={cn(
-          "rounded-xl border border-dashed px-4 py-8 text-center cursor-pointer transition-colors outline-none focus-visible:ring-2 focus-visible:ring-primary",
-          dragOver ? "border-primary bg-primary/5" : "bg-muted/20 hover:bg-muted/40",
+          "rounded-2xl border-2 border-dashed px-4 py-10 text-center cursor-pointer transition-all outline-none",
+          "focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2",
+          dragOver
+            ? "border-primary bg-primary/5 scale-[1.01] motion-reduce:scale-100"
+            : "border-border/70 bg-gradient-to-b from-muted/30 to-background hover:border-primary/50 hover:from-primary/5",
           disabled && "opacity-50 pointer-events-none",
         )}
       >
-        <ImagePlus className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-        <p className="text-sm font-medium">Paste a screenshot (Ctrl+V / Cmd+V)</p>
-        <p className="text-xs text-muted-foreground mt-1">
+        <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10">
+          <ImagePlus className="h-6 w-6 text-primary" />
+        </div>
+        <p className="text-sm font-semibold">Paste a screenshot (Ctrl+V / Cmd+V)</p>
+        <p className="text-xs text-muted-foreground mt-1.5 max-w-sm mx-auto leading-relaxed">
           Or drag and drop / choose file · PNG, JPEG, WebP · max 3 × 10 MB
         </p>
-        <p className="text-xs text-amber-800 mt-2">
+        <p className="text-xs text-amber-800/90 mt-3 max-w-md mx-auto rounded-lg bg-amber-50 border border-amber-200/60 px-3 py-2">
           Please avoid including passwords or sensitive personal information in screenshots.
         </p>
         <input
@@ -142,13 +147,16 @@ export function FeedbackImageDropzone({ files, onChange, disabled, className }: 
       {files.length > 0 && (
         <div className="flex flex-wrap gap-3">
           {files.map((f) => (
-            <div key={f.id} className="relative w-24 h-24 rounded-lg border overflow-hidden bg-muted">
+            <div
+              key={f.id}
+              className="relative w-28 h-28 rounded-xl border bg-muted overflow-hidden shadow-sm group"
+            >
               <img src={f.previewUrl} alt={f.file.name} className="w-full h-full object-cover" />
               <Button
                 type="button"
                 size="icon"
                 variant="secondary"
-                className="absolute top-1 right-1 h-6 w-6"
+                className="absolute top-1.5 right-1.5 h-7 w-7 opacity-90 group-hover:opacity-100"
                 onClick={(e) => {
                   e.stopPropagation();
                   removeAt(f.id);
@@ -157,7 +165,7 @@ export function FeedbackImageDropzone({ files, onChange, disabled, className }: 
               >
                 <X className="h-3.5 w-3.5" />
               </Button>
-              <p className="absolute bottom-0 inset-x-0 bg-black/50 text-[10px] text-white px-1 truncate">
+              <p className="absolute bottom-0 inset-x-0 bg-black/55 text-[10px] text-white px-1.5 py-0.5 truncate">
                 {(f.file.size / 1024).toFixed(0)} KB
               </p>
             </div>
