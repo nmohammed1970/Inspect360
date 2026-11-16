@@ -659,6 +659,7 @@ export default function Compliance() {
   return (
     <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
       <PageHeader
+        icon={FileText}
         title={<span data-testid="heading-compliance">Compliance Center</span>}
         description={
           propertyIdFromUrl

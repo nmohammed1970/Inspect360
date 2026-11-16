@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/table";
 import { FeedbackSubmitForm } from "@/components/feedback/FeedbackSubmitForm";
 import { FeedbackStatusBadge, FeedbackTypeBadge } from "@/components/feedback/FeedbackBadges";
+import { PageHeader } from "@/components/PageHeader";
 import { pagePad } from "@/lib/responsive";
 import { cn } from "@/lib/utils";
 
@@ -37,21 +38,12 @@ export default function FeedbackPage() {
 
   return (
     <div className={cn(pagePad, "pb-10")}>
-      <div className="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-primary/10 via-background to-sky-50/60 mb-6">
-        <div className="absolute inset-y-0 right-0 w-1/3 bg-[radial-gradient(ellipse_at_top_right,hsl(var(--primary)/0.18),transparent_70%)] pointer-events-none" />
-        <div className="relative p-5 sm:p-7 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div className="flex items-start gap-3 min-w-0">
-            <div className="p-2.5 rounded-2xl bg-primary/15 shrink-0">
-              <MessageSquarePlus className="h-6 w-6 text-primary" />
-            </div>
-            <div className="min-w-0">
-              <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Feedback</h1>
-              <p className="text-muted-foreground mt-1 text-sm sm:text-base max-w-xl leading-relaxed">
-                Report issues, request features, or ask questions — and track every case you send.
-              </p>
-            </div>
-          </div>
-          {!showForm && (
+      <PageHeader
+        icon={MessageSquarePlus}
+        title="Feedback"
+        description="Report issues, request features, or ask questions — and track every case you send."
+        actions={
+          !showForm ? (
             <Button
               onClick={() => setShowForm(true)}
               className="shrink-0"
@@ -61,9 +53,9 @@ export default function FeedbackPage() {
               <Plus className="h-4 w-4 mr-2" />
               Submit Feedback
             </Button>
-          )}
-        </div>
-      </div>
+          ) : undefined
+        }
+      />
 
       <div className="space-y-6">
         {showForm && (

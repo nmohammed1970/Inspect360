@@ -822,12 +822,8 @@ export default function CommunityModeration() {
       </Breadcrumb>
 
       <PageHeader
-        title={
-          <span className="inline-flex items-center gap-2" data-testid="text-page-title">
-            <Shield className="h-5 w-5 md:h-6 md:w-6 text-primary shrink-0" />
-            <span className="truncate">Community Moderation</span>
-          </span>
-        }
+        icon={Shield}
+        title={<span data-testid="text-page-title">Community Moderation</span>}
         description="Manage community groups and moderate content"
         actions={
           <>

@@ -27,6 +27,7 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { pagePad } from "@/lib/responsive";
+import { PageHeader } from "@/components/PageHeader";
 
 type Member = {
   id: string;
@@ -84,26 +85,23 @@ export default function AdminFeedbackTeam() {
 
   return (
     <div className={pagePad}>
-      <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 mb-6">
-        <div>
-          <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-2">
-            <Users className="h-7 w-7" />
-            Feature Admin Team
-          </h1>
-          <p className="text-muted-foreground mt-1">
-            Membership grants Feedback inbox access only — not full Eco-Admin powers.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button asChild variant="outline">
-            <Link href="/admin/feedback">Back to Inbox</Link>
-          </Button>
-          <Button onClick={() => setOpen(true)}>
-            <Plus className="h-4 w-4 mr-2" />
-            Add member
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        icon={Users}
+        title="Feature Admin Team"
+        description="Membership grants Feedback inbox access only — not full Eco-Admin powers."
+        className="mb-6"
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <Button asChild variant="outline">
+              <Link href="/admin/feedback">Back to Inbox</Link>
+            </Button>
+            <Button onClick={() => setOpen(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add member
+            </Button>
+          </div>
+        }
+      />
 
       <Card>
         <CardHeader>

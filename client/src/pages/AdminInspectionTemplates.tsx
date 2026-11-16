@@ -47,6 +47,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 import { pagePad } from "@/lib/responsive";
+import { PageHeader } from "@/components/PageHeader";
 import type { InspectionTemplate } from "@shared/schema";
 
 type AdminTemplateListItem = {
@@ -306,18 +307,12 @@ export default function AdminInspectionTemplates() {
 
   return (
     <div className={cn("container mx-auto max-w-7xl min-w-0", pagePad)}>
-      <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-        <div className="min-w-0 space-y-1">
-          <div className="flex items-center gap-2 text-primary">
-            <ClipboardList className="h-6 w-6 shrink-0" />
-            <span className="text-xs font-semibold uppercase tracking-wide">Template Settings</span>
-          </div>
-          <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Inspection Templates</h1>
-          <p className="text-muted-foreground max-w-2xl text-sm md:text-base">
-            Manage the global built-in catalog, review every instance template, promote customs to
-            all instances, and copy customs between organizations.
-          </p>
-        </div>
+      <PageHeader
+        className="mb-6"
+        icon={ClipboardList}
+        title="Inspection Templates"
+        description="Manage the global built-in catalog, review every instance template, promote customs to all instances, and copy customs between organizations."
+        actions={
         <div className="flex flex-wrap gap-2">
           <Button
             variant="outline"
@@ -338,7 +333,8 @@ export default function AdminInspectionTemplates() {
             </Button>
           )}
         </div>
-      </div>
+        }
+      />
 
       <div className="grid gap-3 sm:grid-cols-3 mb-6">
         <Card className="shadow-none border-border/80">

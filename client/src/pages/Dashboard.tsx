@@ -36,13 +36,15 @@ import {
   Filter,
   Download,
   Loader2,
-  Banknote
+  Banknote,
+  LayoutDashboard,
 } from "lucide-react";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Label } from "@/components/ui/label";
 import { pagePad } from "@/lib/responsive";
 import { cn } from "@/lib/utils";
 import { Link } from "wouter";
+import { PageHeader } from "@/components/PageHeader";
 
 function formatInclusiveUtcDate(iso: string | null | undefined): string {
   if (!iso) return "the expiration date";
@@ -476,105 +478,107 @@ export default function Dashboard() {
 
   return (
     <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
-      {/* Header Section */}
       <div className="flex flex-col gap-4">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div className="min-w-0 flex-1 space-y-1">
-            <h1 className="text-xl md:text-2xl lg:text-3xl font-bold tracking-tight font-heading" data-testid="text-dashboard-title">
-              Operations Dashboard
-            </h1>
-            <p className="text-sm md:text-base text-muted-foreground">
-              Welcome back, <span className="font-medium text-foreground">{user?.firstName || user?.email}</span>
-            </p>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <UiTooltip>
-              <TooltipTrigger asChild>
-                <Button 
-                  variant="outline" 
-                  size="sm"
-                  onClick={() => refetchStats()}
-                  data-testid="button-refresh-stats"
-                >
-                  <RefreshCw className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>Refresh dashboard stats and alerts</p>
-              </TooltipContent>
-            </UiTooltip>
-            <Dialog
-              open={settingsOpen}
-              onOpenChange={(open) => {
-                setSettingsOpen(open);
-                if (open) setSettingsTab("dashboard");
-              }}
-            >
+        <PageHeader
+          icon={LayoutDashboard}
+          title="Operations Dashboard"
+          titleTestId="text-dashboard-title"
+          description={
+            <>
+              Welcome back,{" "}
+              <span className="font-medium text-foreground">{user?.firstName || user?.email}</span>
+            </>
+          }
+          actions={
+            <div className="flex items-center gap-2 flex-wrap">
               <UiTooltip>
                 <TooltipTrigger asChild>
-                  <DialogTrigger asChild>
-                    <Button variant="outline" size="sm" data-testid="button-dashboard-settings">
-                      <Settings className="h-4 w-4" />
-                    </Button>
-                  </DialogTrigger>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => refetchStats()}
+                    data-testid="button-refresh-stats"
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                  </Button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>Dashboard configuration and internal modules</p>
+                  <p>Refresh dashboard stats and alerts</p>
                 </TooltipContent>
               </UiTooltip>
-              <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-                <DialogHeader>
-                  <DialogTitle>Dashboard Settings</DialogTitle>
-                  <DialogDescription>
-                    Configure dashboard sections or enable and disable internal modules
-                  </DialogDescription>
-                </DialogHeader>
-                <Tabs value={settingsTab} onValueChange={setSettingsTab} className="w-full">
-                  <TabsList className="grid w-full grid-cols-2">
-                    <TabsTrigger value="dashboard" data-testid="tab-dashboard-configuration">
-                      Dashboard Configuration
-                    </TabsTrigger>
-                    <TabsTrigger value="modules" data-testid="tab-internal-modules">
-                      Internal Modules
-                    </TabsTrigger>
-                  </TabsList>
-                  <TabsContent value="dashboard" className="mt-4">
-                    <div className="space-y-4">
-                      <p className="text-sm text-muted-foreground">
-                        Choose which sections to display on your dashboard
-                      </p>
-                      {(Object.keys(widgetLabels) as WidgetKey[])
-                        .filter((key) => key !== "complianceSchedule" || complianceEnabled)
-                        .map((key) => (
-                        <div key={key} className="flex items-center justify-between gap-4 p-2 rounded-lg border">
-                          <div className="flex items-center gap-3">
-                            {visibleWidgets[key] ? (
-                              <Eye className="h-4 w-4 text-muted-foreground" />
-                            ) : (
-                              <EyeOff className="h-4 w-4 text-muted-foreground" />
-                            )}
-                            <span className="text-sm font-medium">{widgetLabels[key]}</span>
+              <Dialog
+                open={settingsOpen}
+                onOpenChange={(open) => {
+                  setSettingsOpen(open);
+                  if (open) setSettingsTab("dashboard");
+                }}
+              >
+                <UiTooltip>
+                  <TooltipTrigger asChild>
+                    <DialogTrigger asChild>
+                      <Button variant="outline" size="sm" data-testid="button-dashboard-settings">
+                        <Settings className="h-4 w-4" />
+                      </Button>
+                    </DialogTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Dashboard configuration and internal modules</p>
+                  </TooltipContent>
+                </UiTooltip>
+                <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+                  <DialogHeader>
+                    <DialogTitle>Dashboard Settings</DialogTitle>
+                    <DialogDescription>
+                      Configure dashboard sections or enable and disable internal modules
+                    </DialogDescription>
+                  </DialogHeader>
+                  <Tabs value={settingsTab} onValueChange={setSettingsTab} className="w-full">
+                    <TabsList className="grid w-full grid-cols-2">
+                      <TabsTrigger value="dashboard" data-testid="tab-dashboard-configuration">
+                        Dashboard Configuration
+                      </TabsTrigger>
+                      <TabsTrigger value="modules" data-testid="tab-internal-modules">
+                        Internal Modules
+                      </TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="dashboard" className="mt-4">
+                      <div className="space-y-4">
+                        <p className="text-sm text-muted-foreground">
+                          Choose which sections to display on your dashboard
+                        </p>
+                        {(Object.keys(widgetLabels) as WidgetKey[])
+                          .filter((key) => key !== "complianceSchedule" || complianceEnabled)
+                          .map((key) => (
+                          <div key={key} className="flex items-center justify-between gap-4 p-2 rounded-lg border">
+                            <div className="flex items-center gap-3">
+                              {visibleWidgets[key] ? (
+                                <Eye className="h-4 w-4 text-muted-foreground" />
+                              ) : (
+                                <EyeOff className="h-4 w-4 text-muted-foreground" />
+                              )}
+                              <span className="text-sm font-medium">{widgetLabels[key]}</span>
+                            </div>
+                            <Checkbox
+                              checked={visibleWidgets[key]}
+                              onCheckedChange={() => toggleWidget(key)}
+                              data-testid={`checkbox-widget-${key}`}
+                            />
                           </div>
-                          <Checkbox
-                            checked={visibleWidgets[key]}
-                            onCheckedChange={() => toggleWidget(key)}
-                            data-testid={`checkbox-widget-${key}`}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  </TabsContent>
-                  <TabsContent value="modules" className="mt-4">
-                    <p className="text-sm text-muted-foreground mb-4">
-                      Turn modules off to hide them across the app. Existing records are kept and become available again when re-enabled.
-                    </p>
-                    <CompanyModulesSettings />
-                  </TabsContent>
-                </Tabs>
-              </DialogContent>
-            </Dialog>
-          </div>
-        </div>
+                        ))}
+                      </div>
+                    </TabsContent>
+                    <TabsContent value="modules" className="mt-4">
+                      <p className="text-sm text-muted-foreground mb-4">
+                        Turn modules off to hide them across the app. Existing records are kept and become available again when re-enabled.
+                      </p>
+                      <CompanyModulesSettings />
+                    </TabsContent>
+                  </Tabs>
+                </DialogContent>
+              </Dialog>
+            </div>
+          }
+        />
 
         <FiltersSection headingId="dashboard-filters-heading">
         {/* Filter Row - Desktop */}

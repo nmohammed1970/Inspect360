@@ -589,6 +589,7 @@ export default function Settings() {
     <div className={cn("container mx-auto min-w-0 bg-background min-h-screen", pagePad)}>
       <PageHeader
         className="mb-4 md:mb-6"
+        icon={SettingsIcon}
         title="Settings"
         description="Manage your organization configuration"
       />

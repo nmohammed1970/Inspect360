@@ -38,6 +38,7 @@ import { format, differenceInDays, isPast } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { pagePad } from "@/lib/responsive";
+import { PageHeader } from "@/components/PageHeader";
 import { reportTableClass } from "@/components/data-table";
 import { cn } from "@/lib/utils";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
@@ -206,24 +207,18 @@ export default function ComplianceReport() {
 
   return (
     <div className={cn("container mx-auto min-w-0", pagePad, "space-y-4 md:space-y-6")}>
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div className="flex items-center gap-2 sm:gap-4">
+      <PageHeader
+        icon={ShieldCheck}
+        leading={
           <Link href="/reports">
             <Button variant="ghost" size="icon" className="h-9 w-9 sm:h-10 sm:w-10" data-testid="button-back">
               <ArrowLeft className="h-4 w-4 sm:h-5 sm:w-5" />
             </Button>
           </Link>
-          <div>
-            <h1 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight flex items-center gap-2">
-              <ShieldCheck className="h-6 w-6 sm:h-8 sm:w-8 text-primary flex-shrink-0" />
-              <span>Compliance Report</span>
-            </h1>
-            <p className="text-xs sm:text-sm md:text-base text-muted-foreground mt-1">
-              Document tracking and compliance management by block and property
-            </p>
-          </div>
-        </div>
+        }
+        title="Compliance Report"
+        description="Document tracking and compliance management by block and property"
+        actions={
         <Button 
           onClick={handleExportPDF} 
           disabled={isExporting || filteredDocuments.length === 0}
@@ -245,7 +240,8 @@ export default function ComplianceReport() {
             </>
           )}
         </Button>
-      </div>
+        }
+      />
 
       {/* Summary Statistics */}
       <div className="grid gap-3 sm:gap-4 grid-cols-2 md:grid-cols-4">

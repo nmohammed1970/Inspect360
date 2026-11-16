@@ -8,6 +8,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, Check, CreditCard, MessageSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { pagePad } from "@/lib/responsive";
+import { PageHeader } from "@/components/PageHeader";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
@@ -250,18 +251,21 @@ export default function Pricing() {
 
   return (
     <div className={cn("container mx-auto min-w-0 space-y-6 md:space-y-8", pagePad)}>
-      <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div className="min-w-0 space-y-1">
-          <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Pricing</h1>
-          <p className="text-sm md:text-base text-muted-foreground max-w-2xl">
+      <PageHeader
+        icon={CreditCard}
+        title="Pricing"
+        description={
+          <>
             Property management and AI inspections — prices exclude VAT.{" "}
             {status?.photosPerCredit || 500} photos per inspection credit.
-          </p>
-        </div>
-        <Button variant="outline" asChild className="shrink-0 w-fit">
-          <Link href="/billing">Manage billing</Link>
-        </Button>
-      </header>
+          </>
+        }
+        actions={
+          <Button variant="outline" asChild className="shrink-0 w-fit">
+            <Link href="/billing">Manage billing</Link>
+          </Button>
+        }
+      />
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
