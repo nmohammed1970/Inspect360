@@ -8,25 +8,39 @@ import { storage as appStorage } from "../storage";
 import * as hmoStorage from "./storage";
 import { writeHmoAuditEvent } from "./auditWriter";
 
+/** Live count of active tenant assignments for a property (not from HMO snapshots). */
+export async function countActiveTenantsForProperty(
+  propertyId: string,
+  organizationId: string,
+): Promise<number | null> {
+  try {
+    const getAssignments = (appStorage as any).getTenantAssignmentsByProperty;
+    if (typeof getAssignments !== "function") return null;
+    const rows = await getAssignments.call(appStorage, propertyId, organizationId);
+    if (!Array.isArray(rows)) return null;
+    const now = Date.now();
+    const active = rows.filter((r: any) => {
+      const assignmentActive = r.assignment?.isActive !== false;
+      const end = r.assignment?.leaseEndDate || null;
+      const notEnded = !end || new Date(end).getTime() > now;
+      return assignmentActive && notEnded;
+    });
+    return active.length;
+  } catch {
+    return null;
+  }
+}
+
 export async function buildOccupancyFromTenancies(params: {
   organizationId: string;
   propertyId: string;
   userId: string;
   maxPersons: number | null;
 }) {
-  let confirmedPersons: number | null = null;
-  try {
-    const getAssignments = (appStorage as any).getTenantAssignmentsByProperty;
-    if (typeof getAssignments === "function") {
-      const rows = await getAssignments.call(appStorage, params.propertyId);
-      const active = Array.isArray(rows)
-        ? rows.filter((r: any) => !r.endDate || new Date(r.endDate).getTime() > Date.now())
-        : [];
-      confirmedPersons = active.length;
-    }
-  } catch {
-    confirmedPersons = null;
-  }
+  let confirmedPersons: number | null = await countActiveTenantsForProperty(
+    params.propertyId,
+    params.organizationId,
+  );
 
   const finding = evaluateOccupancyTotal({
     propertyId: params.propertyId,
@@ -85,12 +99,10 @@ export function runPreTenancyGate(params: {
   maxPersons: number | null;
   confirmedPersons: number | null;
   proposedAdditional: number;
-  roomEvidenceComplete: boolean;
 }) {
   return evaluatePreTenancyCheck({
     maxPersons: params.maxPersons,
     confirmedPersons: params.confirmedPersons,
     proposedAdditional: params.proposedAdditional,
-    roomEvidenceComplete: params.roomEvidenceComplete,
   });
 }

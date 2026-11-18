@@ -29,14 +29,18 @@ export async function bulkImportLicences(params: {
   for (const item of params.items) {
     try {
       const contentHash = item.contentHash || hashContent(item.extractedText || item.fileName || "");
-      const existing = await hmoStorage.findLicenceVersionByHash(params.organizationId, contentHash);
+      const existing = await hmoStorage.findLicenceVersionByHash(
+        params.organizationId,
+        contentHash,
+        item.propertyId,
+      );
       if (existing) {
         results.push({
           propertyId: item.propertyId,
           status: "duplicate",
           licenceVersionId: existing.id,
           contentHash,
-          message: "Identical content_hash already stored — immutable original retained",
+          message: "Identical content_hash already stored on this property — immutable original retained",
         });
         continue;
       }

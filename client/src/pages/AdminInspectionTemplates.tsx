@@ -131,6 +131,7 @@ function toBuilderTemplate(raw: any): InspectionTemplate {
     version: raw.version ?? 1,
     parentTemplateId: raw.parentTemplateId ?? null,
     isActive: raw.isActive ?? true,
+    isHmoTemplate: raw.isHmoTemplate ?? false,
     structureJson: raw.structureJson,
     categoryId: null,
     aiMaxWords: raw.aiMaxWords ?? 150,

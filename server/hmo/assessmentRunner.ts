@@ -10,15 +10,15 @@ import {
 import { storage as appStorage } from "../storage";
 import {
   createAssessmentWithFindings,
-  createCaseWithTasks,
   ensurePropertyProfile,
   getLicence,
   getLicenceVersion,
-  listCases,
   listRoomProfiles,
+  listRuleVersions,
 } from "./storage";
 import { writeHmoAuditEvent } from "./auditWriter";
 import { buildOccupancyFromTenancies } from "./occupancy";
+import { raiseMaintenanceForAssessmentFindings } from "./maintenanceFromFindings";
 
 export type RunAssessmentInput = {
   orgId: string;
@@ -53,25 +53,54 @@ async function assembleLiveData(params: {
 
   let rooms: HmoAssessmentLiveData["rooms"] = [];
   try {
+    let localMinFromRules: number | null = null;
+    try {
+      const rules = await listRuleVersions(params.orgId);
+      for (const rv of rules || []) {
+        if (String(rv.status || "").toUpperCase() !== "APPROVED") continue;
+        const reqs = (rv.requirementsJson || {}) as Record<string, unknown>;
+        const candidate =
+          typeof reqs.onePersonAged10OrAboveM2 === "number"
+            ? reqs.onePersonAged10OrAboveM2
+            : typeof reqs.minSleepingRoomM2 === "number"
+              ? reqs.minSleepingRoomM2
+              : null;
+        if (candidate != null && (localMinFromRules == null || candidate > localMinFromRules)) {
+          localMinFromRules = candidate;
+        }
+      }
+    } catch {
+      localMinFromRules = null;
+    }
+
     const profiles = await listRoomProfiles(params.orgId, params.propertyId);
-    rooms = (profiles || []).map((r: any) => ({
-      roomId: r.id || r.existingRoomId || String(r.id),
-      usableAreaM2:
+    rooms = (profiles || []).map((r: any) => {
+      const suggestedOnly =
+        r.measurementSource === "floor_plan_ai" && r.humanConfirmed !== true;
+      const area =
         typeof r.measuredUsableAreaM2 === "number"
           ? r.measuredUsableAreaM2
           : typeof r.usableAreaM2 === "number"
             ? r.usableAreaM2
-            : null,
-      ceilingHeightM: typeof r.ceilingHeightM === "number" ? r.ceilingHeightM : null,
-      occupantsAged10OrAbove:
-        typeof r.occupantsAged10OrAbove === "number"
-          ? r.occupantsAged10OrAbove
-          : typeof r.declaredPermittedOccupancy === "number"
-            ? r.declaredPermittedOccupancy
-            : 1,
-      occupantsUnder10: typeof r.occupantsUnder10 === "number" ? r.occupantsUnder10 : 0,
-      localMinM2: typeof r.localMinM2 === "number" ? r.localMinM2 : null,
-    }));
+            : null;
+      return {
+        roomId: r.id || r.existingRoomId || String(r.id),
+        // Guide D: unconfirmed AI measurements must not drive hard occupancy maths
+        usableAreaM2: suggestedOnly ? null : area,
+        ceilingHeightM: typeof r.ceilingHeightM === "number" ? r.ceilingHeightM : null,
+        occupantsAged10OrAbove:
+          typeof r.occupantsAged10OrAbove === "number"
+            ? r.occupantsAged10OrAbove
+            : typeof r.declaredPermittedOccupancy === "number"
+              ? r.declaredPermittedOccupancy
+              : 1,
+        occupantsUnder10: typeof r.occupantsUnder10 === "number" ? r.occupantsUnder10 : 0,
+        localMinM2:
+          typeof r.localMinM2 === "number"
+            ? r.localMinM2
+            : localMinFromRules,
+      };
+    });
   } catch {
     rooms = [];
   }
@@ -199,46 +228,6 @@ export async function runAssessment(input: RunAssessmentInput) {
     snapshotHash,
   });
 
-  const lic03 = findings.find((f) => f.checkId === "LIC-03");
-  const lic05 = findings.find((f) => f.checkId === "LIC-05");
-  const occ01 = findings.find((f) => f.checkId === "OCC-01");
-  const shouldOpenCase =
-    (lic03 && lic03.severity === "CRITICAL" && lic03.status !== "VERIFIED_COMPLIANT") ||
-    (lic05 && lic05.status === "EVIDENCE_MISSING") ||
-    (occ01 && occ01.status === "CONFIRMED_NON_COMPLIANT");
-
-  let openedCase = null;
-  let tasks: Awaited<ReturnType<typeof createCaseWithTasks>>["tasks"] = [];
-
-  if (shouldOpenCase) {
-    const existingOpen = (await listCases(orgId, { propertyId })).filter(
-      (c) => c.status !== "VERIFIED_CLOSED" && c.status !== "CANCELLED_AS_DUPLICATE",
-    );
-    if (existingOpen.length === 0) {
-      const severity =
-        lic03?.severity === "CRITICAL" || occ01?.severity === "CRITICAL"
-          ? "CRITICAL"
-          : lic05?.severity || "HIGH";
-      const created = await createCaseWithTasks({
-        organizationId: orgId,
-        propertyId,
-        userId,
-        severity,
-        assessmentId: assessment.id,
-        findingIds: findings
-          .filter(
-            (f) =>
-              (f.checkId === "LIC-03" && f.severity === "CRITICAL") ||
-              (f.checkId === "LIC-05" && f.status === "EVIDENCE_MISSING") ||
-              (f.checkId === "OCC-01" && f.status === "CONFIRMED_NON_COMPLIANT"),
-          )
-          .map((f) => f.id),
-      });
-      openedCase = created.case;
-      tasks = created.tasks;
-    }
-  }
-
   await writeHmoAuditEvent({
     organizationId: orgId,
     actorType: userId ? "user" : "system",
@@ -249,13 +238,26 @@ export async function runAssessment(input: RunAssessmentInput) {
     metadata: { overallStatus, evidenceCompleteness, reason: reason || "manual" },
   });
 
+  let maintenance: Awaited<ReturnType<typeof raiseMaintenanceForAssessmentFindings>> | null = null;
+  if (userId) {
+    try {
+      maintenance = await raiseMaintenanceForAssessmentFindings({
+        organizationId: orgId,
+        propertyId,
+        userId,
+        findings,
+      });
+    } catch (err: any) {
+      console.warn("[hmo] maintenance from findings failed:", err?.message || err);
+    }
+  }
+
   return {
     assessment,
     findings,
     overallStatus,
     evidenceCompleteness,
-    case: openedCase,
-    tasks,
     liveData,
+    maintenance,
   };
 }

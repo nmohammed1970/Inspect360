@@ -45,6 +45,9 @@ export const hmoPropertyProfiles = pgTable(
     evidenceCompleteness: integer("evidence_completeness").default(0),
     lastAssessmentId: varchar("last_assessment_id"),
     lastAssessedAt: timestamp("last_assessed_at"),
+    /** REQUIRED_MISSING | APPLIED_PENDING | NOT_REQUIRED | ISSUED | UNKNOWN */
+    licenceEvidenceStatus: varchar("licence_evidence_status", { length: 64 }).default("UNKNOWN"),
+    licenceEvidenceNotes: text("licence_evidence_notes"),
     createdAt: timestamp("created_at").defaultNow(),
     updatedAt: timestamp("updated_at").defaultNow(),
     createdBy: varchar("created_by"),
@@ -113,7 +116,9 @@ export const hmoLicenceVersions = pgTable(
   },
   (t) => [
     index("hmo_licence_versions_licence_idx").on(t.licenceId),
-    uniqueIndex("hmo_licence_versions_hash_uidx").on(t.organizationId, t.contentHash),
+    // Same file may be uploaded to many properties; only block duplicate hash per licence.
+    uniqueIndex("hmo_licence_versions_licence_hash_uidx").on(t.licenceId, t.contentHash),
+    index("hmo_licence_versions_org_hash_idx").on(t.organizationId, t.contentHash),
   ],
 );
 
@@ -357,12 +362,17 @@ export const hmoRoomProfiles = pgTable(
     organizationId: varchar("organization_id").notNull(),
     propertyId: varchar("property_id").notNull(),
     existingRoomId: varchar("existing_room_id"),
+    roomName: varchar("room_name", { length: 256 }),
     roomType: varchar("room_type", { length: 128 }),
     measuredUsableAreaM2: doublePrecision("measured_usable_area_m2"),
     ceilingHeightM: doublePrecision("ceiling_height_m"),
     measuredAt: timestamp("measured_at"),
     measurementEvidenceId: text("measurement_evidence_id"),
     declaredPermittedOccupancy: integer("declared_permitted_occupancy"),
+    sleepingApproved: boolean("sleeping_approved").default(true),
+    /** manual | floor_plan_ai | imported */
+    measurementSource: varchar("measurement_source", { length: 64 }).default("manual"),
+    humanConfirmed: boolean("human_confirmed").default(true),
     createdAt: timestamp("created_at").defaultNow(),
     updatedAt: timestamp("updated_at").defaultNow(),
     createdBy: varchar("created_by"),

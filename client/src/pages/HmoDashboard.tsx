@@ -7,9 +7,12 @@ import {
   Calendar,
   CheckCircle2,
   ClipboardList,
+  FileWarning,
   Home,
   Scale,
   Shield,
+  Users,
+  Wrench,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -40,9 +43,20 @@ type DashboardProfile = {
   borough?: string | null;
   expiryDate?: string | null;
   licenceStatus?: string | null;
+  licenceEvidenceStatus?: string | null;
+  hmoClassification?: string | null;
   maxPersons?: number | null;
   occupantsNow?: number | null;
+  occupancyMismatch?: boolean;
+  licenceEvidenceMissing?: boolean;
+  missingSafetyDoc?: boolean;
+  hmoInspectionDueSoon?: boolean;
+  hmoInspectionMissed?: boolean;
   alertCount?: number;
+  alertSeverity?: string | null;
+  alertProblem?: string | null;
+  ruleSourceLabel?: string | null;
+  authorityName?: string | null;
   nextAction?: string | null;
   managerName?: string | null;
 };
@@ -54,14 +68,26 @@ type DashboardPayload = {
   nonCompliant: number;
   needsAttention: number;
   renewalsDue: number;
-  rulesReviewNeeded: number;
+  licenceEvidenceMissing?: number;
+  occupancyMismatch?: number;
+  missingSafetyDoc?: number;
+  overdueHmoMaintenance?: number;
+  hmoInspectionDueSoon?: number;
+  hmoInspectionMissed?: number;
+  rulesReviewNeeded?: number;
   counters?: {
     totalHmos: number;
     compliant: number;
     nonCompliant: number;
     needsAttention: number;
     renewalsDue: number;
-    rulesReviewNeeded: number;
+    licenceEvidenceMissing?: number;
+    occupancyMismatch?: number;
+    missingSafetyDoc?: number;
+    overdueHmoMaintenance?: number;
+    hmoInspectionDueSoon?: number;
+    hmoInspectionMissed?: number;
+    rulesReviewNeeded?: number;
   };
   profiles: DashboardProfile[];
 };
@@ -78,6 +104,8 @@ export default function HmoDashboard() {
   const [managerQ, setManagerQ] = useState("");
   const [renewalWindow, setRenewalWindow] = useState("all");
   const [alertFilter, setAlertFilter] = useState("all");
+  const [issueFilter, setIssueFilter] = useState("all");
+  const [authorityQ, setAuthorityQ] = useState("");
 
   const hasActiveFilters =
     addressQ.trim() !== "" ||
@@ -86,7 +114,9 @@ export default function HmoDashboard() {
     overallStatus !== "all" ||
     managerQ.trim() !== "" ||
     renewalWindow !== "all" ||
-    alertFilter !== "all";
+    alertFilter !== "all" ||
+    issueFilter !== "all" ||
+    authorityQ.trim() !== "";
 
   const clearAllFilters = () => {
     setAddressQ("");
@@ -96,6 +126,8 @@ export default function HmoDashboard() {
     setManagerQ("");
     setRenewalWindow("all");
     setAlertFilter("all");
+    setIssueFilter("all");
+    setAuthorityQ("");
   };
 
   const filtered = useMemo(() => {
@@ -107,6 +139,14 @@ export default function HmoDashboard() {
       if (
         boroughQ.trim() &&
         !(p.borough || "").toLowerCase().includes(boroughQ.trim().toLowerCase())
+      ) {
+        return false;
+      }
+      if (
+        authorityQ.trim() &&
+        !(p.authorityName || p.borough || "")
+          .toLowerCase()
+          .includes(authorityQ.trim().toLowerCase())
       ) {
         return false;
       }
@@ -133,17 +173,24 @@ export default function HmoDashboard() {
       }
       if (alertFilter === "has" && !(p.alertCount && p.alertCount > 0)) return false;
       if (alertFilter === "none" && p.alertCount && p.alertCount > 0) return false;
+      if (issueFilter === "licence_missing" && !p.licenceEvidenceMissing) return false;
+      if (issueFilter === "occupancy" && !p.occupancyMismatch) return false;
+      if (issueFilter === "safety_docs" && !p.missingSafetyDoc) return false;
+      if (issueFilter === "insp_due" && !p.hmoInspectionDueSoon) return false;
+      if (issueFilter === "insp_missed" && !p.hmoInspectionMissed) return false;
       return true;
     });
   }, [
     data?.profiles,
     addressQ,
     boroughQ,
+    authorityQ,
     licenceStatus,
     overallStatus,
     managerQ,
     renewalWindow,
     alertFilter,
+    issueFilter,
   ]);
 
   const counters = data?.counters || {
@@ -152,6 +199,10 @@ export default function HmoDashboard() {
     nonCompliant: data?.nonCompliant || 0,
     needsAttention: data?.needsAttention || 0,
     renewalsDue: data?.renewalsDue || 0,
+    licenceEvidenceMissing: data?.licenceEvidenceMissing || 0,
+    occupancyMismatch: data?.occupancyMismatch || 0,
+    missingSafetyDoc: data?.missingSafetyDoc || 0,
+    overdueHmoMaintenance: data?.overdueHmoMaintenance || 0,
     rulesReviewNeeded: data?.rulesReviewNeeded || 0,
   };
 
@@ -192,7 +243,7 @@ export default function HmoDashboard() {
           </p>
 
           {/* Summary cards — same pattern as Compliance page */}
-          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 md:gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-8 gap-3 md:gap-4">
             <Card>
               <CardContent className="p-3 md:p-4">
                 <div className="flex items-center justify-between">
@@ -303,17 +354,146 @@ export default function HmoDashboard() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-xs md:text-sm font-medium text-muted-foreground">
-                      Rules review
+                      Licence evidence
                     </p>
                     <p
                       className="text-xl md:text-2xl font-bold text-sky-700"
-                      data-testid="stat-rules-review"
+                      data-testid="stat-licence-evidence"
                     >
-                      {counters.rulesReviewNeeded}
+                      {counters.licenceEvidenceMissing || 0}
                     </p>
                   </div>
                   <div className="p-1.5 md:p-2 bg-sky-500/10 rounded-full">
-                    <Scale className="h-4 w-4 md:h-5 md:w-5 text-sky-700" />
+                    <FileWarning className="h-4 w-4 md:h-5 md:w-5 text-sky-700" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-l-4 border-l-violet-500">
+              <CardContent className="p-3 md:p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs md:text-sm font-medium text-muted-foreground">
+                      Occupancy
+                    </p>
+                    <p
+                      className="text-xl md:text-2xl font-bold text-violet-700"
+                      data-testid="stat-occupancy-mismatch"
+                    >
+                      {counters.occupancyMismatch || 0}
+                    </p>
+                  </div>
+                  <div className="p-1.5 md:p-2 bg-violet-500/10 rounded-full">
+                    <Users className="h-4 w-4 md:h-5 md:w-5 text-violet-700" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-l-4 border-l-rose-500">
+              <CardContent className="p-3 md:p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs md:text-sm font-medium text-muted-foreground">
+                      Safety docs
+                    </p>
+                    <p
+                      className="text-xl md:text-2xl font-bold text-rose-700"
+                      data-testid="stat-safety-docs"
+                    >
+                      {counters.missingSafetyDoc || 0}
+                    </p>
+                  </div>
+                  <div className="p-1.5 md:p-2 bg-rose-500/10 rounded-full">
+                    <Shield className="h-4 w-4 md:h-5 md:w-5 text-rose-700" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-l-4 border-l-slate-500">
+              <CardContent className="p-3 md:p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs md:text-sm font-medium text-muted-foreground">
+                      Overdue HMO MRs
+                    </p>
+                    <p
+                      className="text-xl md:text-2xl font-bold text-slate-700"
+                      data-testid="stat-overdue-hmo-mr"
+                    >
+                      {counters.overdueHmoMaintenance || 0}
+                    </p>
+                  </div>
+                  <div className="p-1.5 md:p-2 bg-slate-500/10 rounded-full">
+                    <Wrench className="h-4 w-4 md:h-5 md:w-5 text-slate-700" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-l-4 border-l-cyan-500">
+              <CardContent className="p-3 md:p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs md:text-sm font-medium text-muted-foreground">
+                      Insp. due soon
+                    </p>
+                    <p
+                      className="text-xl md:text-2xl font-bold text-cyan-700"
+                      data-testid="stat-insp-due"
+                    >
+                      {counters.hmoInspectionDueSoon || 0}
+                    </p>
+                  </div>
+                  <div className="p-1.5 md:p-2 bg-cyan-500/10 rounded-full">
+                    <Calendar className="h-4 w-4 md:h-5 md:w-5 text-cyan-700" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-l-4 border-l-red-600">
+              <CardContent className="p-3 md:p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs md:text-sm font-medium text-muted-foreground">
+                      Insp. missed
+                    </p>
+                    <p
+                      className="text-xl md:text-2xl font-bold text-red-700"
+                      data-testid="stat-insp-missed"
+                    >
+                      {counters.hmoInspectionMissed || 0}
+                    </p>
+                  </div>
+                  <div className="p-1.5 md:p-2 bg-red-500/10 rounded-full">
+                    <AlertTriangle className="h-4 w-4 md:h-5 md:w-5 text-red-700" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-l-4 border-l-indigo-600">
+              <CardContent className="p-3 md:p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs md:text-sm font-medium text-muted-foreground">
+                      Council rules
+                    </p>
+                    <p
+                      className="text-xl md:text-2xl font-bold text-indigo-700"
+                      data-testid="stat-rules-review"
+                    >
+                      {counters.rulesReviewNeeded || data?.rulesReviewNeeded || 0}
+                    </p>
+                    <Link href="/hmo/rules" className="text-xs text-primary underline">
+                      Open rules review
+                    </Link>
+                  </div>
+                  <div className="p-1.5 md:p-2 bg-indigo-500/10 rounded-full">
+                    <Scale className="h-4 w-4 md:h-5 md:w-5 text-indigo-700" />
                   </div>
                 </div>
               </CardContent>
@@ -342,6 +522,14 @@ export default function HmoDashboard() {
                 <Input
                   value={boroughQ}
                   onChange={(e) => setBoroughQ(e.target.value)}
+                  placeholder="Search…"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Council / authority</Label>
+                <Input
+                  value={authorityQ}
+                  onChange={(e) => setAuthorityQ(e.target.value)}
                   placeholder="Search…"
                 />
               </div>
@@ -410,6 +598,22 @@ export default function HmoDashboard() {
                     <SelectItem value="all">All</SelectItem>
                     <SelectItem value="has">Has alerts</SelectItem>
                     <SelectItem value="none">No alerts</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Issue type</Label>
+                <Select value={issueFilter} onValueChange={setIssueFilter}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All</SelectItem>
+                    <SelectItem value="licence_missing">Licence evidence missing</SelectItem>
+                    <SelectItem value="occupancy">Occupancy mismatch</SelectItem>
+                    <SelectItem value="safety_docs">Missing safety document</SelectItem>
+                    <SelectItem value="insp_due">HMO inspection due soon</SelectItem>
+                    <SelectItem value="insp_missed">HMO inspection missed</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -486,9 +690,17 @@ export default function HmoDashboard() {
                         {statusMeta.label}
                       </Badge>
                       <p className="text-sm tabular-nums">{p.alertCount ?? 0}</p>
-                      <p className="text-sm text-muted-foreground truncate">
-                        {p.nextAction || "—"}
-                      </p>
+                      <div className="min-w-0">
+                        <p className="text-sm text-muted-foreground truncate">
+                          {p.alertProblem || p.nextAction || "—"}
+                        </p>
+                        {p.ruleSourceLabel && (
+                          <p className="text-[11px] text-muted-foreground truncate">
+                            {p.ruleSourceLabel}
+                            {p.alertSeverity ? ` · ${p.alertSeverity}` : ""}
+                          </p>
+                        )}
+                      </div>
                       <span className="inline-flex items-center text-sm text-primary font-medium">
                         Open <ArrowRight className="h-3.5 w-3.5 ml-1" />
                       </span>

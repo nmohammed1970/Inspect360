@@ -1730,6 +1730,15 @@ export default function Maintenance() {
                         )}
                       </div>
 
+                      {(request.source === "hmo_finding" ||
+                        (request.aiAnalysisJson as any)?.source === "hmo_finding") &&
+                        request.verificationStatus === "awaiting_verification" && (
+                          <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 mb-2">
+                            HMO work reported complete — awaiting authorised verification before
+                            this request can close.
+                          </div>
+                        )}
+
                       {user?.role === "owner" && request.status !== "completed" && (
                         <div className="flex flex-col sm:flex-row gap-2">
                           <Select
@@ -1790,6 +1799,68 @@ export default function Maintenance() {
                             <span className="hidden sm:inline">Create Work Order</span>
                             <span className="sm:hidden">Work Order</span>
                           </Button>
+
+                          {(request.source === "hmo_finding" ||
+                            (request.aiAnalysisJson as any)?.source === "hmo_finding") &&
+                            (request.verificationStatus === "awaiting_verification" ||
+                              request.verificationStatus === "rejected" ||
+                              request.status === "in_progress") && (
+                              <>
+                                <Button
+                                  size="sm"
+                                  className="h-8"
+                                  data-testid={`button-hmo-verify-${request.id}`}
+                                  onClick={async () => {
+                                    try {
+                                      await apiRequest(
+                                        "POST",
+                                        `/api/maintenance/${request.id}/hmo-verification`,
+                                        { action: "verify" },
+                                      );
+                                      queryClient.invalidateQueries({
+                                        queryKey: ["/api/maintenance"],
+                                      });
+                                      toast({ title: "HMO issue verified closed" });
+                                    } catch (e: any) {
+                                      toast({
+                                        title: "Verification failed",
+                                        description: e.message,
+                                        variant: "destructive",
+                                      });
+                                    }
+                                  }}
+                                >
+                                  Confirm resolved
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
+                                  className="h-8"
+                                  data-testid={`button-hmo-reject-${request.id}`}
+                                  onClick={async () => {
+                                    try {
+                                      await apiRequest(
+                                        "POST",
+                                        `/api/maintenance/${request.id}/hmo-verification`,
+                                        { action: "reject", notes: "Rejected — reopen" },
+                                      );
+                                      queryClient.invalidateQueries({
+                                        queryKey: ["/api/maintenance"],
+                                      });
+                                      toast({ title: "Reopened — verification rejected" });
+                                    } catch (e: any) {
+                                      toast({
+                                        title: "Could not reject",
+                                        description: e.message,
+                                        variant: "destructive",
+                                      });
+                                    }
+                                  }}
+                                >
+                                  Reject — reopen
+                                </Button>
+                              </>
+                            )}
                         </div>
                       )}
                     </div>

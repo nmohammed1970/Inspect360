@@ -6185,6 +6185,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return {
           templateId: template.id,
           templateName: template.name,
+          isHmoTemplate: Boolean((template as any).isHmoTemplate),
           monthData,
           complianceRate,
           totalScheduled,
@@ -15432,6 +15433,20 @@ ${optionalNotes || "No details provided."}`;
       // Prevent organizationId from being changed
       const { organizationId: _, ...safeUpdates } = validation.data as any;
 
+      if (
+        safeUpdates.status === "completed" ||
+        safeUpdates.status === "closed"
+      ) {
+        const { assertHmoMaintenanceCloseable } = await import("./hmo/maintenanceVerification");
+        const gate = assertHmoMaintenanceCloseable(
+          existingRequest as any,
+          safeUpdates.status,
+        );
+        if (!gate.ok) {
+          return res.status(400).json({ message: gate.message, code: "HMO_VERIFICATION_REQUIRED" });
+        }
+      }
+
       // Use the new updateMaintenanceRequest method for full updates
       const request = await storage.updateMaintenanceRequest(id, safeUpdates);
       res.json(request);
@@ -15440,6 +15455,36 @@ ${optionalNotes || "No details provided."}`;
       res.status(500).json({ message: "Failed to update maintenance request" });
     }
   });
+
+  app.post(
+    "/api/maintenance/:id/hmo-verification",
+    isAuthenticated,
+    requireCompanyModule("maintenance"),
+    requireRole("owner", "compliance"),
+    async (req: any, res) => {
+      try {
+        const user = await storage.getUser(req.user.id);
+        if (!user?.organizationId) {
+          return res.status(403).json({ message: "Unauthorized" });
+        }
+        const action = req.body?.action === "reject" ? "reject" : "verify";
+        const { verifyHmoMaintenanceRequest } = await import("./hmo/maintenanceVerification");
+        const updated = await verifyHmoMaintenanceRequest({
+          organizationId: user.organizationId,
+          maintenanceRequestId: req.params.id,
+          userId: user.id,
+          action,
+          notes: req.body?.notes != null ? String(req.body.notes) : null,
+        });
+        res.json(updated);
+      } catch (error: any) {
+        console.error("Error verifying HMO maintenance:", error);
+        res.status(error?.status || 500).json({
+          message: error?.message || "Failed to verify maintenance request",
+        });
+      }
+    },
+  );
 
   // ==================== CREDIT ROUTES ====================
 
@@ -15831,6 +15876,7 @@ ${optionalNotes || "No details provided."}`;
         return {
           templateId: template.id,
           templateName: template.name,
+          isHmoTemplate: Boolean((template as any).isHmoTemplate),
           monthData,
           complianceRate,
           totalScheduled,
@@ -17751,6 +17797,19 @@ ${optionalNotes || "No details provided."}`;
 
       const completedAt = status === "completed" ? new Date() : undefined;
       const updated = await storage.updateWorkOrderStatus(req.params.id, status, completedAt);
+
+      if (status === "completed" && user.organizationId) {
+        try {
+          const { onWorkOrderCompletedForHmo } = await import("./hmo/maintenanceVerification");
+          await onWorkOrderCompletedForHmo({
+            workOrderId: req.params.id,
+            organizationId: user.organizationId,
+          });
+        } catch (hmoErr) {
+          console.warn("[hmo] WO completion verification hook failed:", hmoErr);
+        }
+      }
+
       res.json(updated);
     } catch (error) {
       console.error("Error updating work order status:", error);
@@ -19531,6 +19590,7 @@ ${optionalNotes || "No details provided."}`;
         version: newVersion,
         parentTemplateId: existing.parentTemplateId || existing.id,
         isActive: req.body.isActive ?? false,
+        isHmoTemplate: existing.isHmoTemplate ?? false,
         createdBy: req.user.id
       });
 

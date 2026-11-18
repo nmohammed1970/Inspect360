@@ -113,6 +113,7 @@ const templateMetaSchema = z.object({
   description: z.string().optional(),
   scope: z.enum(["property", "block", "both"]),
   categoryId: z.string().optional(),
+  isHmoTemplate: z.boolean().default(false),
   completionChecklistId: z.string().optional().nullable(),
   isActive: z.boolean().default(true),
   version: z.number().default(1),
@@ -345,6 +346,7 @@ export function TemplateBuilder({
       description: template?.description || "",
       scope: template?.scope || "property",
       categoryId: template?.categoryId || undefined,
+      isHmoTemplate: template?.isHmoTemplate ?? false,
       completionChecklistId: template?.completionChecklistId || null,
       isActive: template?.isActive ?? true,
       version: template?.version || 1,
@@ -378,7 +380,7 @@ export function TemplateBuilder({
       const payload = {
         ...data,
         ...(hideOrgFields
-          ? { categoryId: null, completionChecklistId: null }
+          ? { categoryId: null, completionChecklistId: null, isHmoTemplate: false }
           : {}),
         reportConfig: data.reportConfig
           ? {
@@ -982,7 +984,7 @@ export function TemplateBuilder({
         }}
       >
         <DialogHeader className="p-4 sm:p-6 pb-3 sm:pb-4 border-b shrink-0">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pr-8 sm:pr-0">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pr-8">
             <DialogTitle className="text-xl sm:text-2xl break-words min-w-0">
               {template ? "Edit Template" : "Create Template"}
             </DialogTitle>
@@ -1005,9 +1007,6 @@ export function TemplateBuilder({
               >
                 <Save className="w-4 h-4 mr-2 shrink-0" />
                 {saveMutation.isPending ? "Saving..." : "Save Template"}
-              </Button>
-              <Button variant="ghost" size="icon" className="min-h-11 min-w-11 hidden sm:inline-flex" onClick={onClose} data-testid="button-close-builder">
-                <X className="w-4 h-4" />
               </Button>
             </div>
           </div>
@@ -1153,6 +1152,30 @@ export function TemplateBuilder({
                                 </SelectContent>
                               </Select>
                               <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      )}
+                      {!hideOrgFields && (
+                        <FormField
+                          control={form.control}
+                          name="isHmoTemplate"
+                          render={({ field }) => (
+                            <FormItem className="flex items-center justify-between gap-2 space-y-0 rounded-lg border px-3 py-2.5">
+                              <div className="space-y-0.5">
+                                <FormLabel>HMO template</FormLabel>
+                                <FormDescription>
+                                  Mark for HMO inspection schedules — due and missed visits surface on
+                                  the HMO tab and dashboard.
+                                </FormDescription>
+                              </div>
+                              <FormControl>
+                                <Switch
+                                  checked={field.value ?? false}
+                                  onCheckedChange={field.onChange}
+                                  data-testid="switch-template-hmo"
+                                />
+                              </FormControl>
                             </FormItem>
                           )}
                         />

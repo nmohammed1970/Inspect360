@@ -105,7 +105,6 @@ function sampleExtraction(overrides: Partial<HmoLicenceExtraction> = {}): HmoLic
     maxPersons: null,
     confirmedPersons: 2,
     proposedAdditional: 1,
-    roomEvidenceComplete: true,
   });
   assert.equal(blocked.decision, "INSUFFICIENT_EVIDENCE");
 
@@ -113,7 +112,6 @@ function sampleExtraction(overrides: Partial<HmoLicenceExtraction> = {}): HmoLic
     maxPersons: 5,
     confirmedPersons: 5,
     proposedAdditional: 1,
-    roomEvidenceComplete: true,
   });
   assert.equal(over.decision, "BLOCK_REVIEW_REQUIRED");
 
@@ -121,7 +119,6 @@ function sampleExtraction(overrides: Partial<HmoLicenceExtraction> = {}): HmoLic
     maxPersons: 5,
     confirmedPersons: 3,
     proposedAdditional: 1,
-    roomEvidenceComplete: true,
   });
   assert.equal(ok.decision, "ALLOW_FOR_CHECKED_CONSTRAINTS");
 }

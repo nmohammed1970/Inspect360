@@ -1,5 +1,5 @@
 import type { Express, Response, NextFunction } from "express";
-import { createHash, randomBytes, randomUUID } from "crypto";
+import { randomBytes, randomUUID } from "crypto";
 import multer from "multer";
 import { isAuthenticated, requireCompanyModule } from "../auth";
 import { storage as appStorage } from "../storage";
@@ -9,17 +9,8 @@ import { extractLicenceFromText } from "./extraction";
 import { runAssessment } from "./assessmentRunner";
 import * as hmoStorage from "./storage";
 import { buildOccupancyFromTenancies, evaluateRooms } from "./occupancy";
-import {
-  approveRuleAndQueueImpact,
-  runWeeklySourceWatcher,
-  seedBaselineRules,
-  summariseSourceDiff,
-} from "./regulatory";
-import { bulkImportLicences } from "./bulk";
 import { preAggregateDashboardMetrics } from "./metrics";
 import { triggerPropertyReassessment } from "./reassessmentTriggers";
-import { processQueuedRuleImpactRuns } from "./impactWorker";
-import { runScheduledSourceWatcher } from "./sourceWatcher";
 import { processRenewalAlertsForOrg } from "./renewalAlerts";
 import {
   assertAllowedMime,
@@ -31,12 +22,18 @@ import {
   malwareScanHook,
 } from "./documentPipeline";
 import { scoreAddressMatch } from "./addressMatcher";
-import { dispatchHmoNotification } from "./notificationDispatcher";
-import { fetchReapitOccupancyHint } from "./reapitAdapter";
 import {
-  buildEvidenceRequestCopy,
-  hmoChecksForTask,
-} from "./evidenceCopy";
+  createOrReuseMaintenanceForFinding,
+  findOpenMaintenanceForFinding,
+  isMaintenanceModuleEnabled,
+} from "./maintenanceFromFindings";
+import {
+  approveRuleAndQueueImpact,
+  runWeeklySourceWatcher,
+  seedBaselineRules,
+  summariseSourceDiff,
+} from "./regulatory";
+import { processQueuedRuleImpactRuns } from "./impactWorker";
 
 const hmoUpload = multer({
   storage: multer.memoryStorage(),
@@ -56,10 +53,6 @@ function orgId(req: any): string {
   return req.user.organizationId as string;
 }
 
-function hashToken(token: string): string {
-  return createHash("sha256").update(token).digest("hex");
-}
-
 async function assertPropertyInOrg(propertyId: string, organizationId: string) {
   const property = await appStorage.getProperty(propertyId);
   if (!property || property.organizationId !== organizationId) {
@@ -70,128 +63,6 @@ async function assertPropertyInOrg(propertyId: string, organizationId: string) {
 
 export function registerHmoRoutes(app: Express) {
   const moduleGate = requireCompanyModule("hmo_compliance");
-
-  // -------- Public evidence token routes (no auth / no module gate) --------
-  app.get("/api/hmo/evidence/:token", async (req, res) => {
-    try {
-      const token = String(req.params.token || "");
-      if (!token || token.length < 16) {
-        return res.status(400).json({ message: "Invalid token" });
-      }
-      const request = await hmoStorage.getEvidenceRequestByTokenHash(hashToken(token));
-      if (!request) return res.status(404).json({ message: "Evidence request not found" });
-      if (request.expiryAt && new Date(request.expiryAt).getTime() < Date.now()) {
-        return res.status(410).json({ message: "Evidence request expired" });
-      }
-      return res.json({
-        id: request.id,
-        status: request.status,
-        expiryAt: request.expiryAt,
-        requestTemplate: request.requestTemplate,
-        taskId: request.taskId,
-      });
-    } catch (error) {
-      console.error("[hmo] public evidence get failed:", error);
-      return res.status(500).json({ message: "Failed to load evidence request" });
-    }
-  });
-
-  app.post("/api/hmo/evidence/:token", hmoUpload.single("file"), async (req: any, res) => {
-    try {
-      const token = String(req.params.token || "");
-      const request = await hmoStorage.getEvidenceRequestByTokenHash(hashToken(token));
-      if (!request) return res.status(404).json({ message: "Evidence request not found" });
-      if (request.expiryAt && new Date(request.expiryAt).getTime() < Date.now()) {
-        return res.status(410).json({ message: "Evidence request expired" });
-      }
-
-      const file = req.file as Express.Multer.File | undefined;
-      let objectUrl =
-        typeof req.body?.objectUrl === "string" && req.body.objectUrl
-          ? req.body.objectUrl
-          : null;
-      let fileName =
-        typeof req.body?.fileName === "string" && req.body.fileName
-          ? req.body.fileName
-          : file?.originalname || null;
-      let contentHash: string | null = null;
-
-      if (file) {
-        const mime = assertAllowedMime(file.mimetype, file.originalname || fileName);
-        assertUploadSize(file.size);
-        contentHash = hashContent(file.buffer);
-        await malwareScanHook({
-          contentHash,
-          mime,
-          byteLength: file.size,
-        });
-
-        const objectStorageService = new ObjectStorageService();
-        const objectId = randomUUID();
-        const normalizedPath = await objectStorageService.saveUploadedFile(
-          objectId,
-          file.buffer,
-          mime,
-        );
-        objectUrl = normalizedPath;
-        fileName = file.originalname || fileName;
-
-        try {
-          await objectStorageService.trySetObjectEntityAclPolicy(normalizedPath, {
-            owner: `evidence:${request.id}`,
-            visibility: "private",
-          });
-        } catch (aclErr) {
-          console.warn("[hmo] public evidence ACL set failed:", aclErr);
-        }
-      }
-
-      if (!objectUrl) {
-        console.warn("[hmo] public evidence missing file/url", {
-          hasFile: Boolean(file),
-          contentType: req.headers["content-type"],
-          bodyKeys: req.body ? Object.keys(req.body) : [],
-        });
-        return res.status(400).json({
-          message: "Please choose a PDF or image file, then submit again",
-        });
-      }
-
-      const review = await hmoStorage.createEvidenceReview({
-        organizationId: request.organizationId,
-        taskId: request.taskId,
-        evidenceObjectUrl: objectUrl,
-        decision: null,
-        aiResult: {
-          fileName,
-          contentHash,
-          source: file ? "public_token_file_upload" : "public_token_url_upload",
-          mime: file?.mimetype || null,
-          size: file?.size || null,
-        },
-      });
-
-      return res.status(201).json({
-        ok: true,
-        reviewId: review.id,
-        status: "RECEIVED",
-        objectUrl,
-        fileName,
-      });
-    } catch (error: any) {
-      console.error("[hmo] public evidence post failed:", error);
-      if (String(error?.message || "").includes("MIME type not allowed")) {
-        return res.status(400).json({ message: error.message });
-      }
-      if (
-        String(error?.message || "").includes("Upload exceeds") ||
-        String(error?.message || "").includes("Empty upload")
-      ) {
-        return res.status(400).json({ message: error.message });
-      }
-      return res.status(500).json({ message: "Failed to submit evidence" });
-    }
-  });
 
   // -------- Authenticated module routes --------
   app.get(
@@ -347,25 +218,47 @@ export function registerHmoRoutes(app: Express) {
         }
 
         if (contentHash) {
-          const existing = await hmoStorage.findLicenceVersionByHash(orgId(req), contentHash);
+          // Dedupe only within this property — same file is allowed on other properties.
+          const existing = await hmoStorage.findLicenceVersionByHash(
+            orgId(req),
+            contentHash,
+            property.id,
+          );
           if (existing) {
+            const extraction = await extractLicenceFromText(extractedText || "", documentId);
+            const refreshed = await hmoStorage.refreshLicenceVersionExtraction({
+              organizationId: orgId(req),
+              versionId: existing.id,
+              extraction,
+              userId: req.user.id,
+              pageCount,
+              objectUrl,
+              fileName,
+            });
             const job = await hmoStorage.createJob({
               organizationId: orgId(req),
               propertyId: property.id,
               jobType: "LICENCE_EXTRACT",
               userId: req.user.id,
               licenceVersionId: existing.id,
-              idempotencyKey: `upload:${contentHash}`,
+              idempotencyKey: `upload:${property.id}:${contentHash}:rextract:${Date.now()}`,
               status: "COMPLETED",
               progress: 100,
-              resultJson: { deduped: true, licenceVersionId: existing.id },
+              resultJson: {
+                deduped: true,
+                reextracted: true,
+                licenceVersionId: existing.id,
+              },
             });
             return res.status(200).json({
               jobId: job.id,
-              licenceVersionId: existing.id,
+              licenceVersionId: refreshed?.id || existing.id,
               deduped: true,
-              objectUrl,
+              reextracted: true,
+              objectUrl: refreshed?.originalObjectUrl || objectUrl,
               contentHash,
+              message:
+                "Identical file already stored on this property — extraction refreshed. Review fields and save again.",
             });
           }
         }
@@ -375,7 +268,9 @@ export function registerHmoRoutes(app: Express) {
           propertyId: property.id,
           jobType: "LICENCE_EXTRACT",
           userId: req.user.id,
-          idempotencyKey: contentHash ? `upload:${contentHash}` : undefined,
+          idempotencyKey: contentHash
+            ? `upload:${property.id}:${contentHash}:${Date.now()}`
+            : undefined,
           status: "RUNNING",
           progress: 10,
         });
@@ -450,6 +345,139 @@ export function registerHmoRoutes(app: Express) {
   );
 
   app.post(
+    "/api/hmo/properties/:propertyId/licences/manual",
+    isAuthenticated,
+    moduleGate,
+    requireHmoPermission("hmo.licence.confirm"),
+    async (req: any, res) => {
+      try {
+        const property = await assertPropertyInOrg(req.params.propertyId, orgId(req));
+        if (!property) return res.status(404).json({ message: "Property not found" });
+
+        const extraction = req.body?.extraction;
+        if (!extraction || typeof extraction !== "object") {
+          return res.status(400).json({ message: "extraction is required" });
+        }
+
+        const existing = await hmoStorage.listLicences(orgId(req), property.id);
+        const primary = existing[0];
+        const currentVersionId = primary?.currentVersionId || primary?.versions?.[0]?.id || null;
+
+        if (currentVersionId) {
+          const updated = await hmoStorage.confirmLicenceVersion({
+            organizationId: orgId(req),
+            versionId: currentVersionId,
+            userId: req.user.id,
+            extraction,
+          });
+          if (!updated) return res.status(404).json({ message: "Licence version not found" });
+          return res.json({
+            licenceId: primary!.id,
+            licenceVersionId: updated.id,
+            manual: true,
+            updated: true,
+          });
+        }
+
+        const created = await hmoStorage.createLicenceWithVersion({
+          organizationId: orgId(req),
+          propertyId: property.id,
+          userId: req.user.id,
+          fileName: "Manual entry",
+          extraction,
+        });
+        const confirmed = await hmoStorage.confirmLicenceVersion({
+          organizationId: orgId(req),
+          versionId: created.version.id,
+          userId: req.user.id,
+          extraction,
+        });
+
+        return res.status(201).json({
+          licenceId: created.licence.id,
+          licenceVersionId: confirmed?.id || created.version.id,
+          manual: true,
+          created: true,
+        });
+      } catch (error) {
+        console.error("[hmo] manual licence save failed:", error);
+        res.status(500).json({ message: "Failed to save licence details" });
+      }
+    },
+  );
+
+  app.patch(
+    "/api/hmo/properties/:propertyId/summary",
+    isAuthenticated,
+    moduleGate,
+    requireHmoPermission("hmo.licence.confirm"),
+    async (req: any, res) => {
+      try {
+        const property = await assertPropertyInOrg(req.params.propertyId, orgId(req));
+        if (!property) return res.status(404).json({ message: "Property not found" });
+
+        const parseOptionalInt = (value: unknown): number | null | undefined => {
+          if (value === undefined) return undefined;
+          if (value === null || value === "") return null;
+          const n = Number(value);
+          return Number.isFinite(n) ? Math.trunc(n) : null;
+        };
+
+        const result = await hmoStorage.upsertPropertySummary({
+          organizationId: orgId(req),
+          propertyId: property.id,
+          userId: req.user.id,
+          borough:
+            req.body?.borough === undefined
+              ? undefined
+              : req.body?.borough
+                ? String(req.body.borough).trim()
+                : null,
+          lifecycleStatus:
+            typeof req.body?.lifecycleStatus === "string" ? req.body.lifecycleStatus : null,
+          expiryDate:
+            req.body?.expiryDate === undefined
+              ? undefined
+              : req.body?.expiryDate
+                ? String(req.body.expiryDate).slice(0, 10)
+                : null,
+          maxPersons: parseOptionalInt(req.body?.maxPersons),
+          occupantsNow: parseOptionalInt(req.body?.occupantsNow),
+        });
+
+        let profile = null;
+        if (
+          req.body?.licenceEvidenceStatus !== undefined ||
+          req.body?.licenceEvidenceNotes !== undefined
+        ) {
+          profile = await hmoStorage.updateLicenceEvidenceStatus({
+            organizationId: orgId(req),
+            propertyId: property.id,
+            userId: req.user.id,
+            licenceEvidenceStatus:
+              req.body?.licenceEvidenceStatus === undefined
+                ? undefined
+                : req.body?.licenceEvidenceStatus
+                  ? String(req.body.licenceEvidenceStatus)
+                  : "UNKNOWN",
+            licenceEvidenceNotes:
+              req.body?.licenceEvidenceNotes === undefined
+                ? undefined
+                : req.body?.licenceEvidenceNotes == null
+                  ? null
+                  : String(req.body.licenceEvidenceNotes),
+          });
+        }
+
+        res.json({ ...result, profile });
+      } catch (error) {
+        console.error("[hmo] summary update failed:", error);
+        res.status(500).json({ message: "Failed to update property summary" });
+      }
+    },
+  );
+
+  app.post(
     "/api/hmo/licence-versions/:id/confirm",
     isAuthenticated,
     moduleGate,
@@ -512,6 +540,60 @@ export function registerHmoRoutes(app: Express) {
         console.error("[hmo] alert action failed:", error);
         const status = error?.status || 500;
         res.status(status).json({ message: error?.message || "Alert action failed" });
+      }
+    },
+  );
+
+  app.post(
+    "/api/hmo/findings/:id/maintenance-request",
+    isAuthenticated,
+    moduleGate,
+    requireHmoPermission("hmo.case.write"),
+    async (req: any, res) => {
+      try {
+        const finding = await hmoStorage.getFinding(orgId(req), req.params.id);
+        if (!finding) return res.status(404).json({ message: "Finding not found" });
+        if (!finding.propertyId) {
+          return res.status(400).json({ message: "Finding is not linked to a property" });
+        }
+        const result = await createOrReuseMaintenanceForFinding({
+          organizationId: orgId(req),
+          propertyId: finding.propertyId,
+          userId: req.user.id,
+          finding,
+          force: true,
+        });
+        if (result.maintenanceDisabled) {
+          return res.status(403).json({
+            code: "COMPANY_MODULE_DISABLED",
+            module: "maintenance",
+            message:
+              "Maintenance module is required to raise work orders from HMO findings. The finding remains visible.",
+          });
+        }
+        res.status(result.created ? 201 : 200).json(result);
+      } catch (error: any) {
+        console.error("[hmo] finding maintenance failed:", error);
+        res.status(500).json({ message: error?.message || "Failed to create maintenance request" });
+      }
+    },
+  );
+
+  app.get(
+    "/api/hmo/findings/:id/maintenance-request",
+    isAuthenticated,
+    moduleGate,
+    requireHmoPermission("hmo.case.read"),
+    async (req: any, res) => {
+      try {
+        const finding = await hmoStorage.getFinding(orgId(req), req.params.id);
+        if (!finding) return res.status(404).json({ message: "Finding not found" });
+        const enabled = await isMaintenanceModuleEnabled(orgId(req));
+        const existing = await findOpenMaintenanceForFinding(orgId(req), finding);
+        res.json({ maintenanceEnabled: enabled, maintenanceRequest: existing });
+      } catch (error) {
+        console.error("[hmo] finding maintenance lookup failed:", error);
+        res.status(500).json({ message: "Failed to look up maintenance request" });
       }
     },
   );
@@ -616,439 +698,16 @@ export function registerHmoRoutes(app: Express) {
           typeof req.body?.confirmedPersons === "number" ? req.body.confirmedPersons : null;
         const proposedAdditional =
           typeof req.body?.proposedAdditional === "number" ? req.body.proposedAdditional : 0;
-        const roomEvidenceComplete = req.body?.roomEvidenceComplete === true;
 
         const result = evaluatePreTenancyCheck({
           maxPersons,
           confirmedPersons,
           proposedAdditional,
-          roomEvidenceComplete,
         });
         res.json(result);
       } catch (error) {
         console.error("[hmo] occupancy-check failed:", error);
         res.status(500).json({ message: "Occupancy check failed" });
-      }
-    },
-  );
-
-  app.get(
-    "/api/hmo/cases",
-    isAuthenticated,
-    moduleGate,
-    requireHmoPermission("hmo.case.read"),
-    async (req: any, res) => {
-      try {
-        const cases = await hmoStorage.listCases(orgId(req), {
-          propertyId: typeof req.query.propertyId === "string" ? req.query.propertyId : undefined,
-          status: typeof req.query.status === "string" ? req.query.status : undefined,
-        });
-        res.json(cases);
-      } catch (error) {
-        console.error("[hmo] list cases failed:", error);
-        res.status(500).json({ message: "Failed to list cases" });
-      }
-    },
-  );
-
-  app.post(
-    "/api/hmo/cases",
-    isAuthenticated,
-    moduleGate,
-    requireHmoPermission("hmo.case.write"),
-    async (req: any, res) => {
-      try {
-        const propertyId = String(req.body?.propertyId || "");
-        const property = await assertPropertyInOrg(propertyId, orgId(req));
-        if (!property) return res.status(404).json({ message: "Property not found" });
-
-        const created = await hmoStorage.createCaseWithTasks({
-          organizationId: orgId(req),
-          propertyId: property.id,
-          userId: req.user.id,
-          severity: typeof req.body?.severity === "string" ? req.body.severity : "HIGH",
-          assessmentId: req.body?.assessmentId || null,
-          findingIds: Array.isArray(req.body?.findingIds) ? req.body.findingIds : [],
-          seedParkViewTasks: req.body?.seedTasks !== false,
-        });
-        res.status(201).json(created);
-      } catch (error) {
-        console.error("[hmo] create case failed:", error);
-        res.status(500).json({ message: "Failed to create case" });
-      }
-    },
-  );
-
-  app.get(
-    "/api/hmo/cases/:id",
-    isAuthenticated,
-    moduleGate,
-    requireHmoPermission("hmo.case.read"),
-    async (req: any, res) => {
-      try {
-        const detail = await hmoStorage.getCase(orgId(req), req.params.id);
-        if (!detail) return res.status(404).json({ message: "Case not found" });
-        res.json(detail);
-      } catch (error) {
-        console.error("[hmo] get case failed:", error);
-        res.status(500).json({ message: "Failed to load case" });
-      }
-    },
-  );
-
-  app.patch(
-    "/api/hmo/cases/:id/assign",
-    isAuthenticated,
-    moduleGate,
-    requireHmoPermission("hmo.case.assign"),
-    async (req: any, res) => {
-      try {
-        const ownerUserId = String(req.body?.ownerUserId || "");
-        if (!ownerUserId) return res.status(400).json({ message: "ownerUserId is required" });
-        const updated = await hmoStorage.assignCase({
-          organizationId: orgId(req),
-          caseId: req.params.id,
-          ownerUserId,
-          actorUserId: req.user.id,
-        });
-        if (!updated) return res.status(404).json({ message: "Case not found" });
-        await dispatchHmoNotification({
-          organizationId: orgId(req),
-          userId: ownerUserId,
-          title: "HMO case assigned",
-          message: `You were assigned HMO case ${updated.caseReference || updated.id}`,
-          link: `/hmo/cases/${updated.id}`,
-        });
-        res.json(updated);
-      } catch (error) {
-        console.error("[hmo] assign case failed:", error);
-        res.status(500).json({ message: "Failed to assign case" });
-      }
-    },
-  );
-
-  app.post(
-    "/api/hmo/cases/:id/signoff",
-    isAuthenticated,
-    moduleGate,
-    requireHmoPermission("hmo.critical.close"),
-    async (req: any, res) => {
-      try {
-        const updated = await hmoStorage.signoffCase({
-          organizationId: orgId(req),
-          caseId: req.params.id,
-          approverId: req.user.id,
-          closureReason:
-            typeof req.body?.closureReason === "string" ? req.body.closureReason : null,
-        });
-        if (!updated) return res.status(404).json({ message: "Case not found" });
-        res.json(updated);
-      } catch (error) {
-        console.error("[hmo] signoff failed:", error);
-        res.status(500).json({ message: "Failed to sign off case" });
-      }
-    },
-  );
-
-  app.get(
-    "/api/hmo/cases/:id/tasks",
-    isAuthenticated,
-    moduleGate,
-    requireHmoPermission("hmo.case.read"),
-    async (req: any, res) => {
-      try {
-        const detail = await hmoStorage.getCase(orgId(req), req.params.id);
-        if (!detail) return res.status(404).json({ message: "Case not found" });
-        res.json(detail.tasks);
-      } catch (error) {
-        console.error("[hmo] list tasks failed:", error);
-        res.status(500).json({ message: "Failed to list tasks" });
-      }
-    },
-  );
-
-  app.post(
-    "/api/hmo/tasks/:id/evidence-requests",
-    isAuthenticated,
-    moduleGate,
-    requireHmoPermission("hmo.notification.send"),
-    async (req: any, res) => {
-      try {
-        const task = await hmoStorage.getTask(orgId(req), req.params.id);
-        if (!task) return res.status(404).json({ message: "Task not found" });
-
-        const rawToken = randomBytes(24).toString("hex");
-        const expiryAt = new Date();
-        expiryAt.setDate(expiryAt.getDate() + (Number(req.body?.expiryDays) || 14));
-
-        const recipientEmail =
-          typeof req.body?.recipientEmail === "string" && req.body.recipientEmail.trim()
-            ? req.body.recipientEmail.trim()
-            : null;
-
-        let propertyName = "Property";
-        let propertyAddress: string | null = null;
-        let neededCheckIds = hmoChecksForTask(task.taskCode);
-        if (task.caseId) {
-          const detail = await hmoStorage.getCase(orgId(req), task.caseId);
-          if (detail?.property) {
-            propertyName = detail.property.name || propertyName;
-            propertyAddress = detail.property.address || null;
-          }
-          const linkedIds = (detail?.findings || [])
-            .map((f: any) => f?.checkId as string)
-            .filter(Boolean);
-          const related = hmoChecksForTask(task.taskCode);
-          const preferred = related.filter((id) => linkedIds.includes(id));
-          if (preferred.length > 0) neededCheckIds = preferred;
-          else if (related.length > 0) neededCheckIds = related;
-        }
-
-        const copy = buildEvidenceRequestCopy({
-          propertyName,
-          propertyAddress,
-          taskCode: task.taskCode,
-          taskTitle: task.title,
-          neededCheckIds,
-        });
-        const requestTemplate =
-          typeof req.body?.requestTemplate === "string" && req.body.requestTemplate.trim()
-            ? req.body.requestTemplate.trim()
-            : copy.requestTemplate;
-
-        const request = await hmoStorage.createEvidenceRequest({
-          organizationId: orgId(req),
-          taskId: task.id,
-          userId: req.user.id,
-          recipientEmail,
-          recipientContactId:
-            typeof req.body?.recipientContactId === "string"
-              ? req.body.recipientContactId
-              : null,
-          requestTemplate,
-          secureTokenHash: hashToken(rawToken),
-          expiryAt,
-        });
-
-        const publicPath = `/hmo/evidence/${rawToken}`;
-        const baseUrl = (
-          process.env.BASE_URL ||
-          req.headers.origin ||
-          `${req.protocol}://${req.get("host")}` ||
-          `http://localhost:${process.env.PORT || 5005}`
-        ).replace(/\/$/, "");
-        const publicUrl = `${baseUrl}${publicPath}`;
-
-        let emailSent = false;
-        let emailError: string | null = null;
-        if (recipientEmail) {
-          try {
-            const { sendEmail } = await import("../resend");
-            const expiryLabel = expiryAt.toLocaleString("en-GB", {
-              day: "numeric",
-              month: "short",
-              year: "numeric",
-              hour: "2-digit",
-              minute: "2-digit",
-            });
-            const escapedTemplate = requestTemplate
-              .replace(/&/g, "&amp;")
-              .replace(/</g, "&lt;")
-              .replace(/>/g, "&gt;")
-              .replace(/\n/g, "<br/>");
-            await sendEmail({
-              to: recipientEmail,
-              subject: copy.subject,
-              text: [
-                requestTemplate,
-                "",
-                `Upload your document here (secure one-off link):`,
-                publicUrl,
-                "",
-                `This link expires on ${expiryLabel}.`,
-                "You will only be able to upload the requested file — no other property information is visible.",
-              ].join("\n"),
-              html: `
-                <p>${escapedTemplate}</p>
-                <p><a href="${publicUrl}">Upload evidence for ${copy.neededSummary.replace(/</g, "&lt;")}</a></p>
-                <p style="color:#64748b;font-size:13px;">This secure one-off link expires on ${expiryLabel}. You only upload the requested file — other property information is not visible.</p>
-              `,
-            });
-            emailSent = true;
-          } catch (err: any) {
-            emailError = err?.message || "Failed to send email";
-            console.error("[hmo] evidence request email failed:", err);
-          }
-        }
-
-        res.status(201).json({
-          request,
-          // Returned once so the caller can share the secure link
-          token: rawToken,
-          publicPath,
-          publicUrl,
-          emailSent,
-          emailError,
-          propertyName,
-          neededSummary: copy.neededSummary,
-          requestTemplate,
-        });
-      } catch (error) {
-        console.error("[hmo] evidence request failed:", error);
-        res.status(500).json({ message: "Failed to create evidence request" });
-      }
-    },
-  );
-
-  app.post(
-    "/api/hmo/tasks/:id/evidence-reviews",
-    isAuthenticated,
-    moduleGate,
-    requireHmoPermission("hmo.case.write"),
-    hmoUpload.single("file"),
-    async (req: any, res) => {
-      try {
-        const task = await hmoStorage.getTask(orgId(req), req.params.id);
-        if (!task) return res.status(404).json({ message: "Task not found" });
-
-        const file = req.file as Express.Multer.File | undefined;
-        let objectUrl =
-          typeof req.body?.evidenceObjectUrl === "string" && req.body.evidenceObjectUrl
-            ? req.body.evidenceObjectUrl
-            : typeof req.body?.objectUrl === "string" && req.body.objectUrl
-              ? req.body.objectUrl
-              : null;
-        let fileName =
-          typeof req.body?.fileName === "string" && req.body.fileName
-            ? req.body.fileName
-            : file?.originalname || null;
-        let contentHash: string | null = null;
-        let mime: string | null = null;
-
-        if (file) {
-          mime = assertAllowedMime(file.mimetype, file.originalname || fileName);
-          assertUploadSize(file.size);
-          contentHash = hashContent(file.buffer);
-          await malwareScanHook({
-            contentHash,
-            mime,
-            byteLength: file.size,
-          });
-
-          const objectStorageService = new ObjectStorageService();
-          const objectId = randomUUID();
-          const normalizedPath = await objectStorageService.saveUploadedFile(
-            objectId,
-            file.buffer,
-            mime,
-          );
-          objectUrl = normalizedPath;
-          fileName = file.originalname || fileName;
-
-          try {
-            await objectStorageService.trySetObjectEntityAclPolicy(normalizedPath, {
-              owner: `user:${req.user.id}`,
-              visibility: "private",
-            });
-          } catch (aclErr) {
-            console.warn("[hmo] staff evidence ACL set failed:", aclErr);
-          }
-        }
-
-        if (!objectUrl && !req.body?.decision) {
-          return res.status(400).json({
-            message: "Upload a PDF or image file, or provide evidenceObjectUrl",
-          });
-        }
-
-        const review = await hmoStorage.createEvidenceReview({
-          organizationId: orgId(req),
-          taskId: task.id,
-          reviewerUserId: req.user.id,
-          evidenceObjectUrl: objectUrl,
-          evidenceId: typeof req.body?.evidenceId === "string" ? req.body.evidenceId : null,
-          decision: typeof req.body?.decision === "string" ? req.body.decision : null,
-          rejectionReason:
-            typeof req.body?.rejectionReason === "string" ? req.body.rejectionReason : null,
-          aiResult: file
-            ? {
-                fileName,
-                contentHash,
-                source: "staff_direct_upload",
-                mime,
-                size: file.size,
-              }
-            : null,
-        });
-        res.status(201).json(review);
-      } catch (error: any) {
-        console.error("[hmo] evidence review failed:", error);
-        if (String(error?.message || "").includes("MIME type not allowed")) {
-          return res.status(400).json({ message: error.message });
-        }
-        if (
-          String(error?.message || "").includes("Upload exceeds") ||
-          String(error?.message || "").includes("Empty upload")
-        ) {
-          return res.status(400).json({ message: error.message });
-        }
-        res.status(500).json({ message: "Failed to record evidence review" });
-      }
-    },
-  );
-
-  app.get(
-    "/api/hmo/evidence-reviews/:id/file",
-    isAuthenticated,
-    moduleGate,
-    requireHmoPermission("hmo.case.read"),
-    async (req: any, res) => {
-      try {
-        const review = await hmoStorage.getEvidenceReview(orgId(req), req.params.id);
-        if (!review?.evidenceObjectUrl) {
-          return res.status(404).json({ message: "Evidence file not found" });
-        }
-        const objectStorageService = new ObjectStorageService();
-        const objectFile = await objectStorageService.getObjectEntityFile(review.evidenceObjectUrl);
-        const ai = (review.aiResult || {}) as Record<string, unknown>;
-        const fileName =
-          typeof ai.fileName === "string" && ai.fileName ? ai.fileName : "evidence";
-        res.setHeader(
-          "Content-Disposition",
-          `inline; filename="${fileName.replace(/"/g, "")}"`,
-        );
-        objectStorageService.downloadObject(objectFile, res);
-      } catch (error) {
-        console.error("[hmo] evidence file download failed:", error);
-        res.status(500).json({ message: "Failed to download evidence" });
-      }
-    },
-  );
-
-  app.patch(
-    "/api/hmo/evidence-reviews/:id",
-    isAuthenticated,
-    moduleGate,
-    requireHmoPermission("hmo.case.write"),
-    async (req: any, res) => {
-      try {
-        const decisionRaw = typeof req.body?.decision === "string" ? req.body.decision : "";
-        if (decisionRaw !== "ACCEPTED" && decisionRaw !== "REJECTED") {
-          return res.status(400).json({ message: "decision must be ACCEPTED or REJECTED" });
-        }
-        const review = await hmoStorage.decideEvidenceReview({
-          organizationId: orgId(req),
-          reviewId: req.params.id,
-          reviewerUserId: req.user.id,
-          decision: decisionRaw,
-          rejectionReason:
-            typeof req.body?.rejectionReason === "string" ? req.body.rejectionReason : null,
-        });
-        if (!review) return res.status(404).json({ message: "Evidence review not found" });
-        res.json(review);
-      } catch (error) {
-        console.error("[hmo] evidence decision failed:", error);
-        res.status(500).json({ message: "Failed to update evidence review" });
       }
     },
   );
@@ -1130,6 +789,7 @@ export function registerHmoRoutes(app: Express) {
           organizationId: orgId(req),
           propertyId: property.id,
           existingRoomId: req.body?.existingRoomId || null,
+          roomName: req.body?.roomName != null ? String(req.body.roomName) : null,
           roomType: req.body?.roomType || null,
           measuredUsableAreaM2:
             typeof req.body?.measuredUsableAreaM2 === "number"
@@ -1141,13 +801,92 @@ export function registerHmoRoutes(app: Express) {
             typeof req.body?.declaredPermittedOccupancy === "number"
               ? req.body.declaredPermittedOccupancy
               : null,
+          sleepingApproved:
+            typeof req.body?.sleepingApproved === "boolean" ? req.body.sleepingApproved : true,
+          measurementSource:
+            typeof req.body?.measurementSource === "string"
+              ? req.body.measurementSource
+              : undefined,
+          humanConfirmed:
+            typeof req.body?.humanConfirmed === "boolean" ? req.body.humanConfirmed : undefined,
           userId: req.user.id,
           id: req.body?.id || null,
         });
-        res.status(201).json(row);
+        let reassessment = null;
+        try {
+          reassessment = await triggerPropertyReassessment({
+            organizationId: orgId(req),
+            propertyId: property.id,
+            userId: req.user.id,
+            reason: "rooms_updated",
+          });
+        } catch (reErr: any) {
+          console.warn("[hmo] post-room reassessment:", reErr?.message || reErr);
+        }
+        res.status(201).json({ ...row, reassessment });
       } catch (error) {
         console.error("[hmo] upsert room failed:", error);
         res.status(500).json({ message: "Failed to save room profile" });
+      }
+    },
+  );
+
+  app.post(
+    "/api/hmo/properties/:propertyId/rooms/import-from-property",
+    isAuthenticated,
+    moduleGate,
+    requireHmoPermission("hmo.case.write"),
+    async (req: any, res) => {
+      try {
+        const property = await assertPropertyInOrg(req.params.propertyId, orgId(req));
+        if (!property) return res.status(404).json({ message: "Property not found" });
+        const result = await hmoStorage.importPropertyRoomsIntoHmo({
+          organizationId: orgId(req),
+          propertyId: property.id,
+          userId: req.user.id,
+        });
+        res.status(201).json({
+          ...result,
+          note: "Imported measurements are suggested until you confirm them on each room.",
+        });
+      } catch (error: any) {
+        console.error("[hmo] import property rooms failed:", error);
+        res.status(500).json({ message: error?.message || "Failed to import rooms" });
+      }
+    },
+  );
+
+  app.get(
+    "/api/hmo/properties/:propertyId/export",
+    isAuthenticated,
+    moduleGate,
+    requireHmoPermission("hmo.case.read"),
+    async (req: any, res) => {
+      try {
+        const property = await assertPropertyInOrg(req.params.propertyId, orgId(req));
+        if (!property) return res.status(404).json({ message: "Property not found" });
+        const overview = await hmoStorage.getOverview(orgId(req), property.id);
+        const { buildHmoAssessmentPdf } = await import("../hmoReportPdf");
+        const pdf = await buildHmoAssessmentPdf({
+          propertyAddress: property.address || property.name || property.id,
+          overallStatus: overview.profile?.overallStatus || "NOT_ASSESSED",
+          evidenceCompleteness: overview.profile?.evidenceCompleteness || 0,
+          findings: (overview.recentFindings || []).map((f: any) => ({
+            checkId: f.checkId,
+            status: f.status,
+            severity: f.severity,
+            reason: f.explanation || undefined,
+          })),
+        });
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="hmo-evidence-${property.id.slice(0, 8)}.pdf"`,
+        );
+        res.send(Buffer.from(pdf));
+      } catch (error) {
+        console.error("[hmo] export failed:", error);
+        res.status(500).json({ message: "Failed to export HMO evidence pack" });
       }
     },
   );
@@ -1173,7 +912,7 @@ export function registerHmoRoutes(app: Express) {
     },
   );
 
-  app.get(
+app.get(
     "/api/hmo/regulatory/sources",
     isAuthenticated,
     moduleGate,
@@ -1275,6 +1014,27 @@ export function registerHmoRoutes(app: Express) {
   );
 
   app.post(
+    "/api/hmo/regulatory/diff-preview",
+    isAuthenticated,
+    moduleGate,
+    requireHmoPermission("hmo.case.read"),
+    async (req: any, res) => {
+      try {
+        const { summariseSourceDiff } = await import("./regulatoryPure");
+        const preview = summariseSourceDiff({
+          previousHash: req.body?.previousHash || null,
+          nextContent: String(req.body?.nextContent || ""),
+          sourceType: req.body?.sourceType || "web",
+        });
+        res.json(preview);
+      } catch (error: any) {
+        console.error("[hmo] diff-preview failed:", error);
+        res.status(400).json({ message: error?.message || "Diff preview failed" });
+      }
+    },
+  );
+
+  app.post(
     "/api/hmo/renewals/process",
     isAuthenticated,
     moduleGate,
@@ -1282,68 +1042,12 @@ export function registerHmoRoutes(app: Express) {
     async (req: any, res) => {
       try {
         const result = await processRenewalAlertsForOrg(orgId(req));
-        res.json(result);
+        const { processHmoInspectionRemindersForOrg } = await import("./inspectionReminders");
+        const inspections = await processHmoInspectionRemindersForOrg(orgId(req));
+        res.json({ ...result, inspections });
       } catch (error) {
         console.error("[hmo] renewal process failed:", error);
         res.status(500).json({ message: "Renewal processing failed" });
-      }
-    },
-  );
-
-  app.post(
-    "/api/hmo/regulatory/diff-preview",
-    isAuthenticated,
-    moduleGate,
-    requireHmoPermission("hmo.case.read"),
-    async (req: any, res) => {
-      try {
-        const diff = summariseSourceDiff({
-          previousHash: req.body?.previousHash || null,
-          nextContent: String(req.body?.nextContent || ""),
-          sourceType: req.body?.sourceType || null,
-        });
-        res.json(diff);
-      } catch (error) {
-        console.error("[hmo] diff preview failed:", error);
-        res.status(500).json({ message: "Diff preview failed" });
-      }
-    },
-  );
-
-  app.post(
-    "/api/hmo/licences/bulk-import",
-    isAuthenticated,
-    moduleGate,
-    requireHmoPermission("hmo.licence.upload"),
-    async (req: any, res) => {
-      try {
-        const items = Array.isArray(req.body?.items) ? req.body.items : [];
-        const result = await bulkImportLicences({
-          organizationId: orgId(req),
-          userId: req.user.id,
-          items,
-        });
-        res.status(201).json(result);
-      } catch (error) {
-        console.error("[hmo] bulk import failed:", error);
-        res.status(500).json({ message: "Bulk import failed" });
-      }
-    },
-  );
-
-  app.get(
-    "/api/hmo/integrations/reapit/occupancy-hint",
-    isAuthenticated,
-    moduleGate,
-    requireHmoPermission("hmo.occupancy.read"),
-    async (req: any, res) => {
-      try {
-        const externalId = String(req.query.externalId || "");
-        const hint = await fetchReapitOccupancyHint({ propertyExternalId: externalId });
-        res.json(hint);
-      } catch (error) {
-        console.error("[hmo] reapit hint failed:", error);
-        res.status(500).json({ message: "Reapit hint failed" });
       }
     },
   );
