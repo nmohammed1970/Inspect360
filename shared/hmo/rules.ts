@@ -479,7 +479,8 @@ export function evaluateLicenceChecks(input: LicenceAssessmentInput): HmoFinding
           severity: "MEDIUM",
           actual_value: "Partial",
           required_value: "Verified dimensions for all sleeping rooms",
-          reason: "One or more rooms lack measurements — Needs attention",
+          reason:
+            "One or more rooms lack verified m² (unconfirmed floor-plan / unscaled import) — Needs review; occupancy not changed",
           human_review_required: true,
           suggested_action_code: "MEASURE_SLEEPING_ROOMS",
         }),
@@ -584,7 +585,7 @@ export function evaluateLicenceChecks(input: LicenceAssessmentInput): HmoFinding
         severity: "MEDIUM",
         actual_value: "Unknown",
         required_value: s.label,
-        reason: `${s.label} not yet verified against property records — Needs attention`,
+        reason: `${s.label} not yet verified — Needs review (evidence required; not a legal finding). Source: company process (stub) until approved council/national overlay applies.`,
         human_review_required: true,
         suggested_action_code: "COLLECT_EVIDENCE",
         confidence: 1,
@@ -768,7 +769,7 @@ export function evaluateOccupancyTotal(opts: {
       severity: "CRITICAL",
       actual_value: String(confirmedPersons),
       required_value: `≤ ${maxPersons}`,
-      reason: "Confirmed occupant count exceeds licence maximum — subject to authorised human review",
+      reason: `${confirmedPersons} residents recorded; licence permits ${maxPersons}.`,
       human_review_required: true,
       suggested_action_code: "OCCUPANCY_REVIEW",
     });
@@ -790,13 +791,14 @@ export function evaluatePreTenancyCheck(opts: {
   maxPersons: number | null;
   confirmedPersons: number | null;
   proposedAdditional: number;
-  roomEvidenceComplete: boolean;
+  /** @deprecated Ignored — total check no longer requires room evidence. */
+  roomEvidenceComplete?: boolean;
 }): { decision: PreTenancyDecision; reason: string } {
-  const { maxPersons, confirmedPersons, proposedAdditional, roomEvidenceComplete } = opts;
-  if (maxPersons == null || confirmedPersons == null || !roomEvidenceComplete) {
+  const { maxPersons, confirmedPersons, proposedAdditional } = opts;
+  if (maxPersons == null || confirmedPersons == null) {
     return {
       decision: "INSUFFICIENT_EVIDENCE",
-      reason: "Licence maximum, verified occupants, or room evidence incomplete",
+      reason: "Licence maximum or verified occupants incomplete",
     };
   }
   if (confirmedPersons + proposedAdditional > maxPersons) {

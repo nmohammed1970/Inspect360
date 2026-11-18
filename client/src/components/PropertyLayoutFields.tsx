@@ -45,6 +45,7 @@ export type PropertyLayoutValue = PropertyRoomCounts & {
       confidence?: "high" | "medium" | "low";
     }>;
     error?: string;
+    detail?: string;
     disclaimer?: string;
   } | null;
 };
@@ -157,6 +158,9 @@ export function PropertyLayoutFields({
   const [analysing, setAnalysing] = useState(false);
   const [uploading, setUploading] = useState(false);
   const analyseInFlight = useRef(false);
+  /** Bumped on each new analyse/upload so stale responses cannot stick the UI. */
+  const analyseGeneration = useRef(0);
+  const resumedStaleRef = useRef<string | null>(null);
 
   const suggestion = value.floorPlanAnalysisJson?.suggestion;
   const status = value.floorPlanAnalysisStatus || "none";
@@ -165,8 +169,8 @@ export function PropertyLayoutFields({
     (value.floorPlanFileName || "").toLowerCase().endsWith(".pdf");
 
   useEffect(() => {
-    if (status === "processing") setAnalysing(true);
-    else if (status === "complete" || status === "failed") setAnalysing(false);
+    // Always clear the spinner when status leaves "processing" (incl. "none" after replace)
+    setAnalysing(status === "processing");
   }, [status]);
 
   const setCount = (key: RoomTypeKey, n: number) => {
@@ -196,22 +200,66 @@ export function PropertyLayoutFields({
   };
 
   const runAnalyse = async (base: PropertyLayoutValue) => {
-    if (!base.floorPlanUrl || analyseInFlight.current) return;
+    if (!base.floorPlanUrl) return;
+    const gen = ++analyseGeneration.current;
     analyseInFlight.current = true;
     setAnalysing(true);
     onChange({ ...base, floorPlanAnalysisStatus: "processing" });
+
+    const stillCurrent = () => gen === analyseGeneration.current;
+
     try {
       let suggestion: AiLayoutSuggestion | undefined;
       let analysisJson: PropertyLayoutValue["floorPlanAnalysisJson"] = null;
       let nextCounts: Partial<PropertyRoomCounts> = {};
 
-      if (propertyId) {
-        const res = await apiRequest(
-          "POST",
-          `/api/properties/${propertyId}/floor-plan/analyse`,
-          {},
-        );
-        const updated = await res.json();
+      const analysePromise = (async () => {
+        if (propertyId) {
+          const res = await apiRequest(
+            "POST",
+            `/api/properties/${propertyId}/floor-plan/analyse`,
+            {},
+          );
+          const updated = await res.json();
+          return { kind: "property" as const, updated };
+        }
+        const res = await apiRequest("POST", "/api/floor-plan/analyse", {
+          documentUrl: base.floorPlanUrl,
+          mimeType: base.floorPlanMimeType,
+          fileName: base.floorPlanFileName,
+        });
+        const contentType = res.headers.get("content-type") || "";
+        if (!contentType.includes("application/json")) {
+          throw new Error(
+            "Server returned a non-JSON response. Restart the app server and try again.",
+          );
+        }
+        return { kind: "object" as const, result: await res.json() };
+      })();
+
+      const timeoutMs = 120_000;
+      const raced = await Promise.race([
+        analysePromise.then((v) => ({ ok: true as const, v })),
+        new Promise<{ ok: false; error: Error }>((resolve) =>
+          setTimeout(
+            () =>
+              resolve({
+                ok: false,
+                error: new Error(
+                  "Floor plan analysis timed out. Try again, or enter rooms manually.",
+                ),
+              }),
+            timeoutMs,
+          ),
+        ),
+      ]);
+
+      if (!stillCurrent()) return;
+
+      if (!raced.ok) throw raced.error;
+
+      if (raced.v.kind === "property") {
+        const updated = raced.v.updated;
         analysisJson = updated.floorPlanAnalysisJson;
         suggestion = updated.floorPlanAnalysisJson?.suggestion;
         if (
@@ -240,6 +288,7 @@ export function PropertyLayoutFields({
             title: "Analysis couldn't read this plan",
             description:
               analysisJson?.error ||
+              analysisJson?.detail ||
               "Enter room counts manually. Your floor plan is still uploaded.",
             variant: "destructive",
           });
@@ -249,18 +298,7 @@ export function PropertyLayoutFields({
         queryClient.invalidateQueries({ queryKey: ["/api/properties", propertyId] });
         queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
       } else {
-        const res = await apiRequest("POST", "/api/floor-plan/analyse", {
-          documentUrl: base.floorPlanUrl,
-          mimeType: base.floorPlanMimeType,
-          fileName: base.floorPlanFileName,
-        });
-        const contentType = res.headers.get("content-type") || "";
-        if (!contentType.includes("application/json")) {
-          throw new Error(
-            "Server returned a non-JSON response. Restart the app server and try again.",
-          );
-        }
-        const result = await res.json();
+        const result = raced.v.result;
         suggestion = result.suggestion;
         analysisJson = result.analysis ?? {
           suggestion: result.suggestion,
@@ -276,6 +314,8 @@ export function PropertyLayoutFields({
           livingRooms: result.livingRooms,
         };
       }
+
+      if (!stillCurrent()) return;
 
       if (!suggestion) {
         onChange({
@@ -320,6 +360,7 @@ export function PropertyLayoutFields({
         });
       }
     } catch (e: any) {
+      if (!stillCurrent()) return;
       onChange({
         ...base,
         floorPlanAnalysisStatus: "failed",
@@ -333,10 +374,23 @@ export function PropertyLayoutFields({
         variant: "destructive",
       });
     } finally {
-      analyseInFlight.current = false;
-      setAnalysing(false);
+      if (stillCurrent()) {
+        analyseInFlight.current = false;
+        setAnalysing(false);
+      }
     }
   };
+
+  // Resume a stale "processing" status left in the DB (e.g. tab closed mid-analyse)
+  useEffect(() => {
+    if (!propertyId || !value.floorPlanUrl || status !== "processing") return;
+    if (analyseInFlight.current) return;
+    const key = `${propertyId}:${value.floorPlanUrl}`;
+    if (resumedStaleRef.current === key) return;
+    resumedStaleRef.current = key;
+    void runAnalyse(value);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only resume when status stuck at processing
+  }, [propertyId, status, value.floorPlanUrl]);
 
   const handleUploadComplete = async (result: {
     successful: Array<{
@@ -365,6 +419,11 @@ export function PropertyLayoutFields({
 
     const mime = file.type || file.data?.type || null;
     const fileName = file.name || file.data?.name || null;
+
+    // Invalidate any in-flight analyse so a replace cannot leave the spinner stuck
+    analyseGeneration.current += 1;
+    analyseInFlight.current = false;
+    resumedStaleRef.current = null;
 
     let next: PropertyLayoutValue = {
       ...value,
@@ -563,10 +622,25 @@ export function PropertyLayoutFields({
           </div>
         )}
 
-        {status === "failed" && value.floorPlanAnalysisJson?.error && (
-          <p className="text-sm text-destructive break-words">
-            {value.floorPlanAnalysisJson.error}
-          </p>
+        {status === "failed" && (
+          <div className="space-y-2">
+            {value.floorPlanAnalysisJson?.error && (
+              <p className="text-sm text-destructive break-words">
+                {value.floorPlanAnalysisJson.error}
+              </p>
+            )}
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={disabled || analysing || !value.floorPlanUrl}
+              onClick={() => value.floorPlanUrl && void runAnalyse(value)}
+              data-testid="button-retry-floor-plan-analyse"
+            >
+              <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+              Retry AI analysis
+            </Button>
+          </div>
         )}
 
         {suggestion && status === "complete" && (

@@ -194,6 +194,121 @@ export function formatFloorArea(
   return m2 == null ? null : `${m2} m²`;
 }
 
+/** Format a numeric floor area for UI (plans often print this instead of W×L). */
+export function formatAreaM2Label(areaM2: number | null | undefined): string | null {
+  if (areaM2 == null || !Number.isFinite(areaM2) || areaM2 <= 0) return null;
+  const rounded = Math.round(areaM2 * 100) / 100;
+  return `${rounded} m²`;
+}
+
+/**
+ * Equal sides within ~2 mm usually means we stored √area for an m²-only plan
+ * (or a true square). Prefer showing floor area in those cases.
+ */
+export function looksLikeAreaOnlyDimensions(
+  widthMm: number | null | undefined,
+  lengthMm: number | null | undefined,
+): boolean {
+  if (widthMm == null || lengthMm == null || widthMm <= 0 || lengthMm <= 0) return false;
+  return Math.abs(widthMm - lengthMm) < 2;
+}
+
+/**
+ * Display size for saved property rooms. When sides look derived from m² only,
+ * lead with floor area; otherwise show W×L (and area when available).
+ */
+export function formatRoomSizeDisplay(
+  widthMm: number | null | undefined,
+  lengthMm: number | null | undefined,
+  areaUnit: AreaUnit = "m2",
+  options?: { includeCeilingMm?: number | null; lengthUnitLabel?: string },
+): string | null {
+  const area = formatFloorArea(widthMm, lengthMm, areaUnit);
+  const wM = fromMillimetres(widthMm, "m");
+  const lM = fromMillimetres(lengthMm, "m");
+  const parts: string[] = [];
+  if (looksLikeAreaOnlyDimensions(widthMm, lengthMm) && area) {
+    parts.push(area);
+  } else if (wM != null && lM != null) {
+    parts.push(`${wM} m × ${lM} m`);
+    if (area) parts.push(area);
+  } else if (area) {
+    parts.push(area);
+  } else {
+    return null;
+  }
+  const ceilingMm = options?.includeCeilingMm;
+  if (ceilingMm != null && ceilingMm > 0) {
+    const c = fromMillimetres(ceilingMm, "m");
+    if (c != null) parts.push(`Ceiling ${c} m`);
+  }
+  return parts.join(" · ");
+}
+
+/**
+ * When a plan only prints floor area (e.g. "15.6 m²"), derive equal sides so
+ * width/length storage still works. Product equals areaM2 (to 2 d.p.).
+ */
+export function sidesFromAreaM2(areaM2: number): { widthM: number; lengthM: number } {
+  const side = Math.round(Math.sqrt(areaM2) * 1000) / 1000;
+  return { widthM: side, lengthM: side };
+}
+
+/** Human-readable size for AI-proposed rooms — prefer printed m² when present. */
+export function formatAiProposedRoomSize(room: {
+  widthM?: number | null;
+  lengthM?: number | null;
+  areaM2?: number | null;
+}): string {
+  // Printed / explicit floor area wins (UK estate plans often only show m²)
+  const printed = formatAreaM2Label(room.areaM2);
+  if (printed) return printed;
+  if (room.widthM != null && room.lengthM != null) {
+    const wMm = Math.round(room.widthM * 1000);
+    const lMm = Math.round(room.lengthM * 1000);
+    if (looksLikeAreaOnlyDimensions(wMm, lMm)) {
+      return (
+        formatAreaM2Label(Math.round(room.widthM * room.lengthM * 100) / 100) ||
+        `${room.widthM} m × ${room.lengthM} m`
+      );
+    }
+    return `${room.widthM} m × ${room.lengthM} m`;
+  }
+  if (room.widthM != null) return `W: ${room.widthM} m`;
+  if (room.lengthM != null) return `L: ${room.lengthM} m`;
+  return "—";
+}
+
+/** Parse printed area labels such as "15.6 m²", "15.6m2", "168 sq ft". */
+export function parseAiAreaM2(raw: unknown): number | null {
+  if (raw == null || raw === "") return null;
+  if (typeof raw === "number") {
+    if (!Number.isFinite(raw) || raw <= 0) return null;
+    return Math.round(raw * 100) / 100;
+  }
+  const s = String(raw).trim().toLowerCase().replace(/,/g, "");
+  if (!s) return null;
+
+  const sqft = s.match(/^([\d.]+)\s*(?:sq\.?\s*ft|ft²|ft2|sqft)\b/);
+  if (sqft) {
+    const n = Number(sqft[1]);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return Math.round(n * 0.092903 * 100) / 100;
+  }
+
+  // Require an explicit area unit — bare numbers are often W/L sides, not m²
+  const m2 = s.match(
+    /^([\d.]+)\s*(?:m²|m2|sq\.?\s*m|sqm|metres?\s*squared|meters?\s*squared)\s*$/,
+  );
+  if (m2) {
+    const n = Number(m2[1]);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return Math.round(n * 100) / 100;
+  }
+
+  return null;
+}
+
 export type CategoryRoomType = RoomTypeKey | "other";
 
 export function roomTypeFromCategorySlug(slug: string | null | undefined): CategoryRoomType {
@@ -582,26 +697,24 @@ function resolveRoomDimensions(m: Record<string, unknown>): {
     parseAiDimensionMetres(m.lengthM ?? m.length ?? m.length_m) ??
     feetFieldToMetres(m.lengthFt ?? m.length_ft ?? m.lengthFeet);
 
-  let areaM2 = Number(m.areaM2 ?? m.area ?? m.area_m2);
+  let areaM2 =
+    parseAiAreaM2(m.areaM2 ?? m.area ?? m.area_m2 ?? m.floorAreaM2 ?? m.size) ?? NaN;
   if (!Number.isFinite(areaM2) || areaM2 <= 0) {
-    const areaFt2 = Number(m.areaFt2 ?? m.area_ft2 ?? m.sqft ?? m.sqFt);
-    if (Number.isFinite(areaFt2) && areaFt2 > 0) {
-      areaM2 = Math.round(areaFt2 * 0.092903 * 100) / 100;
-    } else {
-      areaM2 = NaN;
-    }
-  } else {
-    areaM2 = Math.round(areaM2 * 100) / 100;
+    areaM2 =
+      parseAiAreaM2(m.areaFt2 ?? m.area_ft2 ?? m.sqft ?? m.sqFt ?? m.areaLabel) ?? NaN;
   }
 
-  // Derive missing side from area when one side is known
+  // Derive missing side(s) from printed floor area (common on UK agent plans)
   if (areaM2 > 0) {
     if (widthM != null && lengthM == null) {
       lengthM = Math.round((areaM2 / widthM) * 100) / 100;
     } else if (lengthM != null && widthM == null) {
       widthM = Math.round((areaM2 / lengthM) * 100) / 100;
     } else if (widthM == null && lengthM == null) {
-      // Square approximation only when area is all we have — skip (unreliable shape)
+      // Plan printed m² only (no W×L) — keep area and store equal sides so W×L UIs work
+      const sides = sidesFromAreaM2(areaM2);
+      widthM = sides.widthM;
+      lengthM = sides.lengthM;
     }
   } else if (widthM != null && lengthM != null) {
     areaM2 = Math.round(widthM * lengthM * 100) / 100;

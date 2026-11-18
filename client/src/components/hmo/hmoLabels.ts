@@ -16,6 +16,19 @@ export function hmoSpecOverallLabel(status: string | null | undefined): string {
   }
 }
 
+/** Short rule-source label for alerts / dashboard. */
+export function hmoRuleSourceLabel(
+  checkId: string | null | undefined,
+  ruleVersionId?: string | null,
+): string {
+  const check = String(checkId || "");
+  if (/^(AMEN-|COND-|LOC-|PLAN-|MGMT-)/i.test(check)) return "Company process (stub)";
+  if (/^LIC-/i.test(check)) return "Licence condition";
+  const rv = String(ruleVersionId || "");
+  if (rv && !/^england/i.test(rv) && rv !== "null") return "Council / local overlay";
+  return "National baseline";
+}
+
 export function hmoFindingSpecLabel(status: string | null | undefined): string {
   switch (status) {
     case "VERIFIED_COMPLIANT":

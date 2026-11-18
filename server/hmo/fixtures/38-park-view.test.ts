@@ -23,9 +23,10 @@ const fixtureText = readFileSync(join(__dirname, "38-park-view-licence.txt"), "u
   assert.equal(extraction.issue_date.value, "2021-01-14");
   assert.equal(extraction.maximum_individuals.value, 5);
   assert.match(String(extraction.holder_name.value || ""), /Jasbir\s+Sihota/i);
-  assert.ok(
-    (extraction.referenced_missing_attachments || []).length > 0,
-    "schedules/conditions flagged missing",
+  assert.equal(
+    (extraction.referenced_missing_attachments || []).length,
+    0,
+    "missing-schedule heuristic disabled",
   );
   assert.equal(hashContent(fixtureText).length, 64);
 }
@@ -45,7 +46,7 @@ const fixtureText = readFileSync(join(__dirname, "38-park-view-licence.txt"), "u
   assert.equal(lic03!.severity, "CRITICAL");
   assert.equal(lic03!.status, "REQUIRES_HUMAN_REVIEW");
   assert.ok(lic05);
-  assert.equal(lic05!.status, "EVIDENCE_MISSING");
+  assert.equal(lic05!.status, "VERIFIED_COMPLIANT");
   const overall = computeOverallPropertyStatus(findings);
   assert.notEqual(overall, "VERIFIED_COMPLIANT");
   assert.ok(evidenceCompletenessPercent(findings) < 100);

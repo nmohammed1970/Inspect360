@@ -92,19 +92,25 @@ OTHER DEDUPE RULES:
 - Cupboards inside a room are not separate rooms unless labelled as a walk-in / storage room.
 
 DIMENSIONS (critical — match ChatGPT-quality reading):
-- ALWAYS return widthM and lengthM in METRES (never put feet into widthM/lengthM).
+- ALWAYS return widthM and lengthM in METRES when side lengths are printed (never put feet into widthM/lengthM).
 - Also copy the printed imperial strings into widthImperial / lengthImperial when shown (e.g. "12'3\\"", "8'9\\"").
-- When BOTH imperial and metric are printed on the plan, convert FROM the imperial feet/inches only.
+- FLOOR AREA (m²) — very common on UK estate-agent plans (e.g. "Living room 15.6 m²", "Bedroom 1 12.5 m²"):
+  - ALWAYS set areaM2 to that printed number for the room.
+  - If the plan shows ONLY m² (no W×L / no scale), still set areaM2 and leave widthM/lengthM null
+    (the app will display m² and derive storage sides). Do NOT invent fake W×L when only m² is printed.
+  - If both W×L and m² are printed, return both; prefer the printed sides for widthM/lengthM.
+- When BOTH imperial and metric side lengths are printed, convert FROM the imperial feet/inches only.
   Do NOT use the rounded metric reprint (it causes errors like 8'9\\" → 2.66 m → 8.73 ft).
   Exact conversion: metres = (feet + inches/12) × 0.3048, round to 3 d.p.
   Example: 12'3\\" × 8'9\\" → widthImperial "12'3\\"", lengthImperial "8'9\\"",
   widthM 3.734, lengthM 2.667 (NOT 3.75 / 2.66).
-- When only metric is printed, use those metres.
-- When only imperial is printed, convert as above.
+- When only metric side lengths are printed, use those metres.
+- When only imperial side lengths are printed, convert as above.
 - Prefer the larger side as lengthM when orientation is unclear.
 - If a scale bar is visible and a room has no printed size, estimate from the scale (confidence "medium"/"low").
-- Only leave widthM/lengthM null when there is truly no label AND no usable scale.
-- Do not invent dozens of rooms or impossible sizes (typical residential rooms ≈ 1.2–8 m per side).`;
+- Only leave BOTH areaM2 and widthM/lengthM null when there is truly no size label AND no usable scale.
+- Do not invent dozens of rooms or impossible sizes (typical residential rooms ≈ 1.2–8 m per side,
+  or area roughly 2–40 m² for ordinary rooms).`;
 
 function enrichSuggestion(raw: unknown): {
   suggestion: AiLayoutSuggestion;
@@ -188,9 +194,17 @@ function mapAiProviderError(e: any): Error {
   if (status === 503 || raw.includes("AI is not configured")) {
     return httpError("AI is not configured", 503);
   }
+  if (status === 504 || /timed out/i.test(raw)) {
+    return httpError(
+      raw.includes("timed out")
+        ? raw
+        : "Floor plan AI timed out. Try again or use a smaller image.",
+      504,
+    );
+  }
   if (status && status >= 400 && status < 600) {
     return httpError(
-      raw.includes("Could not read")
+      raw.includes("Could not read") || raw.includes("non-JSON") || raw.includes("empty JSON")
         ? raw
         : "We couldn't analyse the floor plan automatically. Enter room counts manually.",
       status === 422 ? 422 : 502,
@@ -298,7 +312,21 @@ async function createFloorPlanCompletion(
   if (!isGpt5Family(model)) {
     params.temperature = 0;
   }
-  const response = await client.chat.completions.create(params);
+  const response = await Promise.race([
+    client.chat.completions.create(params),
+    new Promise<never>((_, reject) =>
+      setTimeout(
+        () =>
+          reject(
+            httpError(
+              `Floor plan AI timed out after 90s (model=${model}). Try again or use a smaller image.`,
+              504,
+            ),
+          ),
+        90_000,
+      ),
+    ),
+  ]);
   const content = response.choices[0]?.message?.content || "{}";
   if (!content.trim() || content.trim() === "{}") {
     throw httpError(
@@ -306,7 +334,14 @@ async function createFloorPlanCompletion(
       502,
     );
   }
-  return extractJsonObject(content);
+  const parsed = extractJsonObject(content);
+  if (parsed == null) {
+    throw httpError(
+      `Floor plan model returned non-JSON (model=${model}, finish=${response.choices[0]?.finish_reason || "unknown"}, preview=${content.slice(0, 180).replace(/\s+/g, " ")})`,
+      502,
+    );
+  }
+  return parsed;
 }
 
 async function analyseWithVision(imageDataUrls: string[]): Promise<{
@@ -320,8 +355,9 @@ async function analyseWithVision(imageDataUrls: string[]): Promise<{
         "Analyse this residential floor plan. Detect landings, bedrooms, kitchens, bathrooms, " +
         "lounges/living rooms, utility rooms, halls, and garden spaces, with dimensions for each. " +
         "One staircase (UP on one floor / DN on another) = ONE landing — never duplicate landings " +
-        "for the same stair. List every room with widthM/lengthM in metres (convert any feet/inches). " +
-        "Return complete JSON as specified.",
+        "for the same stair. For each room: if the plan prints m² only, set areaM2 and leave " +
+        "widthM/lengthM null; if W×L (ft/in or metres) are printed, set widthM/lengthM in metres " +
+        "(convert any feet/inches). Return complete JSON as specified.",
     },
     ...imageDataUrls.slice(0, 3).map(
       (url): OpenAI.Chat.ChatCompletionContentPart => ({
@@ -509,10 +545,12 @@ export async function analyseFloorPlanObject(input: {
       e?.status === 400 ||
       e?.status === 422 ||
       e?.status === 503 ||
+      e?.status === 504 ||
       (typeof e?.message === "string" && e.message.includes("AI credits are exhausted"))
     ) {
       throw e;
     }
+    console.error("[FloorPlan] analyseFloorPlanObject error:", e?.message || e, e?.status || "");
     throw mapAiProviderError(e);
   }
 }
@@ -567,7 +605,14 @@ export async function analyseFloorPlan(input: {
       e?.status === 503
         ? "AI is not configured"
         : e?.message || "Could not analyse floor plan";
-    console.error("[FloorPlan] analyse failed:", message, e?.status || "", e?.code || "");
+    console.error(
+      "[FloorPlan] analyse failed:",
+      message,
+      e?.status || "",
+      e?.code || "",
+      e?.cause || "",
+      e?.error || "",
+    );
     const [updated] = await db
       .update(properties)
       .set({
@@ -575,7 +620,9 @@ export async function analyseFloorPlan(input: {
         floorPlanAnalysisJson: {
           error: message.includes("AI is not configured")
             ? "AI is not configured"
-            : "We couldn't analyse the floor plan automatically. You can enter the room counts manually.",
+            : message.includes("timed out")
+              ? message
+              : "We couldn't analyse the floor plan automatically. You can enter the room counts manually.",
           detail: message.slice(0, 500),
         } as any,
         floorPlanAnalysedAt: new Date(),

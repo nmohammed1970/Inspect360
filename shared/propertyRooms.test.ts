@@ -3,8 +3,11 @@ import {
   countsFromRooms,
   defaultLengthUnitForCountry,
   floorAreaM2,
+  formatAiProposedRoomSize,
+  formatRoomSizeDisplay,
   fromMillimetres,
   hydrateRoomsFromCounts,
+  looksLikeAreaOnlyDimensions,
   metresToMm,
   normalizeAiRoomsResult,
   parseAiDimensionMetres,
@@ -21,6 +24,7 @@ import {
   isLandingLikeLabel,
   isStairMarkerOnlyLabel,
   dedupeAiProposedRooms,
+  sidesFromAreaM2,
   singularizeSectionTitle,
   slugifyCategoryName,
   toMillimetres,
@@ -228,6 +232,32 @@ assert.equal(aiImperial!.rooms[2]!.lengthM, 3);
 assert.equal(aiImperial!.counts.bedrooms, 1);
 assert.equal(aiImperial!.counts.livingRooms, 1);
 assert.equal(aiImperial!.counts.kitchens, 1);
+
+// Floor plans that only print m² (no W×L) — store equal sides, display as m²
+const areaOnly = normalizeAiRoomsResult({
+  rooms: [
+    {
+      name: "Living Room",
+      category: "Living Room",
+      areaM2: 15.6,
+    },
+  ],
+});
+assert.ok(areaOnly);
+assert.equal(areaOnly!.rooms[0]!.areaM2, 15.6);
+assert.ok(areaOnly!.rooms[0]!.widthM != null);
+assert.ok(areaOnly!.rooms[0]!.lengthM != null);
+assert.equal(areaOnly!.rooms[0]!.widthM, areaOnly!.rooms[0]!.lengthM);
+assert.equal(formatAiProposedRoomSize(areaOnly!.rooms[0]!), "15.6 m²");
+const areaOnlyMm = metresToMm(areaOnly!.rooms[0]!.widthM!);
+assert.equal(looksLikeAreaOnlyDimensions(areaOnlyMm, areaOnlyMm), true);
+assert.equal(
+  formatRoomSizeDisplay(areaOnlyMm, areaOnlyMm, "m2"),
+  "15.6 m²",
+);
+assert.equal(sidesFromAreaM2(16).widthM, 4);
+assert.equal(formatAiProposedRoomSize({ widthM: 3, lengthM: 4 }), "3 m × 4 m");
+assert.equal(formatAiProposedRoomSize({ widthM: 3, lengthM: 4, areaM2: 12 }), "12 m²");
 
 const seeded = applyPropertyRoomsToTemplateSnapshot(
   {

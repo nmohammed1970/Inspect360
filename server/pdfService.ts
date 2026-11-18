@@ -18,7 +18,11 @@ import {
   REPORT_SECTION_META,
   type ReportSectionId,
 } from "@shared/reportSectionOrder";
-import { formatFloorArea, fromMillimetres } from "@shared/propertyRooms";
+import {
+  formatFloorArea,
+  fromMillimetres,
+  looksLikeAreaOnlyDimensions,
+} from "@shared/propertyRooms";
 import {
   extractRepeatableCountsFromEntries,
   listRepeatableInstances,
@@ -668,9 +672,14 @@ function formatRoomDimensionLine(room: FloorPlanReportRoom): string {
   const w = fromMillimetres(room.widthMm, "m");
   const l = fromMillimetres(room.lengthMm, "m");
   if (w == null || l == null) return "Dimensions not set";
-  const parts = [`${w} m × ${l} m`];
   const area = formatFloorArea(room.widthMm, room.lengthMm, "m2");
-  if (area) parts.push(area);
+  const parts: string[] = [];
+  if (looksLikeAreaOnlyDimensions(room.widthMm, room.lengthMm) && area) {
+    parts.push(area);
+  } else {
+    parts.push(`${w} m × ${l} m`);
+    if (area) parts.push(area);
+  }
   const ceiling = fromMillimetres(room.ceilingHeightMm, "m");
   if (ceiling != null) parts.push(`Ceiling ${ceiling} m`);
   return parts.join(" · ");

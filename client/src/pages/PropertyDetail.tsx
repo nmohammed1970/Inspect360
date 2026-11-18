@@ -72,6 +72,7 @@ import {
   formatFloorArea,
   formatMillimetresAsFeetInches,
   fromMillimetres,
+  looksLikeAreaOnlyDimensions,
 } from "@shared/propertyRooms";
 
 interface Property {
@@ -405,8 +406,8 @@ export default function PropertyDetail() {
     };
     const w = formatSide(room.widthMm);
     const l = formatSide(room.lengthMm);
-    if (w == null || l == null) return null;
     const area = formatFloorArea(room.widthMm, room.lengthMm, areaUnit);
+    if (w == null || l == null) return area;
     const ceiling =
       lengthUnit === "ft"
         ? formatMillimetresAsFeetInches(room.ceilingHeightMm) || null
@@ -414,8 +415,14 @@ export default function PropertyDetail() {
             const v = fromMillimetres(room.ceilingHeightMm, lengthUnit);
             return v == null ? null : `${v} ${lengthUnitLabel}`;
           })();
-    const parts = [`${w} × ${l}`];
-    if (area) parts.push(area);
+    const parts: string[] = [];
+    // Prefer m² / ft² when the plan only printed area (equal sides stored from √area)
+    if (looksLikeAreaOnlyDimensions(room.widthMm, room.lengthMm) && area) {
+      parts.push(area);
+    } else {
+      parts.push(`${w} × ${l}`);
+      if (area) parts.push(area);
+    }
     if (ceiling) parts.push(`Ceiling ${ceiling}`);
     return parts.join(" · ");
   };

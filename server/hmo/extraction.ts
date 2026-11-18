@@ -143,20 +143,7 @@ export function heuristicExtractLicence(text: string, documentId: string): HmoLi
     out.manager_name = field(manager[1].replace(/\s+/g, " ").trim(), 0.7);
   }
 
-  const missing: string[] = [];
-  if (/schedule|annexe|annex|conditions?\s+of\s+licence|variation/i.test(raw)) {
-    const hasEmbeddedSchedule =
-      /schedule\s+[a-z0-9]+\s*[:\-]/i.test(raw) && raw.length > 8000;
-    if (!hasEmbeddedSchedule) {
-      missing.push("Licence conditions / schedules / annexes referenced but not included in upload");
-    }
-  }
-  if (/five[\s-]page|5[\s-]page|pages?\s*1[\s–-]3/i.test(raw) || (raw.includes("schedule") && raw.length < 15000)) {
-    if (!missing.length) {
-      missing.push("Referenced schedules/conditions not present in supplied pages");
-    }
-  }
-  out.referenced_missing_attachments = missing;
+  out.referenced_missing_attachments = [];
 
   const conditionLines = raw
     .split(/\n+/)

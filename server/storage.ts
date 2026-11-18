@@ -1601,6 +1601,10 @@ export class DatabaseStorage implements IStorage {
         inspectionId: maintenanceRequests.inspectionId,
         inspectionEntryId: maintenanceRequests.inspectionEntryId,
         dueDate: maintenanceRequests.dueDate,
+        verificationStatus: maintenanceRequests.verificationStatus,
+        verifiedAt: maintenanceRequests.verifiedAt,
+        verifiedBy: maintenanceRequests.verifiedBy,
+        verificationNotes: maintenanceRequests.verificationNotes,
         createdAt: maintenanceRequests.createdAt,
         updatedAt: maintenanceRequests.updatedAt,
         property: {

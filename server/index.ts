@@ -331,6 +331,18 @@ app.use((req, res, next) => {
       const { processAllRenewalAlerts } = await import("./hmo/renewalAlerts");
       const { runScheduledSourceWatcher } = await import("./hmo/sourceWatcher");
       const { processQueuedRuleImpactRuns } = await import("./hmo/impactWorker");
+      const { processHmoInspectionRemindersForOrg } = await import("./hmo/inspectionReminders");
+      const { db } = await import("./db");
+      const { hmoPropertyProfiles } = await import("@shared/schema");
+
+      async function runHmoInspectionRemindersAllOrgs() {
+        const orgs = await db
+          .selectDistinct({ organizationId: hmoPropertyProfiles.organizationId })
+          .from(hmoPropertyProfiles);
+        for (const row of orgs) {
+          await processHmoInspectionRemindersForOrg(row.organizationId);
+        }
+      }
 
       setImmediate(async () => {
         try {
@@ -343,6 +355,11 @@ app.use((req, res, next) => {
         } catch (error) {
           console.error("[HMO] Initial impact worker failed:", error);
         }
+        try {
+          await runHmoInspectionRemindersAllOrgs();
+        } catch (error) {
+          console.error("[HMO] Initial inspection reminders failed:", error);
+        }
       });
 
       setInterval(async () => {
@@ -350,6 +367,11 @@ app.use((req, res, next) => {
           await processAllRenewalAlerts();
         } catch (error) {
           console.error("[HMO] Scheduled renewal alerts failed:", error);
+        }
+        try {
+          await runHmoInspectionRemindersAllOrgs();
+        } catch (error) {
+          console.error("[HMO] Scheduled inspection reminders failed:", error);
         }
       }, hmoDayMs);
 

@@ -26,6 +26,7 @@ interface MonthData {
 interface TemplateCompliance {
   templateId: string;
   templateName: string;
+  isHmoTemplate?: boolean;
   monthData: MonthData[];
   complianceRate: number;
   totalScheduled: number;
@@ -157,6 +158,7 @@ export default function ComplianceCalendar({ entityType, entityId }: ComplianceC
   const [selectedYear, setSelectedYear] = useState(currentYear);
   const [pendingSelections, setPendingSelections] = useState<PendingSelection[]>([]);
   const [selectedType, setSelectedType] = useState<string>('routine');
+  const [hmoOnly, setHmoOnly] = useState(false);
 
   // Always fetch compliance report with year parameter
   const { data: report, isLoading } = useQuery<ComplianceReport>({
@@ -233,25 +235,37 @@ export default function ComplianceCalendar({ entityType, entityId }: ComplianceC
   };
 
   const yearNavigator = (
-    <div className="flex items-center gap-1">
-      <Button 
-        variant="ghost" 
-        size="icon" 
-        className="h-6 w-6"
-        onClick={() => setSelectedYear(y => y - 1)}
-        data-testid="button-prev-year"
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="flex items-center gap-1">
+        <Button 
+          variant="ghost" 
+          size="icon" 
+          className="h-6 w-6"
+          onClick={() => setSelectedYear(y => y - 1)}
+          data-testid="button-prev-year"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </Button>
+        <span className="font-medium min-w-[4rem] text-center" data-testid="text-selected-year">{selectedYear}</span>
+        <Button 
+          variant="ghost" 
+          size="icon" 
+          className="h-6 w-6"
+          onClick={() => setSelectedYear(y => y + 1)}
+          data-testid="button-next-year"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </Button>
+      </div>
+      <Button
+        type="button"
+        size="sm"
+        variant={hmoOnly ? "default" : "outline"}
+        className="h-7"
+        onClick={() => setHmoOnly((v) => !v)}
+        data-testid="button-filter-hmo-templates"
       >
-        <ChevronLeft className="h-4 w-4" />
-      </Button>
-      <span className="font-medium min-w-[4rem] text-center" data-testid="text-selected-year">{selectedYear}</span>
-      <Button 
-        variant="ghost" 
-        size="icon" 
-        className="h-6 w-6"
-        onClick={() => setSelectedYear(y => y + 1)}
-        data-testid="button-next-year"
-      >
-        <ChevronRight className="h-4 w-4" />
+        {hmoOnly ? "HMO templates only" : "All templates"}
       </Button>
     </div>
   );
@@ -415,7 +429,9 @@ export default function ComplianceCalendar({ entityType, entityId }: ComplianceC
             </div>
 
             {/* Template Rows */}
-            {report.templates.map((template) => (
+            {report.templates
+              .filter((t) => !hmoOnly || t.isHmoTemplate)
+              .map((template) => (
               <div 
                 key={template.templateId} 
                 className="grid gap-2 mb-2 items-center"
@@ -423,8 +439,11 @@ export default function ComplianceCalendar({ entityType, entityId }: ComplianceC
                 data-testid={`row-template-${template.templateId}`}
               >
                 {/* Template Name */}
-                <div className="text-sm font-medium p-2 truncate" title={template.templateName}>
-                  {template.templateName}
+                <div className="text-sm font-medium p-2 truncate flex items-center gap-1.5" title={template.templateName}>
+                  <span className="truncate">{template.templateName}</span>
+                  {template.isHmoTemplate && (
+                    <Badge variant="outline" className="shrink-0 text-[10px]">HMO</Badge>
+                  )}
                 </div>
 
                 {/* Month Cells */}

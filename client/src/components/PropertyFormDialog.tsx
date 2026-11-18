@@ -34,6 +34,7 @@ import {
 } from "@/components/PropertyRoomsEditor";
 import type { AiProposedRoom } from "@shared/propertyRooms";
 import { cn } from "@/lib/utils";
+import { useCompanyModules } from "@/hooks/useCompanyModules";
 
 const PROPERTY_TYPE_NONE = "__property_type_none__";
 
@@ -103,11 +104,13 @@ export function PropertyFormDialog({
   onSuccess,
 }: PropertyFormDialogProps) {
   const { toast } = useToast();
+  const { hmoComplianceEnabled } = useCompanyModules();
   const [editingProperty, setEditingProperty] = useState<any | null>(null);
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
   const [propertyType, setPropertyType] = useState<string | undefined>();
   const [propertyTypeExtra, setPropertyTypeExtra] = useState<{ value: string; label: string } | null>(null);
+  const [hmoClassification, setHmoClassification] = useState<string>("unset");
   const [blockId, setBlockId] = useState<string | undefined>();
   const [selectedTags, setSelectedTags] = useState<Tag[]>([]);
   const [layout, setLayout] = useState<PropertyLayoutValue>(defaultLayout());
@@ -126,6 +129,7 @@ export function PropertyFormDialog({
     setAddress("");
     setPropertyType(undefined);
     setPropertyTypeExtra(null);
+    setHmoClassification("unset");
     setBlockId(undefined);
     setSelectedTags([]);
     setLayout(defaultLayout());
@@ -219,6 +223,7 @@ export function PropertyFormDialog({
       name: string;
       address: string;
       propertyType?: string | null;
+      hmoClassification?: string | null;
       blockId?: string | null;
       layout?: PropertyLayoutValue;
     }) => {
@@ -229,6 +234,9 @@ export function PropertyFormDialog({
       };
       if (data.propertyType !== undefined) {
         body.propertyType = data.propertyType;
+      }
+      if (data.hmoClassification !== undefined) {
+        body.hmoClassification = data.hmoClassification;
       }
       if (data.layout) {
         body.bedrooms = data.layout.bedrooms;
@@ -312,6 +320,7 @@ export function PropertyFormDialog({
             setPropertyTypeExtra(null);
           }
           setBlockId(propertyData.blockId || undefined);
+          setHmoClassification(propertyData.hmoClassification || "unset");
           setLayout({
             bedrooms: propertyData.bedrooms ?? 1,
             kitchens: propertyData.kitchens ?? 1,
@@ -399,6 +408,11 @@ export function PropertyFormDialog({
 
     const finalBlockId = blockId === "none" ? null : blockId || undefined;
     const noneOrUnset = propertyType === undefined;
+    const hmoForApi = hmoComplianceEnabled
+      ? hmoClassification === "unset"
+        ? null
+        : hmoClassification
+      : undefined;
 
     if (editingProperty) {
       const forApi = noneOrUnset
@@ -409,6 +423,7 @@ export function PropertyFormDialog({
         name,
         address,
         propertyType: forApi,
+        ...(hmoForApi !== undefined ? { hmoClassification: hmoForApi } : {}),
         blockId: finalBlockId,
         layout,
       });
@@ -420,6 +435,7 @@ export function PropertyFormDialog({
         name,
         address,
         propertyType: forApi,
+        ...(hmoForApi !== undefined ? { hmoClassification: hmoForApi } : {}),
         blockId: finalBlockId,
         bedrooms: layout.bedrooms,
         kitchens: layout.kitchens,
@@ -536,6 +552,25 @@ export function PropertyFormDialog({
                   </SelectContent>
                 </Select>
               </div>
+              {hmoComplianceEnabled && (
+                <div>
+                  <Label htmlFor="hmoClassification">HMO classification</Label>
+                  <Select value={hmoClassification} onValueChange={setHmoClassification}>
+                    <SelectTrigger data-testid="select-hmo-classification" className="h-11">
+                      <SelectValue placeholder="Not set" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="unset">Not set</SelectItem>
+                      <SelectItem value="HMO">HMO</SelectItem>
+                      <SelectItem value="NOT_HMO">Not an HMO</SelectItem>
+                      <SelectItem value="UNSURE">Unsure</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    If HMO or unsure, complete licence evidence status on the HMO tab.
+                  </p>
+                </div>
+              )}
               <div className="md:col-span-2">
                 <Label htmlFor="address" required>
                   Address

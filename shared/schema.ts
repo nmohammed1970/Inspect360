@@ -60,7 +60,13 @@ export const cleanlinessRatingEnum = pgEnum("cleanliness_rating", ["very_clean",
 export const contactTypeEnum = pgEnum("contact_type", ["internal", "contractor", "lead", "company", "partner", "vendor", "tenant", "landlord", "other"]);
 export const templateScopeEnum = pgEnum("template_scope", ["block", "property", "both"]);
 export const fieldTypeEnum = pgEnum("field_type", ["short_text", "long_text", "number", "select", "multiselect", "boolean", "rating", "date", "time", "datetime", "photo", "photo_array", "video", "gps", "signature", "auto_inspection_date", "auto_inspector", "auto_address", "auto_tenant_names", "auto_bedroom_count", "auto_bathroom_count"]);
-export const maintenanceSourceEnum = pgEnum("maintenance_source", ["manual", "inspection", "tenant_portal", "routine"]);
+export const maintenanceSourceEnum = pgEnum("maintenance_source", [
+  "manual",
+  "inspection",
+  "tenant_portal",
+  "routine",
+  "hmo_finding",
+]);
 export const comparisonReportStatusEnum = pgEnum("comparison_report_status", ["draft", "under_review", "awaiting_signatures", "signed", "filed"]);
 export const comparisonItemStatusEnum = pgEnum("comparison_item_status", ["pending", "reviewed", "disputed", "resolved", "waived"]);
 export const currencyEnum = pgEnum("currency", ["GBP", "USD", "AED", "EUR"]);
@@ -453,11 +459,17 @@ export const properties = pgTable("properties", {
     .default("none"),
   floorPlanAnalysisJson: jsonb("floor_plan_analysis_json"),
   floorPlanAnalysedAt: timestamp("floor_plan_analysed_at"),
+  /** HMO setup: HMO | NOT_HMO | UNSURE | null (unset). */
+  hmoClassification: varchar("hmo_classification", { length: 32 }),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
 export const roomCountFieldSchema = z.coerce.number().int().min(1).max(30);
+export const hmoClassificationSchema = z
+  .enum(["HMO", "NOT_HMO", "UNSURE"])
+  .nullable()
+  .optional();
 
 export const insertPropertySchema = createInsertSchema(properties).omit({
   id: true,
@@ -468,6 +480,7 @@ export const insertPropertySchema = createInsertSchema(properties).omit({
   kitchens: roomCountFieldSchema.optional(),
   bathrooms: roomCountFieldSchema.optional(),
   livingRooms: roomCountFieldSchema.optional(),
+  hmoClassification: hmoClassificationSchema,
 });
 export type Property = typeof properties.$inferSelect;
 export type InsertProperty = z.infer<typeof insertPropertySchema>;
@@ -898,6 +911,8 @@ export const inspectionTemplates = pgTable("inspection_templates", {
   version: integer("version").notNull().default(1),
   parentTemplateId: varchar("parent_template_id"), // Links to parent template for versioning
   isActive: boolean("is_active").default(true),
+  /** When true, inspections created from this template appear under HMO Evidence. */
+  isHmoTemplate: boolean("is_hmo_template").default(false),
   structureJson: jsonb("structure_json").notNull(), // Full template schema with sections/fields
   categoryId: varchar("category_id"), // Optional link to template_categories
   aiMaxWords: integer("ai_max_words").default(150), // Max word count for AI analysis output
@@ -1340,6 +1355,11 @@ export const maintenanceRequests = pgTable("maintenance_requests", {
   fixfloContractorName: varchar("fixflo_contractor_name"), // Assigned contractor from Fixflo
   fixfloSyncedAt: timestamp("fixflo_synced_at"), // Last successful sync timestamp
   dueDate: timestamp("due_date"), // Optional due date for the maintenance request
+  /** none | awaiting_verification | verified | rejected — used for HMO-sourced MRs */
+  verificationStatus: varchar("verification_status", { length: 64 }).default("none"),
+  verifiedAt: timestamp("verified_at"),
+  verifiedBy: varchar("verified_by"),
+  verificationNotes: text("verification_notes"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -2441,6 +2461,7 @@ export const updatePropertySchema = z.object({
   floorPlanUrl: z.string().nullable().optional(),
   floorPlanMimeType: z.string().max(128).nullable().optional(),
   floorPlanFileName: z.string().max(512).nullable().optional(),
+  hmoClassification: hmoClassificationSchema,
 });
 
 // Compliance update schema
@@ -2461,6 +2482,10 @@ export const updateMaintenanceRequestSchema = z.object({
   assignedTo: z.string().nullable().optional(),
   photoUrls: z.array(z.string()).optional(),
   aiSuggestedFixes: z.string().optional().nullable(),
+  verificationStatus: z
+    .enum(["none", "awaiting_verification", "verified", "rejected"])
+    .optional(),
+  verificationNotes: z.string().optional().nullable(),
 });
 
 // AI operation validation schemas
