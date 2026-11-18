@@ -3180,10 +3180,19 @@ export default function InspectionCapture() {
                     currentSection.title,
                     instanceIndex,
                   );
-                const dimLabel =
-                  snapRoom?.widthMm && snapRoom?.lengthMm
-                    ? ` · ${(snapRoom.widthMm / 1000).toFixed(2)} m × ${(snapRoom.lengthMm / 1000).toFixed(2)} m`
-                    : "";
+                const dimLabel = (() => {
+                  if (!snapRoom?.widthMm || !snapRoom?.lengthMm) return "";
+                  const area =
+                    Math.round(
+                      ((snapRoom.widthMm / 1000) * (snapRoom.lengthMm / 1000)) * 100,
+                    ) / 100;
+                  if (Math.abs(snapRoom.widthMm - snapRoom.lengthMm) < 2) {
+                    return ` · ${area} m²`;
+                  }
+                  return ` · ${(snapRoom.widthMm / 1000).toFixed(2)} m × ${(
+                    snapRoom.lengthMm / 1000
+                  ).toFixed(2)} m (${area} m²)`;
+                })();
                 const sectionRef =
                   inst?.sectionRef ||
                   `${currentSection.id}/${currentSection.title} ${instanceIndex + 1}`;

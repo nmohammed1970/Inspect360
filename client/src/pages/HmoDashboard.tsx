@@ -8,11 +8,14 @@ import {
   CheckCircle2,
   ClipboardList,
   FileWarning,
+  Filter,
   Home,
   Scale,
+  Search,
   Shield,
   Users,
   Wrench,
+  X,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -26,6 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { PageHeader } from "@/components/PageHeader";
 import { FiltersSection } from "@/components/FiltersSection";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
@@ -106,28 +110,100 @@ export default function HmoDashboard() {
   const [alertFilter, setAlertFilter] = useState("all");
   const [issueFilter, setIssueFilter] = useState("all");
   const [authorityQ, setAuthorityQ] = useState("");
+  const [moreFiltersOpen, setMoreFiltersOpen] = useState(false);
 
-  const hasActiveFilters =
-    addressQ.trim() !== "" ||
-    boroughQ.trim() !== "" ||
-    licenceStatus !== "all" ||
-    overallStatus !== "all" ||
-    managerQ.trim() !== "" ||
-    renewalWindow !== "all" ||
-    alertFilter !== "all" ||
-    issueFilter !== "all" ||
-    authorityQ.trim() !== "";
-
-  const clearAllFilters = () => {
+  const clearPrimaryFilters = () => {
     setAddressQ("");
     setBoroughQ("");
     setLicenceStatus("all");
+  };
+
+  const clearAdvancedFilters = () => {
     setOverallStatus("all");
     setManagerQ("");
     setRenewalWindow("all");
     setAlertFilter("all");
     setIssueFilter("all");
     setAuthorityQ("");
+  };
+
+  const clearAllFilters = () => {
+    clearPrimaryFilters();
+    clearAdvancedFilters();
+  };
+
+  const advancedFilterCount = [
+    authorityQ.trim() !== "",
+    overallStatus !== "all",
+    managerQ.trim() !== "",
+    renewalWindow !== "all",
+    alertFilter !== "all",
+    issueFilter !== "all",
+  ].filter(Boolean).length;
+
+  const hasAdvancedFilters = advancedFilterCount > 0;
+  const hasActiveFilters =
+    addressQ.trim() !== "" ||
+    boroughQ.trim() !== "" ||
+    licenceStatus !== "all" ||
+    hasAdvancedFilters;
+
+  const boroughOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of data?.profiles || []) {
+      const b = (p.borough || "").trim();
+      if (b) set.add(b);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [data?.profiles]);
+
+  const overallStatusChipLabel = (value: string) => {
+    switch (value) {
+      case "VERIFIED_COMPLIANT":
+        return "Compliant";
+      case "ACTION_REQUIRED":
+        return "Non-compliant";
+      case "CRITICAL_EXCEPTION":
+        return "Critical / Non-compliant";
+      case "REVIEW_REQUIRED":
+        return "Needs attention";
+      case "NOT_ASSESSED":
+        return "Not assessed";
+      default:
+        return value;
+    }
+  };
+
+  const issueFilterChipLabel = (value: string) => {
+    switch (value) {
+      case "licence_missing":
+        return "Licence evidence missing";
+      case "occupancy":
+        return "Occupancy mismatch";
+      case "safety_docs":
+        return "Missing safety document";
+      case "insp_due":
+        return "HMO inspection due soon";
+      case "insp_missed":
+        return "HMO inspection missed";
+      default:
+        return value;
+    }
+  };
+
+  const renewalChipLabel = (value: string) => {
+    switch (value) {
+      case "90":
+        return "Within 90 days";
+      case "30":
+        return "Within 30 days";
+      case "7":
+        return "Within 7 days";
+      case "expired":
+        return "Expired";
+      default:
+        return value;
+    }
   };
 
   const filtered = useMemo(() => {
@@ -508,118 +584,246 @@ export default function HmoDashboard() {
               </span>
             }
           >
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <div className="space-y-2">
-                <Label className="text-sm font-medium">Address</Label>
-                <Input
-                  value={addressQ}
-                  onChange={(e) => setAddressQ(e.target.value)}
-                  placeholder="Search…"
-                />
+            <div className="space-y-3">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_auto] lg:items-end">
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">Address</Label>
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      value={addressQ}
+                      onChange={(e) => setAddressQ(e.target.value)}
+                      placeholder="Search address…"
+                      className="pl-8"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">Borough</Label>
+                  <Select
+                    value={boroughQ.trim() ? boroughQ : "all"}
+                    onValueChange={(v) => setBoroughQ(v === "all" ? "" : v)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="All boroughs" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All boroughs</SelectItem>
+                      {boroughOptions.map((b) => (
+                        <SelectItem key={b} value={b}>
+                          {b}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">Licence status</Label>
+                  <Select value={licenceStatus} onValueChange={setLicenceStatus}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="All statuses" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All statuses</SelectItem>
+                      <SelectItem value="CURRENT">Current</SelectItem>
+                      <SelectItem value="EXPIRED_DOCUMENT">Expired document</SelectItem>
+                      <SelectItem value="RENEWAL_PENDING_EVIDENCE">Renewal pending</SelectItem>
+                      <SelectItem value="UNDER_REVIEW">Under review</SelectItem>
+                      <SelectItem value="DRAFT">Draft</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Popover open={moreFiltersOpen} onOpenChange={setMoreFiltersOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="gap-2 w-full lg:w-auto lg:mt-0">
+                      <Filter className="h-4 w-4" />
+                      Filters
+                      {advancedFilterCount > 0 && (
+                        <Badge
+                          variant="default"
+                          className="ml-0.5 h-5 min-w-5 rounded-full px-1.5 tabular-nums"
+                        >
+                          {advancedFilterCount}
+                        </Badge>
+                      )}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-80 space-y-4" align="end">
+                    <p className="text-sm font-medium">Advanced filters</p>
+                    <div className="space-y-2">
+                      <Label className="text-sm">Council / authority</Label>
+                      <Input
+                        value={authorityQ}
+                        onChange={(e) => setAuthorityQ(e.target.value)}
+                        placeholder="Search…"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-sm">Overall status</Label>
+                      <Select value={overallStatus} onValueChange={setOverallStatus}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All</SelectItem>
+                          <SelectItem value="VERIFIED_COMPLIANT">Compliant</SelectItem>
+                          <SelectItem value="ACTION_REQUIRED">Non-compliant</SelectItem>
+                          <SelectItem value="CRITICAL_EXCEPTION">
+                            Critical / Non-compliant
+                          </SelectItem>
+                          <SelectItem value="REVIEW_REQUIRED">Needs attention</SelectItem>
+                          <SelectItem value="NOT_ASSESSED">Not assessed</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-sm">Manager</Label>
+                      <Input
+                        value={managerQ}
+                        onChange={(e) => setManagerQ(e.target.value)}
+                        placeholder="Search…"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-sm">Renewal window</Label>
+                      <Select value={renewalWindow} onValueChange={setRenewalWindow}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All</SelectItem>
+                          <SelectItem value="90">Within 90 days</SelectItem>
+                          <SelectItem value="30">Within 30 days</SelectItem>
+                          <SelectItem value="7">Within 7 days</SelectItem>
+                          <SelectItem value="expired">Expired</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-sm">Alerts</Label>
+                      <Select value={alertFilter} onValueChange={setAlertFilter}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All</SelectItem>
+                          <SelectItem value="has">Has alerts</SelectItem>
+                          <SelectItem value="none">No alerts</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-sm">Issue type</Label>
+                      <Select value={issueFilter} onValueChange={setIssueFilter}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All</SelectItem>
+                          <SelectItem value="licence_missing">Licence evidence missing</SelectItem>
+                          <SelectItem value="occupancy">Occupancy mismatch</SelectItem>
+                          <SelectItem value="safety_docs">Missing safety document</SelectItem>
+                          <SelectItem value="insp_due">HMO inspection due soon</SelectItem>
+                          <SelectItem value="insp_missed">HMO inspection missed</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {hasAdvancedFilters && (
+                      <ClearFiltersButton
+                        className="w-full"
+                        onClick={clearAdvancedFilters}
+                      />
+                    )}
+                  </PopoverContent>
+                </Popover>
               </div>
-              <div className="space-y-2">
-                <Label className="text-sm font-medium">Borough</Label>
-                <Input
-                  value={boroughQ}
-                  onChange={(e) => setBoroughQ(e.target.value)}
-                  placeholder="Search…"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label className="text-sm font-medium">Council / authority</Label>
-                <Input
-                  value={authorityQ}
-                  onChange={(e) => setAuthorityQ(e.target.value)}
-                  placeholder="Search…"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label className="text-sm font-medium">Licence status</Label>
-                <Select value={licenceStatus} onValueChange={setLicenceStatus}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All</SelectItem>
-                    <SelectItem value="CURRENT">Current</SelectItem>
-                    <SelectItem value="EXPIRED_DOCUMENT">Expired document</SelectItem>
-                    <SelectItem value="RENEWAL_PENDING_EVIDENCE">Renewal pending</SelectItem>
-                    <SelectItem value="UNDER_REVIEW">Under review</SelectItem>
-                    <SelectItem value="DRAFT">Draft</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label className="text-sm font-medium">Overall status</Label>
-                <Select value={overallStatus} onValueChange={setOverallStatus}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All</SelectItem>
-                    <SelectItem value="VERIFIED_COMPLIANT">Compliant</SelectItem>
-                    <SelectItem value="ACTION_REQUIRED">Non-compliant</SelectItem>
-                    <SelectItem value="CRITICAL_EXCEPTION">Critical / Non-compliant</SelectItem>
-                    <SelectItem value="REVIEW_REQUIRED">Needs attention</SelectItem>
-                    <SelectItem value="NOT_ASSESSED">Not assessed</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label className="text-sm font-medium">Manager</Label>
-                <Input
-                  value={managerQ}
-                  onChange={(e) => setManagerQ(e.target.value)}
-                  placeholder="Search…"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label className="text-sm font-medium">Renewal window</Label>
-                <Select value={renewalWindow} onValueChange={setRenewalWindow}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All</SelectItem>
-                    <SelectItem value="90">Within 90 days</SelectItem>
-                    <SelectItem value="30">Within 30 days</SelectItem>
-                    <SelectItem value="7">Within 7 days</SelectItem>
-                    <SelectItem value="expired">Expired</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label className="text-sm font-medium">Alerts</Label>
-                <Select value={alertFilter} onValueChange={setAlertFilter}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All</SelectItem>
-                    <SelectItem value="has">Has alerts</SelectItem>
-                    <SelectItem value="none">No alerts</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label className="text-sm font-medium">Issue type</Label>
-                <Select value={issueFilter} onValueChange={setIssueFilter}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All</SelectItem>
-                    <SelectItem value="licence_missing">Licence evidence missing</SelectItem>
-                    <SelectItem value="occupancy">Occupancy mismatch</SelectItem>
-                    <SelectItem value="safety_docs">Missing safety document</SelectItem>
-                    <SelectItem value="insp_due">HMO inspection due soon</SelectItem>
-                    <SelectItem value="insp_missed">HMO inspection missed</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              {hasActiveFilters && (
-                <div className="flex items-end">
-                  <ClearFiltersButton className="w-full" onClick={clearAllFilters} />
+
+              {hasAdvancedFilters && (
+                <div className="space-y-2 border-t pt-3">
+                  <p className="text-xs text-muted-foreground">
+                    When additional filters are selected:
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {authorityQ.trim() && (
+                      <Badge variant="secondary" className="gap-1">
+                        Council: {authorityQ.trim()}
+                        <button
+                          type="button"
+                          className="rounded-full p-0.5 hover:bg-destructive/20"
+                          onClick={() => setAuthorityQ("")}
+                          aria-label="Clear council filter"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </Badge>
+                    )}
+                    {overallStatus !== "all" && (
+                      <Badge variant="secondary" className="gap-1">
+                        Overall status: {overallStatusChipLabel(overallStatus)}
+                        <button
+                          type="button"
+                          className="rounded-full p-0.5 hover:bg-destructive/20"
+                          onClick={() => setOverallStatus("all")}
+                          aria-label="Clear overall status filter"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </Badge>
+                    )}
+                    {managerQ.trim() && (
+                      <Badge variant="secondary" className="gap-1">
+                        Manager: {managerQ.trim()}
+                        <button
+                          type="button"
+                          className="rounded-full p-0.5 hover:bg-destructive/20"
+                          onClick={() => setManagerQ("")}
+                          aria-label="Clear manager filter"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </Badge>
+                    )}
+                    {renewalWindow !== "all" && (
+                      <Badge variant="secondary" className="gap-1">
+                        Renewal: {renewalChipLabel(renewalWindow)}
+                        <button
+                          type="button"
+                          className="rounded-full p-0.5 hover:bg-destructive/20"
+                          onClick={() => setRenewalWindow("all")}
+                          aria-label="Clear renewal filter"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </Badge>
+                    )}
+                    {alertFilter !== "all" && (
+                      <Badge variant="secondary" className="gap-1">
+                        Alerts: {alertFilter === "has" ? "Yes" : "None"}
+                        <button
+                          type="button"
+                          className="rounded-full p-0.5 hover:bg-destructive/20"
+                          onClick={() => setAlertFilter("all")}
+                          aria-label="Clear alerts filter"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </Badge>
+                    )}
+                    {issueFilter !== "all" && (
+                      <Badge variant="secondary" className="gap-1">
+                        Issue: {issueFilterChipLabel(issueFilter)}
+                        <button
+                          type="button"
+                          className="rounded-full p-0.5 hover:bg-destructive/20"
+                          onClick={() => setIssueFilter("all")}
+                          aria-label="Clear issue type filter"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </Badge>
+                    )}
+                    <ClearFiltersButton onClick={clearAllFilters} />
+                  </div>
                 </div>
               )}
             </div>

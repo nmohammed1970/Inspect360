@@ -25,10 +25,13 @@ import { Loader2, Plus, Trash2, Sparkles } from "lucide-react";
 import {
   floorAreaM2,
   floorAreaFt2,
+  formatAiProposedRoomSize,
+  looksLikeAreaOnlyDimensions,
   formatLengthInput,
   formatMillimetresAsFeetInches,
   parseLengthInputToMillimetres,
   metresToMm,
+  sidesFromAreaM2,
   countsFromRooms,
   resolveSystemCategoryForLabel,
   roomTypeFromCategorySlug,
@@ -188,12 +191,25 @@ export function PropertyRoomsEditor({
     const mapped: DraftRoom[] = reviewRooms.map((pr, idx) => {
       const resolved = resolveSystemCategoryForLabel(pr.name, pr.category);
       const cat = findCategoryForAi(freshCats, resolved.name, pr.name);
+      let widthM = pr.widthM ?? null;
+      let lengthM = pr.lengthM ?? null;
+      // Plans often print only m² — keep that area by storing equal sides
+      if (
+        (widthM == null || lengthM == null) &&
+        pr.areaM2 != null &&
+        Number.isFinite(pr.areaM2) &&
+        pr.areaM2 > 0
+      ) {
+        const sides = sidesFromAreaM2(pr.areaM2);
+        widthM = widthM ?? sides.widthM;
+        lengthM = lengthM ?? sides.lengthM;
+      }
       return {
         clientKey: newClientKey(),
         categoryId: cat?.id || "",
         name: pr.name,
-        widthMm: metresToMm(pr.widthM),
-        lengthMm: metresToMm(pr.lengthM),
+        widthMm: metresToMm(widthM),
+        lengthMm: metresToMm(lengthM),
         ceilingHeightMm: null,
         source: "ai" as const,
         aiConfidence: pr.confidence ?? null,
@@ -265,7 +281,8 @@ export function PropertyRoomsEditor({
         <div>
           <h3 className="text-base font-semibold">Rooms &amp; areas</h3>
           <p className="text-sm text-muted-foreground">
-            Name, category, and floor dimensions (width × length). Dimensions are optional.
+            Name, category, and size. Plans may use width × length or floor area (m²) —
+            both are supported. Dimensions are optional.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -421,9 +438,16 @@ export function PropertyRoomsEditor({
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <Label>Floor area</Label>
+                    <Label>
+                      Floor area
+                      {looksLikeAreaOnlyDimensions(room.widthMm, room.lengthMm)
+                        ? " (from plan)"
+                        : ""}
+                    </Label>
                     <div className="h-10 rounded-md border bg-muted/40 px-3 flex items-center text-sm tabular-nums">
-                      {area == null ? "—" : `${area} ${areaUnit === "ft2" ? "ft²" : "m²"}`}
+                      {area == null
+                        ? "—"
+                        : `${area} ${areaUnit === "ft2" ? "ft²" : "m²"}`}
                     </div>
                   </div>
                 </div>
@@ -482,7 +506,8 @@ export function PropertyRoomsEditor({
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
             Confirm or edit before applying. Manual rooms you already added are kept; AI rooms
-            replace previous AI suggestions.
+            replace previous AI suggestions. Floor area (m²) is used when the plan prints area
+            instead of width × length.
           </p>
           <div className="space-y-2 py-2">
             {reviewRooms.map((r, i) => (
@@ -518,17 +543,23 @@ export function PropertyRoomsEditor({
                   }}
                   placeholder="Category"
                 />
-                <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-                  <span>
-                    W:{" "}
-                    {r.widthM != null
-                      ? formatMillimetresAsFeetInches(metresToMm(r.widthM)) || `${r.widthM} m`
-                      : "—"}{" "}
-                    · L:{" "}
-                    {r.lengthM != null
-                      ? formatMillimetresAsFeetInches(metresToMm(r.lengthM)) || `${r.lengthM} m`
-                      : "—"}
-                  </span>
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                  <Badge variant="outline" className="font-medium tabular-nums">
+                    {formatAiProposedRoomSize(r)}
+                  </Badge>
+                  {r.areaM2 == null &&
+                    r.widthM != null &&
+                    r.lengthM != null && (
+                      <span className="text-xs text-muted-foreground">
+                        W{" "}
+                        {formatMillimetresAsFeetInches(metresToMm(r.widthM)) ||
+                          `${r.widthM} m`}
+                        {" · "}
+                        L{" "}
+                        {formatMillimetresAsFeetInches(metresToMm(r.lengthM)) ||
+                          `${r.lengthM} m`}
+                      </span>
+                    )}
                 </div>
               </div>
             ))}
