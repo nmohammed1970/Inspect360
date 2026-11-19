@@ -1054,7 +1054,7 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
               ).map((row) => (
                 <div key={row.label} className="flex items-center justify-between gap-3">
                   <span className="text-slate-500">{row.label}</span>
-                  <Link href={row.href} className="text-teal-700 hover:underline">
+                  <Link href={row.href} className="font-semibold text-teal-700 hover:underline">
                     {row.action}
                   </Link>
                 </div>
