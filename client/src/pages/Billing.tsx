@@ -530,11 +530,11 @@ export default function Billing() {
 
   const inspectionCredits = Number(
     v2?.balances?.inspection ??
-      balance?.total ??
-      balance?.creditBalance?.total ??
-      balance?.totalCredits ??
-      balance?.creditsRemaining ??
-      balance?.balance ??
+    balance?.total ??
+    balance?.creditBalance?.total ??
+    balance?.totalCredits ??
+    balance?.creditsRemaining ??
+    balance?.balance ??
       0,
   );
   const smsCredits = Number(v2?.balances?.sms ?? 0);
@@ -650,24 +650,24 @@ export default function Billing() {
             <div className="flex flex-wrap items-center gap-2 shrink-0">
               {balanceFetching && !balanceLoading ? (
                 <span className="text-xs text-muted-foreground flex items-center gap-1.5 mr-1">
-                  <Loader2 className="h-3 w-3 animate-spin" />
+              <Loader2 className="h-3 w-3 animate-spin" />
                   Updating
-                </span>
+            </span>
               ) : null}
-              <Button variant="outline" asChild>
+                <Button variant="outline" asChild>
                 <a href="#plans">View plans</a>
-              </Button>
-              <Button onClick={openPortal} disabled={portalBusy}>
-                {portalBusy ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <>
-                    <ExternalLink className="h-4 w-4 mr-2" />
-                    Manage billing
-                  </>
-                )}
-              </Button>
-            </div>
+                </Button>
+                <Button onClick={openPortal} disabled={portalBusy}>
+                  {portalBusy ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <>
+                      <ExternalLink className="h-4 w-4 mr-2" />
+                      Manage billing
+                    </>
+                  )}
+                </Button>
+              </div>
           }
         />
 
@@ -689,9 +689,9 @@ export default function Billing() {
                           {cycleLabel}
                         </Badge>
                       ) : null}
-                    </div>
+              </div>
                     {subStatus === "trialing" ? (
-                      <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-muted-foreground">
                         You are on {planName} limits during trial
                         {v2?.subscription?.trialEnd
                           ? ` until ${format(new Date(v2.subscription.trialEnd), "dd MMM yyyy")}`
@@ -753,9 +753,9 @@ export default function Billing() {
                   <a href="#plans">Choose a plan</a>
                 </Button>
               ) : null}
-            </div>
-          </CardContent>
-        </Card>
+              </div>
+            </CardContent>
+          </Card>
 
         {/* Summary cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4" data-testid="panel-plan-kpis">
@@ -789,27 +789,27 @@ export default function Billing() {
                   </p>
                   <p className="text-xs text-muted-foreground hidden md:block">For AI inspections</p>
                 </div>
-                <div
-                  className={cn(
+              <div
+                className={cn(
                     "p-1.5 md:p-2 rounded-full",
                     creditsEmpty
                       ? "bg-destructive/10"
                       : creditsLow
                         ? "bg-yellow-500/10"
                         : "bg-green-500/10",
-                  )}
-                >
-                  <CreditCard
-                    className={cn(
+                )}
+              >
+                <CreditCard
+                  className={cn(
                       "h-4 w-4 md:h-5 md:w-5",
                       creditsEmpty
                         ? "text-destructive"
                         : creditsLow
                           ? "text-yellow-600"
                           : "text-green-600",
-                    )}
-                  />
-                </div>
+                  )}
+                />
+              </div>
               </div>
             </CardContent>
           </Card>
@@ -817,7 +817,7 @@ export default function Billing() {
           <Card className="border-l-4 border-l-primary">
             <CardContent className="p-3 md:p-4">
               <div className="flex items-center justify-between">
-                <div>
+              <div>
                   <p className="text-xs md:text-sm font-medium text-muted-foreground">SMS credits</p>
                   <p className="text-xl md:text-2xl font-bold tabular-nums">{smsCredits}</p>
                   <p className="text-xs text-muted-foreground hidden md:block">For tenant messages</p>
@@ -880,22 +880,22 @@ export default function Billing() {
               )}
             />
             <div className="min-w-0">
-              <p
-                className={cn(
-                  "font-semibold",
+                <p
+                  className={cn(
+                    "font-semibold",
                   creditsEmpty ? "text-destructive" : "text-amber-800 dark:text-amber-400",
-                )}
-              >
+                  )}
+                >
                 {creditsEmpty ? "No inspection credits left" : "Inspection credits running low"}
-              </p>
+                </p>
               <p className="text-sm text-muted-foreground mt-0.5">
-                {creditsEmpty
+                  {creditsEmpty
                   ? "AI generation is paused until you top up — offline capture still works."
                   : `${inspectionCredits} credits remaining.`}{" "}
                 <a href="#topups" className="font-medium text-foreground underline underline-offset-2">
                   Buy credits
                 </a>
-              </p>
+                </p>
             </div>
           </div>
         )}
@@ -946,8 +946,8 @@ export default function Billing() {
             <Card>
               <CardContent className="py-10 text-center text-muted-foreground text-sm">
                 Pricing catalog is not published yet.
-              </CardContent>
-            </Card>
+          </CardContent>
+        </Card>
           ) : (
             <div className="grid gap-3 md:gap-4 md:grid-cols-2 xl:grid-cols-3">
               {plans.map((plan) => {
@@ -1114,7 +1114,7 @@ export default function Billing() {
               <p className="text-sm text-muted-foreground">
                 One-off prepaid packs — inspection or SMS (ex VAT).
               </p>
-            </div>
+                    </div>
             <Tabs value={topupKind} onValueChange={(v) => setTopupKind(v as typeof topupKind)}>
               <TabsList>
                 <TabsTrigger value="inspection" className="gap-1.5">
@@ -1251,7 +1251,7 @@ export default function Billing() {
                       {hmoIncludedFree ? (
                         <Badge variant="secondary" className="shrink-0">
                           Included
-                        </Badge>
+                      </Badge>
                       ) : (
                         <div className="flex items-center gap-2 shrink-0">
                           {addonBusy === "hmo" ? (
@@ -1264,8 +1264,8 @@ export default function Billing() {
                             aria-label="Enable HMO Compliance add-on"
                           />
                         </div>
-                      )}
-                    </div>
+                    )}
+                  </div>
                     {!hmoIncludedFree ? (
                       <p className="text-xs text-muted-foreground">
                         After enabling, open Settings → Internal Modules to show HMO screens.
@@ -1310,8 +1310,8 @@ export default function Billing() {
                         )}
                       </Button>
                     </div>
-                  </CardContent>
-                </Card>
+                </CardContent>
+              </Card>
               ) : null}
             </div>
           </section>
@@ -1332,7 +1332,7 @@ export default function Billing() {
                       When inspection credits fall to 5 or below, buy the pack you select
                       automatically. Limited to 3 purchases per month. SMS packs stay manual.
                     </CardDescription>
-                  </div>
+                </div>
                 </div>
                 <Badge
                   variant="outline"
@@ -1418,7 +1418,7 @@ export default function Billing() {
               )}
             </CardContent>
           </Card>
-        </div>
+                    </div>
 
         {/* Invoices */}
         <Card className="shadow-none">
@@ -1503,8 +1503,8 @@ export default function Billing() {
                   <CardTitle className="text-lg">Modules</CardTitle>
                   <CardDescription className="mt-0.5">
                     Features available in this workspace.
-                  </CardDescription>
-                </div>
+                </CardDescription>
+              </div>
               </div>
               <Badge variant="secondary" className="w-fit font-normal">
                 {activeModules.length} active · {inactiveModules.length} locked
@@ -1522,19 +1522,19 @@ export default function Billing() {
                   Your administrator has not published any modules for this environment yet.
                 </p>
               </div>
-            ) : (
-              <>
+                  ) : (
+                    <>
                 {activeModules.length > 0 && (
                   <section className="space-y-3">
                     <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
                       <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-                      Active
+                        Active
                     </h3>
                     <div className="grid gap-3 sm:grid-cols-2">
                       {activeModules.map((mod) => (
                         <ModuleCard key={mod.id} mod={mod} />
                       ))}
-                    </div>
+                </div>
                   </section>
                 )}
 
@@ -1550,27 +1550,27 @@ export default function Billing() {
                           <TooltipTrigger asChild>
                             <div className="outline-none h-full" tabIndex={0}>
                               <ModuleCard mod={mod} />
-                            </div>
+          </div>
                           </TooltipTrigger>
                           <TooltipContent side="top" className="max-w-xs">
                             {CONTACT_ADMIN}
                           </TooltipContent>
                         </Tooltip>
                       ))}
-                    </div>
-                  </section>
+        </div>
+      </section>
                 )}
               </>
             )}
           </CardContent>
-        </Card>
+            </Card>
       </div>
     </TooltipProvider>
   );
 }
 
 function ModuleCard({ mod }: { mod: ModuleRow }) {
-  return (
+    return (
     <div
       className={cn(
         "h-full rounded-xl border p-4 transition-colors",

@@ -166,6 +166,33 @@ export async function refreshLicenceVersionExtraction(input: {
       ),
     )
     .returning();
+
+  if (row?.licenceId) {
+    const extraction = input.extraction;
+    await db
+      .update(hmoLicences)
+      .set({
+        licenceNumber: extraction?.licence_number?.value ?? null,
+        authorityName: extraction?.issuing_authority?.value ?? null,
+        holderName: extraction?.holder_name?.value ?? null,
+        managerName: extraction?.manager_name?.value ?? null,
+        issueDate: parseDate(extraction?.issue_date?.value ?? null),
+        expiryDate: parseDate(extraction?.expiry_date?.value ?? null),
+        maxPersons:
+          typeof extraction?.maximum_individuals?.value === "number"
+            ? extraction.maximum_individuals.value
+            : null,
+        updatedAt: new Date(),
+        updatedBy: input.userId ?? null,
+      })
+      .where(
+        and(
+          eq(hmoLicences.id, row.licenceId),
+          eq(hmoLicences.organizationId, input.organizationId),
+        ),
+      );
+  }
+
   return row;
 }
 

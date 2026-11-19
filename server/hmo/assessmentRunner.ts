@@ -18,7 +18,6 @@ import {
 } from "./storage";
 import { writeHmoAuditEvent } from "./auditWriter";
 import { buildOccupancyFromTenancies } from "./occupancy";
-import { raiseMaintenanceForAssessmentFindings } from "./maintenanceFromFindings";
 
 export type RunAssessmentInput = {
   orgId: string;
@@ -238,26 +237,11 @@ export async function runAssessment(input: RunAssessmentInput) {
     metadata: { overallStatus, evidenceCompleteness, reason: reason || "manual" },
   });
 
-  let maintenance: Awaited<ReturnType<typeof raiseMaintenanceForAssessmentFindings>> | null = null;
-  if (userId) {
-    try {
-      maintenance = await raiseMaintenanceForAssessmentFindings({
-        organizationId: orgId,
-        propertyId,
-        userId,
-        findings,
-      });
-    } catch (err: any) {
-      console.warn("[hmo] maintenance from findings failed:", err?.message || err);
-    }
-  }
-
   return {
     assessment,
     findings,
     overallStatus,
     evidenceCompleteness,
     liveData,
-    maintenance,
   };
 }

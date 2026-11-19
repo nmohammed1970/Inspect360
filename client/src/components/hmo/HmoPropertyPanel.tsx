@@ -1,52 +1,22 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { ModernFilePickerInline } from "@/components/ModernFilePickerInline";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import {
-  AlertCircle,
-  CheckCircle2,
-  ChevronDown,
-  ChevronRight,
-  ClipboardList,
-  FileUp,
-  History,
-  Shield,
-  Users,
-  X,
-} from "lucide-react";
-import {
-  formatHmoDate,
-  hmoCheckLabel,
-  hmoFindingSpecLabel,
-  hmoOverallStatusMeta,
-  hmoPreTenancyLabel,
-  hmoRuleSourceLabel,
-  hmoSeverityMeta,
-} from "@/components/hmo/hmoLabels";
+import { AlertCircle, CheckCircle2, ChevronDown, ChevronRight, FileText } from "lucide-react";
+import { hmoOverallStatusMeta } from "@/components/hmo/hmoLabels";
 import { cn } from "@/lib/utils";
-
-function formatDisplayDate(value: string | null | undefined): string {
-  if (!value) return "—";
-  const formatted = formatHmoDate(value);
-  return formatted === "Not set" ? value : formatted;
-}
-
-function rawField(extraction: any, key: string): any {
-  return extraction?.[key] ?? null;
-}
 
 function fieldVal(field: any): string {
   if (field == null) return "";
@@ -99,44 +69,72 @@ function emptyExtraction(seed?: {
     borough: field(null),
     licence_number: field(seed?.licenceNumber ?? null),
     issuing_authority: field(seed?.authorityName ?? null),
-    issue_date: field(seed?.issueDate ? String(seed.issueDate).slice(0, 10) : null),
+    issue_date: field(seed?.issueDate ?? null),
     start_date: field(null),
-    expiry_date: field(seed?.expiryDate ? String(seed.expiryDate).slice(0, 10) : null),
+    expiry_date: field(seed?.expiryDate ?? null),
     licence_status: field(seed?.lifecycleStatus ?? "UNDER_REVIEW"),
     maximum_individuals: field(seed?.maxPersons ?? null),
     maximum_households: field(null),
     holder_name: field(seed?.holderName ?? null),
     manager_name: field(seed?.managerName ?? null),
     conditions: [],
+    rooms: [],
     referenced_missing_attachments: [],
     warnings: [],
   };
 }
 
+function isOpenMaintenanceStatus(status: string | null | undefined): boolean {
+  const s = String(status || "").toLowerCase();
+  return !["completed", "closed", "cancelled", "canceled", "resolved", "done"].includes(s);
+}
+
+function priorityTone(priority: string | null | undefined): "urgent" | "medium" | "low" {
+  const p = String(priority || "").toLowerCase();
+  if (p === "urgent" || p === "critical" || p === "high") return "urgent";
+  if (p === "medium") return "medium";
+  return "low";
+}
+
+function formatLongDate(value: string | null | undefined): string {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return d.toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
+
+function formatShortDate(value: string | null | undefined): string {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return d.toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
 type Overview = {
   profile: {
     overallStatus?: string | null;
-    evidenceCompleteness?: number | null;
-    lastAssessedAt?: string | null;
     licenceEvidenceStatus?: string | null;
     licenceEvidenceNotes?: string | null;
   };
   header?: {
     address?: string | null;
-    borough?: string | null;
     licenceStatus?: string | null;
-    licenceEvidenceStatus?: string | null;
     expiryDate?: string | null;
     occupantsNow?: number | null;
     occupantsPermitted?: number | null;
-    hmoClassification?: string | null;
-    setupIncomplete?: boolean;
-    attentionCount?: number;
   };
   property?: {
+    id?: string;
     address?: string | null;
-    city?: string | null;
-    hmoClassification?: string | null;
+    name?: string | null;
   } | null;
   licences: Array<{
     id: string;
@@ -159,33 +157,8 @@ type Overview = {
       versionNo?: number | null;
     }>;
   }>;
-  recentFindings: Array<{
-    id: string;
-    checkId: string;
-    status: string;
-    severity: string;
-    explanation?: string | null;
-    suggestedActionCode?: string | null;
-    actualJson?: Record<string, unknown> | null;
-  }>;
-  assessments?: Array<{
-    id: string;
-    overallStatus?: string | null;
-    completedAt?: string | null;
-    runReason?: string | null;
-    createdAt?: string | null;
-  }>;
-  renewalAlerts?: Array<Record<string, unknown> | null>;
   occupancy?: { personCount?: number | null } | null;
   activeTenantCount?: number | null;
-  evidenceItems?: Array<{
-    id: string;
-    label: string;
-    status: string;
-    source: string;
-    link?: string | null;
-    detail?: string | null;
-  }>;
   roomProfiles?: Array<{
     id: string;
     roomName?: string | null;
@@ -197,14 +170,6 @@ type Overview = {
     measurementSource?: string | null;
     humanConfirmed?: boolean | null;
   }>;
-  linkedMaintenance?: Array<{
-    id: string;
-    title: string;
-    status: string;
-    priority: string;
-    findingId?: string | null;
-    verificationStatus?: string | null;
-  }>;
   hmoInspections?: Array<{
     id: string;
     type?: string | null;
@@ -215,37 +180,36 @@ type Overview = {
     createdAt?: string | null;
     templateName?: string | null;
   }>;
-  complianceTimeline?: Array<{
-    id: string;
-    at: string;
-    kind: string;
-    title: string;
-    detail?: string | null;
-    link?: string | null;
-  }>;
 };
+
+type PropertyMaintenanceLog = {
+  id: string;
+  title: string;
+  priority: string;
+  status: string;
+  createdAt: string;
+  category?: string;
+  description?: string;
+  reportedByName?: string;
+  assignedToName?: string;
+  inspectionId?: string | null;
+};
+
+const lifecycleOptions = [
+  { value: "DRAFT", label: "Draft" },
+  { value: "UNDER_REVIEW", label: "Under review" },
+  { value: "CURRENT", label: "Current" },
+  { value: "RENEWAL_PENDING_EVIDENCE", label: "Renewal pending evidence" },
+  { value: "EXPIRED_DOCUMENT", label: "Expired document" },
+  { value: "SUPERSEDED", label: "Superseded" },
+];
 
 export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
   const { toast } = useToast();
+  const [manageOpen, setManageOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [lastVersionId, setLastVersionId] = useState<string | null>(null);
   const [editExtraction, setEditExtraction] = useState<any>(() => emptyExtraction());
-  const [maxPersons, setMaxPersons] = useState("5");
-  const [confirmedPersons, setConfirmedPersons] = useState("");
-  const [occupancyOverridden, setOccupancyOverridden] = useState(false);
-  const [preTenancyResult, setPreTenancyResult] = useState<{
-    decision: string;
-    reason: string;
-  } | null>(null);
-  const [alertReason, setAlertReason] = useState<Record<string, string>>({});
-  const [reviewerDecision, setReviewerDecision] = useState<Record<string, string>>({});
-  const [headerBorough, setHeaderBorough] = useState("");
-  const [headerLicenceStatus, setHeaderLicenceStatus] = useState("UNDER_REVIEW");
-  const [headerExpiry, setHeaderExpiry] = useState("");
-  const [headerOccupantsNow, setHeaderOccupantsNow] = useState("");
-  const [headerPermitted, setHeaderPermitted] = useState("");
-  const [licenceEvidenceStatus, setLicenceEvidenceStatus] = useState("UNKNOWN");
-  const [licenceEvidenceNotes, setLicenceEvidenceNotes] = useState("");
   const [roomDrafts, setRoomDrafts] = useState<
     Array<{
       id?: string;
@@ -259,8 +223,8 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
       humanConfirmed: boolean;
     }>
   >([]);
-  /** Whole Verified rooms editor — collapsed by default when rooms already exist. */
   const [verifiedRoomsOpen, setVerifiedRoomsOpen] = useState(true);
+  const didAutoImportRooms = useRef(false);
 
   const { data, isLoading, error } = useQuery<Overview>({
     queryKey: ["/api/hmo/properties", propertyId, "overview"],
@@ -269,6 +233,20 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
         credentials: "include",
       });
       if (!res.ok) throw new Error("Failed to load HMO overview");
+      return res.json();
+    },
+    enabled: !!propertyId,
+  });
+
+  const { data: maintenanceLogs = [], isLoading: maintenanceLoading } = useQuery<
+    PropertyMaintenanceLog[]
+  >({
+    queryKey: ["/api/properties", propertyId, "maintenance"],
+    queryFn: async () => {
+      const res = await fetch(`/api/properties/${propertyId}/maintenance`, {
+        credentials: "include",
+      });
+      if (!res.ok) return [];
       return res.json();
     },
     enabled: !!propertyId,
@@ -294,8 +272,6 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
           },
       };
       setEditExtraction(next);
-      const max = fieldVal(next.maximum_individuals);
-      if (max) setMaxPersons(max);
       return;
     }
     if (primaryLicence) {
@@ -305,13 +281,11 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
         authorityName: primaryLicence.authorityName,
         holderName: primaryLicence.holderName,
         managerName: primaryLicence.managerName,
-        issueDate: null,
         expiryDate: primaryLicence.expiryDate,
         maxPersons: primaryLicence.maxPersons,
         lifecycleStatus: primaryLicence.lifecycleStatus,
       });
       setEditExtraction(seeded);
-      if (primaryLicence.maxPersons != null) setMaxPersons(String(primaryLicence.maxPersons));
       return;
     }
     setEditExtraction(
@@ -319,57 +293,12 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
         address: data?.header?.address || data?.property?.address || null,
       }),
     );
-  }, [primaryVersion?.id, primaryVersion?.extractedJson, primaryLicence?.id, data?.header?.address]);
-
-  useEffect(() => {
-    if (occupancyOverridden) return;
-    const live =
-      data?.activeTenantCount != null
-        ? data.activeTenantCount
-        : data?.header?.occupantsNow != null
-          ? data.header.occupantsNow
-          : data?.occupancy?.personCount;
-    if (live != null) {
-      setConfirmedPersons(String(live));
-      setHeaderOccupantsNow(String(live));
-    } else {
-      setConfirmedPersons("");
-    }
   }, [
-    occupancyOverridden,
-    data?.activeTenantCount,
-    data?.header?.occupantsNow,
-    data?.occupancy?.personCount,
-  ]);
-
-  useEffect(() => {
-    setHeaderBorough(data?.header?.borough || data?.property?.city || "");
-    setHeaderLicenceStatus(data?.header?.licenceStatus || "UNDER_REVIEW");
-    setHeaderExpiry(
-      data?.header?.expiryDate ? String(data.header.expiryDate).slice(0, 10) : "",
-    );
-    setHeaderOccupantsNow(
-      data?.header?.occupantsNow == null ? "" : String(data.header.occupantsNow),
-    );
-    setHeaderPermitted(
-      data?.header?.occupantsPermitted == null ? "" : String(data.header.occupantsPermitted),
-    );
-    setLicenceEvidenceStatus(
-      data?.profile?.licenceEvidenceStatus ||
-        data?.header?.licenceEvidenceStatus ||
-        "UNKNOWN",
-    );
-    setLicenceEvidenceNotes(data?.profile?.licenceEvidenceNotes || "");
-  }, [
-    data?.header?.borough,
-    data?.property?.city,
-    data?.header?.licenceStatus,
-    data?.header?.expiryDate,
-    data?.header?.occupantsNow,
-    data?.header?.occupantsPermitted,
-    data?.profile?.licenceEvidenceStatus,
-    data?.header?.licenceEvidenceStatus,
-    data?.profile?.licenceEvidenceNotes,
+    primaryVersion?.id,
+    // Re-apply when re-extraction updates the same version id
+    JSON.stringify(primaryVersion?.extractedJson ?? null),
+    primaryLicence?.id,
+    data?.header?.address,
   ]);
 
   useEffect(() => {
@@ -389,7 +318,6 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
         humanConfirmed: r.humanConfirmed !== false,
       })),
     );
-    // Collapse the whole Verified rooms block when rooms already exist.
     if (rooms.length > 0) setVerifiedRoomsOpen(false);
   }, [data?.roomProfiles]);
 
@@ -398,10 +326,9 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
   );
 
   const uploadMutation = useMutation({
-    mutationFn: async () => {
-      if (!selectedFile) throw new Error("Choose a licence file first");
+    mutationFn: async (file: File) => {
       const form = new FormData();
-      form.append("file", selectedFile);
+      form.append("file", file);
       const res = await fetch(`/api/hmo/properties/${propertyId}/licences/uploads`, {
         method: "POST",
         credentials: "include",
@@ -414,24 +341,47 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
     onSuccess: (payload) => {
       setLastVersionId(payload.licenceVersionId);
       setSelectedFile(null);
+      if (payload?.extraction) {
+        const extraction = payload.extraction;
+        setEditExtraction({
+          ...emptyExtraction({
+            address: fieldVal(extraction.property_address) || null,
+            licenceNumber: fieldVal(extraction.licence_number) || null,
+            authorityName: fieldVal(extraction.issuing_authority) || null,
+            holderName: fieldVal(extraction.holder_name) || null,
+            managerName: fieldVal(extraction.manager_name) || null,
+            expiryDate: fieldVal(extraction.expiry_date) || null,
+            maxPersons: fieldVal(extraction.maximum_individuals)
+              ? Number(fieldVal(extraction.maximum_individuals))
+              : null,
+            issueDate: fieldVal(extraction.issue_date) || null,
+            lifecycleStatus: fieldVal(extraction.licence_status) || "UNDER_REVIEW",
+          }),
+          ...extraction,
+          licence_status: extraction.licence_status || {
+            value: "UNDER_REVIEW",
+            human_confirmed: true,
+          },
+        });
+      }
       queryClient.invalidateQueries({
         queryKey: ["/api/hmo/properties", propertyId, "overview"],
       });
       toast({
-        title: payload.deduped
-          ? payload.reextracted
-            ? "Same file — extraction refreshed"
-            : "Duplicate document"
-          : "Licence uploaded",
-        description: payload.deduped
-          ? payload.reextracted
-            ? "Identical bytes reuse the stored original. Fields were re-extracted — review and Save, then assess."
-            : "Identical file already stored — using existing version. You can still overwrite fields below."
-          : "Review and save fields below, then run assessment.",
+        title: "Licence uploaded",
+        description: "Review the extracted fields and save to confirm.",
       });
     },
-    onError: (e: any) =>
-      toast({ title: "Upload failed", description: e.message, variant: "destructive" }),
+    onError: (e: any) => {
+      setSelectedFile(null);
+      const message = String(e?.message || "Upload failed");
+      const addressMismatch = /hasn'?t matched to property address/i.test(message);
+      toast({
+        title: addressMismatch ? "Address does not match" : "Upload failed",
+        description: message,
+        variant: "destructive",
+      });
+    },
   });
 
   const saveFieldsMutation = useMutation({
@@ -454,128 +404,10 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
         queryKey: ["/api/hmo/properties", propertyId, "overview"],
       });
       queryClient.invalidateQueries({ queryKey: ["/api/hmo/dashboard"] });
-      toast({
-        title: "Licence details saved",
-        description: "Fields overwritten and confirmed. Assessment can now run.",
-      });
+      toast({ title: "Licence details saved" });
     },
     onError: (e: any) =>
       toast({ title: "Save failed", description: e.message, variant: "destructive" }),
-  });
-
-  const saveHeaderMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("PATCH", `/api/hmo/properties/${propertyId}/summary`, {
-        borough: headerBorough.trim() ? headerBorough.trim() : null,
-        lifecycleStatus: headerLicenceStatus || null,
-        expiryDate: headerExpiry.trim() ? headerExpiry.trim() : null,
-        maxPersons: headerPermitted.trim() === "" ? null : Number(headerPermitted),
-        occupantsNow: headerOccupantsNow.trim() === "" ? null : Number(headerOccupantsNow),
-        licenceEvidenceStatus: licenceEvidenceStatus || "UNKNOWN",
-        licenceEvidenceNotes: licenceEvidenceNotes.trim() || null,
-      });
-      return res.json();
-    },
-    onSuccess: (payload) => {
-      if (payload?.licenceVersionId) setLastVersionId(payload.licenceVersionId);
-      if (payload?.extraction) setEditExtraction(payload.extraction);
-      if (headerPermitted.trim() !== "") setMaxPersons(headerPermitted.trim());
-      if (headerOccupantsNow.trim() !== "") setConfirmedPersons(headerOccupantsNow.trim());
-      queryClient.invalidateQueries({
-        queryKey: ["/api/hmo/properties", propertyId, "overview"],
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/hmo/dashboard"] });
-      toast({
-        title: "Summary updated",
-        description: "Borough, licence status, expiry, and occupancy were overwritten.",
-      });
-    },
-    onError: (e: any) =>
-      toast({ title: "Could not update summary", description: e.message, variant: "destructive" }),
-  });
-
-  const assessMutation = useMutation({
-    mutationFn: async (licenceVersionId: string) => {
-      const res = await apiRequest("POST", `/api/hmo/properties/${propertyId}/assessments`, {
-        licenceVersionId,
-        reason: "manual_ui",
-      });
-      return res.json();
-    },
-    onSuccess: (payload) => {
-      queryClient.invalidateQueries({
-        queryKey: ["/api/hmo/properties", propertyId, "overview"],
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/hmo/dashboard"] });
-      const mrCount = (payload.maintenance?.results || []).filter((r: any) => r.created).length;
-      toast({
-        title: "Assessment complete",
-        description:
-          mrCount > 0
-            ? `Status: ${payload.overallStatus}. ${mrCount} maintenance request(s) raised.`
-            : payload.maintenance?.maintenanceDisabled
-              ? `Status: ${payload.overallStatus}. Enable Maintenance module to raise work orders.`
-              : `Status: ${payload.overallStatus}`,
-      });
-    },
-    onError: (e: any) =>
-      toast({ title: "Assessment failed", description: e.message, variant: "destructive" }),
-  });
-
-  const alertMutation = useMutation({
-    mutationFn: async (opts: {
-      findingId: string;
-      action: "dismiss" | "snooze";
-      reason: string;
-      reviewerDecision?: string;
-    }) => {
-      const res = await apiRequest("POST", `/api/hmo/findings/${opts.findingId}/alert-action`, {
-        action: opts.action,
-        reason: opts.reason,
-        snoozeDays: 7,
-        reviewerDecision: opts.reviewerDecision || null,
-      });
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["/api/hmo/properties", propertyId, "overview"],
-      });
-      toast({ title: "Alert updated" });
-    },
-    onError: (e: any) =>
-      toast({ title: "Could not update alert", description: e.message, variant: "destructive" }),
-  });
-
-  const raiseMrMutation = useMutation({
-    mutationFn: async (findingId: string) => {
-      const res = await apiRequest("POST", `/api/hmo/findings/${findingId}/maintenance-request`, {});
-      return res.json();
-    },
-    onSuccess: (payload) => {
-      queryClient.invalidateQueries({
-        queryKey: ["/api/hmo/properties", propertyId, "overview"],
-      });
-      if (payload?.maintenanceDisabled) {
-        toast({
-          title: "Maintenance module required",
-          description: "Enable Maintenance to raise work orders from HMO findings.",
-          variant: "destructive",
-        });
-        return;
-      }
-      const id = payload?.maintenanceRequest?.id;
-      toast({
-        title: payload?.created ? "Maintenance request created" : "Maintenance request already open",
-        description: id ? `Open /maintenance/${id}` : undefined,
-      });
-    },
-    onError: (e: any) =>
-      toast({
-        title: "Could not create maintenance request",
-        description: e.message,
-        variant: "destructive",
-      }),
   });
 
   const saveRoomsMutation = useMutation({
@@ -603,7 +435,7 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
       queryClient.invalidateQueries({
         queryKey: ["/api/hmo/properties", propertyId, "overview"],
       });
-      toast({ title: "Rooms saved", description: "Assessment will refresh if a licence is confirmed." });
+      toast({ title: "Rooms saved" });
     },
     onError: (e: any) =>
       toast({ title: "Could not save rooms", description: e.message, variant: "destructive" }),
@@ -619,50 +451,49 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
       return res.json();
     },
     onSuccess: (payload) => {
+      didAutoImportRooms.current = true;
       queryClient.invalidateQueries({
         queryKey: ["/api/hmo/properties", propertyId, "overview"],
       });
-      toast({
-        title: "Rooms imported",
-        description:
-          payload?.note ||
-          `Imported ${payload?.imported || 0} room(s). Confirm measurements before assessment uses m².`,
-      });
+      const imported = Number(payload?.imported || 0);
+      if (imported > 0) {
+        setVerifiedRoomsOpen(true);
+        toast({
+          title: "Rooms imported",
+          description: payload?.note || `Imported ${imported} room(s) from the property.`,
+        });
+      }
     },
-    onError: (e: any) =>
-      toast({
-        title: "Import failed",
-        description: e.message,
-        variant: "destructive",
-      }),
+    onError: (e: any) => {
+      didAutoImportRooms.current = false;
+      toast({ title: "Import failed", description: e.message, variant: "destructive" });
+    },
   });
+
+  // Auto-import property rooms into HMO the first time (when none exist yet).
+  useEffect(() => {
+    if (!data || didAutoImportRooms.current || importRoomsMutation.isPending) return;
+    if ((data.roomProfiles || []).length > 0) {
+      didAutoImportRooms.current = true;
+      return;
+    }
+    didAutoImportRooms.current = true;
+    importRoomsMutation.mutate();
+  }, [data, importRoomsMutation.isPending]);
 
   const editableFields = useMemo(
     () => [
       { key: "licence_number", label: "Licence number" },
       { key: "licence_status", label: "Licence status", kind: "lifecycle" as const },
       { key: "issuing_authority", label: "Council / authority" },
-      { key: "borough", label: "Borough" },
       { key: "property_address", label: "Property address" },
       { key: "issue_date", label: "Grant / issue date", kind: "date" as const },
-      { key: "start_date", label: "Start date", kind: "date" as const },
       { key: "expiry_date", label: "Expiry date", kind: "date" as const },
       { key: "maximum_individuals", label: "Maximum persons" },
-      { key: "maximum_households", label: "Maximum households" },
       { key: "holder_name", label: "Licence holder" },
-      { key: "manager_name", label: "Manager" },
     ],
     [],
   );
-
-  const lifecycleOptions = [
-    { value: "DRAFT", label: "Draft" },
-    { value: "UNDER_REVIEW", label: "Under review" },
-    { value: "CURRENT", label: "Current" },
-    { value: "RENEWAL_PENDING_EVIDENCE", label: "Renewal pending evidence" },
-    { value: "EXPIRED_DOCUMENT", label: "Expired document" },
-    { value: "SUPERSEDED", label: "Superseded" },
-  ];
 
   if (isLoading) {
     return <p className="text-base text-muted-foreground py-4">Loading HMO overview…</p>;
@@ -678,355 +509,697 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
     );
   }
 
-  const header = data?.header;
+  const address = data?.header?.address || data?.property?.address || "Property";
   const statusMeta = hmoOverallStatusMeta(data?.profile?.overallStatus);
-  const currentVersionId = lastVersionId || primaryVersion?.id || null;
-  const conditions = Array.isArray(editExtraction?.conditions) ? editExtraction.conditions : [];
-  const rooms = Array.isArray(editExtraction?.rooms) ? editExtraction.rooms : [];
+  const lifecycle = primaryLicence?.lifecycleStatus || fieldVal(editExtraction?.licence_status);
+  const licenceVerified =
+    isConfirmed && (lifecycle === "CURRENT" || lifecycle === "Verified" || !lifecycle);
+  const licenceLabel = licenceVerified
+    ? "Verified"
+    : lifecycle === "EXPIRED_DOCUMENT"
+      ? "Expired"
+      : lifecycle
+        ? lifecycleOptions.find((o) => o.value === lifecycle)?.label || lifecycle.replace(/_/g, " ")
+        : statusMeta.label;
 
-  const alerts = (data?.recentFindings || []).filter((f) => {
-    const meta = f.actualJson || {};
-    if (meta.dismissedAt) return false;
-    if (meta.snoozedUntil && new Date(String(meta.snoozedUntil)).getTime() > Date.now()) return false;
-    return (
-      f.status === "EVIDENCE_MISSING" ||
-      f.status === "REQUIRES_HUMAN_REVIEW" ||
-      f.status === "CONFIRMED_NON_COMPLIANT" ||
-      f.status === "POTENTIAL_RISK"
-    );
-  });
+  const occupantsNow =
+    data?.activeTenantCount ??
+    data?.header?.occupantsNow ??
+    data?.occupancy?.personCount ??
+    null;
+  const occupantsPermitted =
+    data?.header?.occupantsPermitted ??
+    primaryLicence?.maxPersons ??
+    (fieldVal(editExtraction?.maximum_individuals)
+      ? Number(fieldVal(editExtraction.maximum_individuals))
+      : null);
+  const expiryDate = data?.header?.expiryDate || primaryLicence?.expiryDate || null;
+
+  const openMaintenance = maintenanceLogs.filter((m) => isOpenMaintenanceStatus(m.status));
+  const urgentOpen = openMaintenance.filter((m) => priorityTone(m.priority) === "urgent").length;
+  const mediumOpen = openMaintenance.filter((m) => priorityTone(m.priority) === "medium").length;
+
+  const inspections = data?.hmoInspections || [];
+  const hmoInspectionIds = new Set(inspections.map((i) => i.id));
+  const hasHmoInspection = inspections.length > 0;
+  // Unresolved issues raised from HMO inspections (maintenance linked to those inspections)
+  const inspectionFindings = openMaintenance.filter(
+    (m) => m.inspectionId && hmoInspectionIds.has(String(m.inspectionId)),
+  );
+  const lastCompleted = inspections.find(
+    (i) => i.displayStatus === "Completed" || i.status === "completed" || i.status === "reviewed",
+  );
+  const nextScheduled = inspections.find(
+    (i) =>
+      i.displayStatus === "Scheduled" ||
+      i.displayStatus === "Missed / Overdue" ||
+      i.status === "scheduled",
+  );
+  const lastInspectionDate = lastCompleted?.completedDate || lastCompleted?.scheduledDate || null;
+  const nextInspectionDate = nextScheduled?.scheduledDate || null;
+  const followUpNeeded = openMaintenance.length > 0;
+
+  const occupancyWithinLimit =
+    occupantsNow != null &&
+    occupantsPermitted != null &&
+    Number.isFinite(occupantsNow) &&
+    Number.isFinite(occupantsPermitted) &&
+    occupantsNow <= occupantsPermitted;
+
+  const licenceDocUrl = primaryVersion?.originalObjectUrl || null;
+
+  const openLicenceDoc = () => {
+    if (licenceDocUrl) {
+      window.open(licenceDocUrl, "_blank", "noopener,noreferrer");
+      return;
+    }
+    setManageOpen(true);
+  };
 
   return (
-    <div className="space-y-6 md:space-y-8" data-testid="hmo-property-panel">
-      <div className="rounded-xl border bg-muted/20 px-4 py-5 md:px-6 space-y-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0 space-y-1.5 flex-1">
-            <h2 className="text-lg md:text-xl font-semibold tracking-tight">
-              {header?.address || data?.property?.address || "Property"}
-            </h2>
-            <div className="max-w-md space-y-1">
-              <Label className="text-xs text-muted-foreground">Borough</Label>
-              <Input
-                className="h-9"
-                placeholder="e.g. Camden"
-                value={headerBorough}
-                onChange={(e) => setHeaderBorough(e.target.value)}
-              />
-            </div>
-          </div>
-          <Badge variant="outline" className={cn("self-start text-sm", statusMeta.className)}>
-            {statusMeta.label}
-          </Badge>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          <div className="rounded-lg border bg-card px-3 py-2.5 space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Licence status</Label>
-            <select
-              className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm font-medium"
-              value={headerLicenceStatus || "UNDER_REVIEW"}
-              onChange={(e) => setHeaderLicenceStatus(e.target.value)}
-            >
-              {lifecycleOptions.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="rounded-lg border bg-card px-3 py-2.5 space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Expiry</Label>
-            <Input
-              type="date"
-              className="h-9 font-medium"
-              value={headerExpiry}
-              onChange={(e) => setHeaderExpiry(e.target.value)}
-            />
-          </div>
-          <div className="rounded-lg border bg-card px-3 py-2.5 space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Occupants / permitted</Label>
-            <div className="flex items-center gap-1.5">
-              <Input
-                className="h-9 font-medium"
-                inputMode="numeric"
-                placeholder="Now"
-                value={headerOccupantsNow}
-                onChange={(e) => setHeaderOccupantsNow(e.target.value)}
-              />
-              <span className="text-muted-foreground text-sm">/</span>
-              <Input
-                className="h-9 font-medium"
-                inputMode="numeric"
-                placeholder="Max"
-                value={headerPermitted}
-                onChange={(e) => setHeaderPermitted(e.target.value)}
-              />
-            </div>
-          </div>
-          <div className="rounded-lg border bg-card px-3 py-2.5 space-y-1.5">
-            <p className="text-xs text-muted-foreground">Needs attention</p>
-            <p className="text-sm font-semibold mt-0.5">
-              {String(header?.attentionCount ?? alerts.length)}
-            </p>
-            <p className="text-[11px] text-muted-foreground">Calculated from open alerts</p>
-          </div>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div className="rounded-lg border bg-card px-3 py-2.5 space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Licence evidence status</Label>
-            <select
-              className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm font-medium"
-              value={licenceEvidenceStatus}
-              onChange={(e) => setLicenceEvidenceStatus(e.target.value)}
-            >
-              <option value="UNKNOWN">Unknown — status to confirm</option>
-              <option value="REQUIRED_MISSING">Licence evidence required</option>
-              <option value="APPLIED_PENDING">Applied / pending</option>
-              <option value="NOT_REQUIRED">Not required</option>
-              <option value="ISSUED">Issued</option>
-            </select>
-          </div>
-          <div className="rounded-lg border bg-card px-3 py-2.5 space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Evidence notes</Label>
-            <Input
-              className="h-9"
-              placeholder="Reason if not required / pending reference"
-              value={licenceEvidenceNotes}
-              onChange={(e) => setLicenceEvidenceNotes(e.target.value)}
-            />
-          </div>
-        </div>
-        {header?.setupIncomplete && (
-          <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-            HMO setup incomplete — set licence evidence to Issued, or Not required with a note.
-            Classification: {header?.hmoClassification || data?.property?.hmoClassification || "—"}.
-          </div>
-        )}
-        {(header?.licenceEvidenceStatus === "REQUIRED_MISSING" ||
-          licenceEvidenceStatus === "REQUIRED_MISSING" ||
-          licenceEvidenceStatus === "UNKNOWN") && (
-          <p className="text-sm text-muted-foreground">
-            Licence evidence required / status to confirm — this does not assert unlawful operation.
+    <div className="space-y-5" data-testid="hmo-property-panel">
+      {/* Header */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 space-y-1">
+          <h2 className="text-2xl md:text-3xl font-semibold tracking-tight text-slate-900">
+            HMO overview
+          </h2>
+          <p className="text-sm text-slate-500">
+            {address}
+            <span className="text-slate-400"> · </span>
+            All HMO information in one place
           </p>
-        )}
-        <div className="flex justify-end">
+        </div>
+        <div className="flex flex-wrap gap-2.5 shrink-0">
+          <Button variant="brand" type="button" asChild>
+            <Link href={`/inspections?propertyId=${propertyId}&create=true`}>
+              + Schedule HMO inspection
+            </Link>
+          </Button>
           <Button
-            size="sm"
-            onClick={() => saveHeaderMutation.mutate()}
-            disabled={saveHeaderMutation.isPending}
+            variant="outline"
+            type="button"
+            onClick={() => setManageOpen(true)}
+            className="border-2 border-primary text-primary font-semibold shadow-sm hover:bg-primary/10 hover:text-primary"
           >
-            {saveHeaderMutation.isPending ? "Saving…" : "Save summary"}
+            Manage licence
           </Button>
         </div>
       </div>
 
-      <Accordion type="multiple" defaultValue={["licence", "alerts"]} className="space-y-2">
-        <AccordionItem value="licence" className="border rounded-xl px-4">
-          <AccordionTrigger className="hover:no-underline">
-            <span className="flex items-center gap-2 font-semibold">
-              <FileUp className="h-4 w-4 text-primary" /> Licence
-            </span>
-          </AccordionTrigger>
-          <AccordionContent className="space-y-5 pb-5">
+      {/* Action banner */}
+      {openMaintenance.length > 0 && (
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+          <div className="flex items-start gap-2 text-amber-950">
+            <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+            <p className="text-sm font-medium">
+              Action required — {openMaintenance.length} open maintenance{" "}
+              {openMaintenance.length === 1 ? "item" : "items"}
+            </p>
+          </div>
+          <p className="text-sm text-amber-900/80 sm:text-right">
+            Next step: review and resolve outstanding maintenance
+          </p>
+        </div>
+      )}
+
+      {/* KPI cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+        <div className="rounded-xl border bg-white px-4 py-4 shadow-sm space-y-2">
+          <p className="text-sm text-slate-500">HMO licence</p>
+          <p className="text-2xl font-semibold text-slate-900">{licenceLabel}</p>
+          <p className="text-sm text-slate-500">
+            {expiryDate ? `Expires ${formatLongDate(expiryDate)}` : "Expiry not set"}
+            {" · "}
+            <button
+              type="button"
+              className="text-teal-700 hover:underline"
+              onClick={openLicenceDoc}
+            >
+              View
+            </button>
+          </p>
+        </div>
+
+        <div className="rounded-xl border bg-white px-4 py-4 shadow-sm space-y-2">
+          <p className="text-sm text-slate-500">Occupancy</p>
+          <p className="text-2xl font-semibold text-slate-900">
+            {occupantsNow != null && occupantsPermitted != null
+              ? `${occupantsNow} of ${occupantsPermitted} people`
+              : occupantsNow != null
+                ? `${occupantsNow} people`
+                : "—"}
+          </p>
+          <p className="text-sm text-slate-500">
+            {occupantsPermitted == null
+              ? "Licence limit not set"
+              : occupancyWithinLimit
+                ? "Within recorded licence limit"
+                : "Over recorded licence limit"}
+            {" · "}
+            <Link
+              href={`/properties/${propertyId}?tab=tenants`}
+              className="text-teal-700 hover:underline"
+            >
+              Details
+            </Link>
+          </p>
+        </div>
+
+        <div className="rounded-xl border bg-white px-4 py-4 shadow-sm space-y-2">
+          <p className="text-sm text-slate-500">Last HMO inspection</p>
+          <p className="text-2xl font-semibold text-slate-900">
+            {lastInspectionDate ? formatShortDate(lastInspectionDate) : "—"}
+          </p>
+          <p className="text-sm text-slate-500">
+            {nextInspectionDate
+              ? `Next due ${formatShortDate(nextInspectionDate)}`
+              : "No next date scheduled"}
+            {" · "}
+            {lastCompleted ? (
+              <Link href={`/inspections/${lastCompleted.id}`} className="text-teal-700 hover:underline">
+                View
+              </Link>
+            ) : (
+              <Link
+                href={`/properties/${propertyId}?tab=inspection-schedule`}
+                className="text-teal-700 hover:underline"
+              >
+                View
+              </Link>
+            )}
+          </p>
+        </div>
+
+        <div className="rounded-xl border bg-white px-4 py-4 shadow-sm space-y-2">
+          <p className="text-sm text-slate-500">Unresolved maintenance</p>
+          <p
+            className={cn(
+              "text-2xl font-semibold",
+              openMaintenance.length > 0 ? "text-rose-600" : "text-slate-900",
+            )}
+          >
+            {openMaintenance.length} open
+          </p>
+          <p className="text-sm text-slate-500">
+            {openMaintenance.length === 0
+              ? "No open items"
+              : [
+                  urgentOpen ? `${urgentOpen} urgent` : null,
+                  mediumOpen ? `${mediumOpen} medium priority` : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ") || `${openMaintenance.length} open`}
+          </p>
+        </div>
+      </div>
+
+      {/* Main grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="lg:col-span-2 space-y-4">
+          {/* Issues requiring attention — HMO inspection findings */}
+          <section className="rounded-xl border bg-white shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b">
+              <div className="min-w-0 space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="font-semibold text-slate-900 text-base">
+                    Issues requiring attention
+                  </h3>
+                  <Badge className="bg-rose-100 text-rose-800 hover:bg-rose-100 border-0 font-medium">
+                    {inspectionFindings.length} recorded
+                  </Badge>
+                </div>
+                <p className="text-sm text-slate-500">
+                  Only unresolved findings from HMO inspections are shown here
+                </p>
+              </div>
+            </div>
+
+            {inspectionFindings.length === 0 ? (
+              <div className="flex flex-col items-center text-center px-6 py-10 space-y-3">
+                <div className="h-14 w-14 rounded-full bg-teal-50 flex items-center justify-center">
+                  <CheckCircle2 className="h-7 w-7 text-teal-600" />
+                </div>
+                <div className="space-y-1.5 max-w-md">
+                  <p className="font-semibold text-slate-900">
+                    No HMO inspection findings available
+                  </p>
+                  <p className="text-sm text-slate-500 leading-relaxed">
+                    {hasHmoInspection
+                      ? "No unresolved findings from HMO inspections yet. New issues raised during an HMO inspection will appear here."
+                      : "No HMO inspection has been linked to this property. Schedule one to start capturing issues here automatically."}
+                  </p>
+                </div>
+                <Button size="sm" className="mt-1 bg-teal-600 hover:bg-teal-700" asChild>
+                  <Link href={`/inspections?propertyId=${propertyId}&create=true`}>
+                    Schedule HMO inspection
+                  </Link>
+                </Button>
+              </div>
+            ) : (
+              <div className="divide-y">
+                {inspectionFindings.slice(0, 12).map((m) => {
+                  const tone = priorityTone(m.priority);
+                  const linkedInsp = hmoInspectionIds.has(String(m.inspectionId))
+                    ? (data?.hmoInspections || []).find((i) => i.id === m.inspectionId)
+                    : null;
+                  return (
+                    <div
+                      key={m.id}
+                      className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between px-5 py-3.5"
+                    >
+                      <div className="flex gap-3 min-w-0">
+                        <div
+                          className={cn(
+                            "w-1 rounded-full shrink-0 self-stretch min-h-[2.5rem]",
+                            tone === "urgent" && "bg-rose-500",
+                            tone === "medium" && "bg-amber-400",
+                            tone === "low" && "bg-slate-300",
+                          )}
+                        />
+                        <div className="min-w-0 space-y-0.5">
+                          <p className="font-medium text-slate-900 text-sm">{m.title}</p>
+                          <p className="text-sm text-slate-500 truncate">
+                            {[
+                              linkedInsp
+                                ? `Inspection ${formatShortDate(
+                                    linkedInsp.completedDate ||
+                                      linkedInsp.scheduledDate ||
+                                      linkedInsp.createdAt,
+                                  )}`
+                                : null,
+                              m.assignedToName
+                                ? `Assigned to ${m.assignedToName}`
+                                : "Assigned to maintenance",
+                            ]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between sm:justify-end gap-4 pl-4 sm:pl-0">
+                        <span
+                          className={cn(
+                            "text-sm font-medium capitalize",
+                            tone === "urgent" && "text-rose-600",
+                            tone === "medium" && "text-amber-700",
+                            tone === "low" && "text-slate-600",
+                          )}
+                        >
+                          {tone === "urgent"
+                            ? "Urgent"
+                            : tone === "medium"
+                              ? "Medium"
+                              : m.priority || "Normal"}{" "}
+                          · {String(m.status || "").replace(/_/g, " ")}
+                        </span>
+                        <Link
+                          href={`/maintenance/${m.id}`}
+                          className="text-sm text-teal-700 hover:underline whitespace-nowrap"
+                        >
+                          View issue →
+                        </Link>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+
+          {/* Alerts = maintenance logs */}
+          <section className="rounded-xl border bg-white shadow-sm">
+            <div className="flex items-center justify-between gap-3 px-4 py-3 border-b">
+              <div className="flex items-center gap-2 min-w-0">
+                <h3 className="font-semibold text-slate-900">Alerts</h3>
+                {openMaintenance.length > 0 && (
+                  <Badge className="bg-rose-100 text-rose-800 hover:bg-rose-100 border-0">
+                    {openMaintenance.length} open
+                  </Badge>
+                )}
+              </div>
+              <Link
+                href={`/maintenance?propertyId=${propertyId}`}
+                className="text-sm text-teal-700 hover:underline shrink-0"
+              >
+                View all →
+              </Link>
+            </div>
+            <div className="divide-y max-h-[22.5rem] overflow-y-auto">
+              {maintenanceLoading ? (
+                <p className="px-4 py-6 text-sm text-slate-500">Loading maintenance logs…</p>
+              ) : maintenanceLogs.length === 0 ? (
+                <p className="px-4 py-6 text-sm text-slate-500">
+                  No maintenance logs for this property.
+                </p>
+              ) : (
+                maintenanceLogs.map((m) => {
+                  const tone = priorityTone(m.priority);
+                  return (
+                    <div
+                      key={m.id}
+                      className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between px-4 py-3"
+                    >
+                      <div className="flex gap-3 min-w-0">
+                        <div
+                          className={cn(
+                            "w-1 rounded-full shrink-0 self-stretch min-h-[2.5rem]",
+                            tone === "urgent" && "bg-rose-500",
+                            tone === "medium" && "bg-amber-400",
+                            tone === "low" && "bg-slate-300",
+                          )}
+                        />
+                        <div className="min-w-0 space-y-0.5">
+                          <p className="font-medium text-slate-900 text-sm">{m.title}</p>
+                          <p className="text-sm text-slate-500 truncate">
+                            {[
+                              m.category,
+                              formatShortDate(m.createdAt),
+                              m.assignedToName
+                                ? `Assigned to ${m.assignedToName}`
+                                : m.reportedByName
+                                  ? `Reported by ${m.reportedByName}`
+                                  : null,
+                            ]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between sm:justify-end gap-4 pl-4 sm:pl-0">
+                        <span
+                          className={cn(
+                            "text-sm font-medium capitalize",
+                            tone === "urgent" && "text-rose-600",
+                            tone === "medium" && "text-amber-700",
+                            tone === "low" && "text-slate-600",
+                          )}
+                        >
+                          {m.priority || "Normal"} · {String(m.status || "").replace(/_/g, " ")}
+                        </span>
+                        <Link
+                          href={`/maintenance/${m.id}`}
+                          className="text-sm text-teal-700 hover:underline whitespace-nowrap"
+                        >
+                          View issue →
+                        </Link>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </section>
+        </div>
+
+        {/* Right column */}
+        <div className="space-y-4">
+          <section className="rounded-xl border bg-white shadow-sm px-4 py-4 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="font-semibold text-slate-900">Licence & permitted use</h3>
+              <button
+                type="button"
+                className="text-sm font-semibold text-teal-700 hover:underline"
+                onClick={openLicenceDoc}
+              >
+                View licence →
+              </button>
+            </div>
+            <dl className="space-y-2.5 text-sm">
+              <div className="flex items-center justify-between gap-3">
+                <dt className="text-slate-500">Licence status</dt>
+                <dd>
+                  <Badge
+                    className={cn(
+                      "border-0",
+                      licenceVerified
+                        ? "bg-teal-100 text-teal-900 hover:bg-teal-100"
+                        : "bg-slate-100 text-slate-800 hover:bg-slate-100",
+                    )}
+                  >
+                    {licenceLabel}
+                  </Badge>
+                </dd>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <dt className="text-slate-500">Licence expiry</dt>
+                <dd className="font-medium text-slate-900">
+                  {expiryDate ? formatShortDate(expiryDate) : "—"}
+                </dd>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <dt className="text-slate-500">Max permitted people</dt>
+                <dd className="font-medium text-slate-900">
+                  {occupantsPermitted != null ? occupantsPermitted : "—"}
+                </dd>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <dt className="text-slate-500">Source</dt>
+                <dd className="font-medium text-slate-900 text-right">
+                  {primaryVersion?.fileName || primaryLicence
+                    ? "Uploaded HMO licence"
+                    : "Not uploaded"}
+                </dd>
+              </div>
+            </dl>
+          </section>
+
+          <section className="rounded-xl border bg-white shadow-sm px-4 py-4 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="font-semibold text-slate-900">HMO inspection</h3>
+              {lastCompleted ? (
+                <Link
+                  href={`/inspections/${lastCompleted.id}`}
+                  className="text-sm font-semibold text-teal-700 hover:underline"
+                >
+                  View inspection →
+                </Link>
+              ) : (
+                <Link
+                  href={`/properties/${propertyId}?tab=inspection-schedule`}
+                  className="text-sm font-semibold text-teal-700 hover:underline"
+                >
+                  View inspection →
+                </Link>
+              )}
+            </div>
+            <div className="rounded-lg bg-slate-50 border px-3 py-3 space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-medium text-slate-900">
+                  {lastCompleted
+                    ? `Completed · ${formatLongDate(lastInspectionDate)}`
+                    : nextScheduled
+                      ? `${nextScheduled.displayStatus} · ${formatLongDate(nextInspectionDate)}`
+                      : "No HMO inspection recorded"}
+                </p>
+                {followUpNeeded && (
+                  <Badge className="bg-amber-100 text-amber-900 hover:bg-amber-100 border-0">
+                    Follow-up needed
+                  </Badge>
+                )}
+              </div>
+              <p className="text-sm text-slate-500">
+                {openMaintenance.length > 0
+                  ? `${openMaintenance.length} maintenance ${
+                      openMaintenance.length === 1 ? "item needs" : "items need"
+                    } attention. Photos and notes stay on the inspection / maintenance records.`
+                  : "All photos and inspector notes are saved in the inspection record when completed."}
+              </p>
+            </div>
+            <div className="flex items-center justify-between gap-2 text-sm">
+              <span className="text-slate-500">
+                Next scheduled:{" "}
+                <span className="text-slate-800">
+                  {nextInspectionDate ? formatLongDate(nextInspectionDate) : "—"}
+                </span>
+              </span>
+              <Link
+                href={`/properties/${propertyId}?tab=inspection-schedule`}
+                className="font-semibold text-teal-700 hover:underline"
+              >
+                Manage →
+              </Link>
+            </div>
+          </section>
+
+          <section className="rounded-xl border bg-white shadow-sm px-4 py-4 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="font-semibold text-slate-900">Linked records</h3>
+              <span className="text-xs text-slate-400">No duplicate data entry</span>
+            </div>
+            <div className="space-y-2.5 text-sm">
+              {(
+                [
+                  {
+                    label: "Tenants",
+                    href: `/properties/${propertyId}?tab=tenants`,
+                    action: "View occupancy →",
+                  },
+                  {
+                    label: "Floor plan",
+                    href: `/properties/${propertyId}`,
+                    action: "Open floor plan →",
+                  },
+                  {
+                    label: "Maintenance",
+                    href: `/maintenance?propertyId=${propertyId}`,
+                    action: "View work orders →",
+                  },
+                  {
+                    label: "Documents",
+                    href: `/properties/${propertyId}?tab=compliance-schedule`,
+                    action: "Compliance documents →",
+                  },
+                ] as const
+              ).map((row) => (
+                <div key={row.label} className="flex items-center justify-between gap-3">
+                  <span className="text-slate-500">{row.label}</span>
+                  <Link href={row.href} className="text-teal-700 hover:underline">
+                    {row.action}
+                  </Link>
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>
+      </div>
+
+      {/* Manage licence / rooms / occupancy */}
+      <Dialog
+        open={manageOpen}
+        onOpenChange={(open) => {
+          setManageOpen(open);
+          if (
+            open &&
+            (data?.roomProfiles || []).length === 0 &&
+            !importRoomsMutation.isPending
+          ) {
+            didAutoImportRooms.current = true;
+            importRoomsMutation.mutate();
+          }
+        }}
+      >
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Manage HMO licence & rooms</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-5 pt-1">
+            <div className="flex flex-wrap gap-2">
+              <Badge variant="outline" className={statusMeta.className}>
+                {statusMeta.label}
+              </Badge>
+            </div>
+
             <div className="space-y-2">
               <Label>Upload or replace licence</Label>
+              {(primaryVersion?.fileName || primaryVersion?.originalObjectUrl) &&
+                !uploadMutation.isPending && (
+                  <div className="flex items-center justify-between gap-3 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2.5 text-sm">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <CheckCircle2 className="h-4 w-4 text-teal-700 shrink-0" />
+                      <FileText className="h-4 w-4 text-teal-700 shrink-0" />
+                      <div className="min-w-0">
+                        <p className="font-medium text-teal-950 truncate">
+                          {primaryVersion.fileName || "Licence document"}
+                        </p>
+                        <p className="text-xs text-teal-800/80">Uploaded</p>
+                      </div>
+                    </div>
+                    {licenceDocUrl && (
+                      <button
+                        type="button"
+                        className="text-sm font-medium text-teal-800 hover:underline shrink-0"
+                        onClick={openLicenceDoc}
+                      >
+                        View →
+                      </button>
+                    )}
+                  </div>
+                )}
               <ModernFilePickerInline
-                onFilesSelected={(files) => setSelectedFile(files[0] || null)}
+                onFilesSelected={(files) => {
+                  const file = files[0];
+                  if (!file || uploadMutation.isPending) return;
+                  setSelectedFile(file);
+                  uploadMutation.mutate(file);
+                }}
                 maxFiles={1}
                 maxFileSize={25 * 1024 * 1024}
                 accept="image/*,.pdf,application/pdf"
                 multiple={false}
                 isUploading={uploadMutation.isPending}
-                height={160}
+                height={140}
               />
-              {selectedFile && (
-                <div className="flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm">
-                  <span className="truncate font-medium">{selectedFile.name}</span>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7"
-                    onClick={() => setSelectedFile(null)}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
+              {uploadMutation.isPending && selectedFile && (
+                <p className="text-sm text-muted-foreground truncate">
+                  Uploading {selectedFile.name}…
+                </p>
               )}
-              <Button
-                onClick={() => uploadMutation.mutate()}
-                disabled={uploadMutation.isPending || !selectedFile}
-              >
-                {uploadMutation.isPending ? "Uploading…" : "Upload & extract"}
-              </Button>
             </div>
 
-            {primaryVersion?.originalObjectUrl && (
-              <div className="flex flex-wrap gap-2">
-                <Button asChild variant="outline" size="sm">
-                  <a href={primaryVersion.originalObjectUrl} target="_blank" rel="noreferrer">
-                    Preview / download
-                  </a>
-                </Button>
-                {primaryVersion.fileName && (
-                  <span className="text-sm text-muted-foreground self-center">
-                    {primaryVersion.fileName}
-                  </span>
-                )}
-              </div>
-            )}
-
-            <div className="space-y-3">
-              <p className="text-sm text-muted-foreground">
-                Enter or overwrite licence fields below, then save. Upload is optional.
-              </p>
-              <div className="grid gap-3 sm:grid-cols-2">
-                {editableFields.map((f) => (
-                  <div key={f.key} className="space-y-1.5">
-                    <Label className="text-sm">{f.label}</Label>
-                    {f.kind === "lifecycle" ? (
-                      <select
-                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                        value={fieldVal(rawField(editExtraction, f.key)) || "UNDER_REVIEW"}
-                        onChange={(e) =>
-                          setEditExtraction(
-                            setExtractedField(editExtraction, f.key, e.target.value),
-                          )
-                        }
-                      >
-                        {lifecycleOptions.map((opt) => (
-                          <option key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <Input
-                        type={f.kind === "date" ? "date" : "text"}
-                        value={
-                          f.kind === "date"
-                            ? fieldVal(rawField(editExtraction, f.key)).slice(0, 10)
-                            : fieldVal(rawField(editExtraction, f.key))
-                        }
-                        onChange={(e) =>
-                          setEditExtraction(
-                            setExtractedField(editExtraction, f.key, e.target.value),
-                          )
-                        }
-                      />
-                    )}
-                  </div>
-                ))}
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  onClick={() => saveFieldsMutation.mutate()}
-                  disabled={saveFieldsMutation.isPending}
-                >
-                  {saveFieldsMutation.isPending
-                    ? "Saving…"
-                    : isConfirmed
-                      ? "Save overwritten details"
-                      : "Save licence details"}
-                </Button>
-                <Button
-                  variant="secondary"
-                  onClick={() => currentVersionId && assessMutation.mutate(currentVersionId)}
-                  disabled={!currentVersionId || !isConfirmed || assessMutation.isPending}
-                >
-                  {assessMutation.isPending ? "Assessing…" : "Run assessment"}
-                </Button>
-                {!isConfirmed && (
-                  <p className="text-sm text-amber-800 self-center">Save before assessment</p>
-                )}
-              </div>
-            </div>
-          </AccordionContent>
-        </AccordionItem>
-
-        <AccordionItem value="restrictions" className="border rounded-xl px-4">
-          <AccordionTrigger className="hover:no-underline">
-            <span className="flex items-center gap-2 font-semibold">
-              <Users className="h-4 w-4 text-primary" /> Restrictions
-            </span>
-          </AccordionTrigger>
-          <AccordionContent className="space-y-4 pb-5">
             <div className="grid sm:grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-sm">Maximum persons</Label>
-                <Input
-                  inputMode="numeric"
-                  placeholder="Blank = Unknown"
-                  value={fieldVal(editExtraction?.maximum_individuals)}
-                  onChange={(e) => {
-                    const next = setExtractedField(
-                      editExtraction,
-                      "maximum_individuals",
-                      e.target.value,
-                    );
-                    setEditExtraction(next);
-                    setMaxPersons(e.target.value);
-                    setHeaderPermitted(e.target.value);
-                  }}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-sm">Maximum households</Label>
-                <Input
-                  inputMode="numeric"
-                  placeholder="Blank = Unknown"
-                  value={fieldVal(editExtraction?.maximum_households)}
-                  onChange={(e) =>
-                    setEditExtraction(
-                      setExtractedField(editExtraction, "maximum_households", e.target.value),
-                    )
-                  }
-                />
-              </div>
+              {editableFields.map((f) => (
+                <div key={f.key} className="space-y-1.5">
+                  <Label className="text-xs">{f.label}</Label>
+                  {f.kind === "lifecycle" ? (
+                    <select
+                      className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                      value={fieldVal(editExtraction?.[f.key]) || "UNDER_REVIEW"}
+                      onChange={(e) =>
+                        setEditExtraction(
+                          setExtractedField(editExtraction, f.key, e.target.value),
+                        )
+                      }
+                    >
+                      {lifecycleOptions.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <Input
+                      type={f.kind === "date" ? "date" : "text"}
+                      className="h-9"
+                      value={fieldVal(editExtraction?.[f.key])}
+                      onChange={(e) => {
+                        setEditExtraction(
+                          setExtractedField(editExtraction, f.key, e.target.value),
+                        );
+                      }}
+                    />
+                  )}
+                </div>
+              ))}
             </div>
+
             <Button
               size="sm"
               onClick={() => saveFieldsMutation.mutate()}
               disabled={saveFieldsMutation.isPending}
             >
-              {saveFieldsMutation.isPending ? "Saving…" : "Save restrictions"}
+              {saveFieldsMutation.isPending ? "Saving…" : "Save overwritten details"}
             </Button>
-            <div className="space-y-3 rounded-lg border px-3 py-3">
+
+            <div className="rounded-lg border px-3 py-3 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <button
                   type="button"
-                  className="flex min-w-0 items-center gap-2 text-left"
+                  className="flex items-center gap-2 text-sm font-medium"
                   onClick={() => setVerifiedRoomsOpen((o) => !o)}
-                  aria-expanded={verifiedRoomsOpen}
                 >
                   {verifiedRoomsOpen ? (
-                    <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <ChevronDown className="h-4 w-4" />
                   ) : (
-                    <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <ChevronRight className="h-4 w-4" />
                   )}
-                  <span className="text-sm font-medium">Verified rooms</span>
-                  <Badge variant="secondary" className="shrink-0">
-                    {roomDrafts.length}
-                  </Badge>
+                  Verified rooms
+                  <Badge variant="secondary">{roomDrafts.length}</Badge>
                 </button>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex gap-2">
                   <Button
                     size="sm"
                     variant="outline"
-                    type="button"
-                    disabled={importRoomsMutation.isPending}
-                    onClick={() => {
-                      setVerifiedRoomsOpen(true);
-                      importRoomsMutation.mutate();
-                    }}
-                  >
-                    {importRoomsMutation.isPending
-                      ? "Importing…"
-                      : "Import from property rooms"}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    type="button"
                     onClick={() => {
                       setVerifiedRoomsOpen(true);
                       setRoomDrafts((rows) => [
@@ -1048,660 +1221,67 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
                   </Button>
                 </div>
               </div>
-              {!verifiedRoomsOpen && roomDrafts.length > 0 && (
-                <p className="text-xs text-muted-foreground pl-6">
-                  {roomDrafts.length} room{roomDrafts.length === 1 ? "" : "s"} hidden — expand to
-                  edit.
-                </p>
-              )}
               {verifiedRoomsOpen && (
                 <>
-                  <p className="text-xs text-muted-foreground">
-                    Floor-plan imports stay suggested until you tick Confirm m². Unconfirmed AI
-                    areas are ignored by ROOM-01 assessment.
-                  </p>
-                  {roomDrafts.length === 0 && (
-                    <p className="text-sm text-muted-foreground">
-                      No room profiles yet — add sleeping rooms with usable m² and permitted
-                      occupants.
-                    </p>
-                  )}
                   {roomDrafts.map((room, idx) => (
                     <div
                       key={room.id || idx}
-                      className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 border-t pt-3"
+                      className="grid gap-2 sm:grid-cols-2 border-t pt-3"
                     >
-                      <div className="space-y-1">
-                        <Label className="text-xs">Name</Label>
-                        <Input
-                          value={room.roomName}
+                      <Input
+                        placeholder="Name"
+                        value={room.roomName}
+                        onChange={(e) =>
+                          setRoomDrafts((rows) =>
+                            rows.map((r, i) =>
+                              i === idx ? { ...r, roomName: e.target.value } : r,
+                            ),
+                          )
+                        }
+                      />
+                      <Input
+                        placeholder="Usable m²"
+                        inputMode="decimal"
+                        value={room.measuredUsableAreaM2}
+                        onChange={(e) =>
+                          setRoomDrafts((rows) =>
+                            rows.map((r, i) =>
+                              i === idx
+                                ? { ...r, measuredUsableAreaM2: e.target.value }
+                                : r,
+                            ),
+                          )
+                        }
+                      />
+                      <label className="flex items-center gap-2 text-sm sm:col-span-2">
+                        <input
+                          type="checkbox"
+                          checked={room.humanConfirmed}
                           onChange={(e) =>
                             setRoomDrafts((rows) =>
                               rows.map((r, i) =>
-                                i === idx ? { ...r, roomName: e.target.value } : r,
-                              ),
-                            )
-                          }
-                          placeholder={`Room ${idx + 1}`}
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">Type</Label>
-                        <Input
-                          value={room.roomType}
-                          onChange={(e) =>
-                            setRoomDrafts((rows) =>
-                              rows.map((r, i) =>
-                                i === idx ? { ...r, roomType: e.target.value } : r,
-                              ),
-                            )
-                          }
-                          placeholder="bedroom"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">Usable m²</Label>
-                        <Input
-                          inputMode="decimal"
-                          value={room.measuredUsableAreaM2}
-                          onChange={(e) =>
-                            setRoomDrafts((rows) =>
-                              rows.map((r, i) =>
-                                i === idx
-                                  ? { ...r, measuredUsableAreaM2: e.target.value }
-                                  : r,
+                                i === idx ? { ...r, humanConfirmed: e.target.checked } : r,
                               ),
                             )
                           }
                         />
-                        {room.measurementSource === "floor_plan_ai" && !room.humanConfirmed && (
-                          <p className="text-[11px] text-amber-800">
-                            Suggested (AI) — confirm before assess
-                          </p>
-                        )}
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">Ceiling height (m)</Label>
-                        <Input
-                          inputMode="decimal"
-                          value={room.ceilingHeightM}
-                          onChange={(e) =>
-                            setRoomDrafts((rows) =>
-                              rows.map((r, i) =>
-                                i === idx ? { ...r, ceilingHeightM: e.target.value } : r,
-                              ),
-                            )
-                          }
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">Permitted occupants</Label>
-                        <Input
-                          inputMode="numeric"
-                          value={room.declaredPermittedOccupancy}
-                          onChange={(e) =>
-                            setRoomDrafts((rows) =>
-                              rows.map((r, i) =>
-                                i === idx
-                                  ? { ...r, declaredPermittedOccupancy: e.target.value }
-                                  : r,
-                              ),
-                            )
-                          }
-                        />
-                      </div>
-                      <div className="flex flex-wrap items-end gap-3 pb-1">
-                        <label className="flex items-center gap-2 text-sm">
-                          <input
-                            type="checkbox"
-                            checked={room.sleepingApproved}
-                            onChange={(e) =>
-                              setRoomDrafts((rows) =>
-                                rows.map((r, i) =>
-                                  i === idx
-                                    ? { ...r, sleepingApproved: e.target.checked }
-                                    : r,
-                                ),
-                              )
-                            }
-                          />
-                          Sleeping approved
-                        </label>
-                        <label className="flex items-center gap-2 text-sm">
-                          <input
-                            type="checkbox"
-                            checked={room.humanConfirmed}
-                            onChange={(e) =>
-                              setRoomDrafts((rows) =>
-                                rows.map((r, i) =>
-                                  i === idx
-                                    ? { ...r, humanConfirmed: e.target.checked }
-                                    : r,
-                                ),
-                              )
-                            }
-                          />
-                          Confirm m²
-                        </label>
-                        {!room.id && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            type="button"
-                            onClick={() =>
-                              setRoomDrafts((rows) => rows.filter((_, i) => i !== idx))
-                            }
-                          >
-                            Remove
-                          </Button>
-                        )}
-                      </div>
+                        Confirm m²
+                      </label>
                     </div>
                   ))}
                   <Button
                     size="sm"
-                    onClick={() => saveRoomsMutation.mutate()}
                     disabled={saveRoomsMutation.isPending || roomDrafts.length === 0}
+                    onClick={() => saveRoomsMutation.mutate()}
                   >
-                    {saveRoomsMutation.isPending ? "Saving rooms…" : "Save rooms"}
+                    {saveRoomsMutation.isPending ? "Saving…" : "Save rooms"}
                   </Button>
                 </>
               )}
             </div>
-            {conditions.length > 0 && (
-              <div className="space-y-2">
-                <p className="text-sm font-medium">Other conditions</p>
-                <ul className="text-sm space-y-1 list-disc pl-5">
-                  {conditions.slice(0, 12).map((c: any, i: number) => (
-                    <li key={i}>
-                      {c.category ? `[${c.category}] ` : ""}
-                      {c.condition_text || c.original_text || "Condition"}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {rooms.length > 0 && (
-              <p className="text-xs text-muted-foreground">
-                Licence extraction listed {rooms.length} sleeping room(s) — use verified rooms above for assessment.
-              </p>
-            )}
-
-            <Card className="shadow-none">
-              <CardHeader className="py-3">
-                <CardTitle className="text-base">Pre-tenancy occupancy check</CardTitle>
-                <CardDescription>
-                  Current occupants are filled from active tenants on this property. Unknown is
-                  never treated as zero.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {header?.occupantsNow != null &&
-                  header?.occupantsPermitted != null &&
-                  Number(header.occupantsNow) > Number(header.occupantsPermitted) && (
-                    <div className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-950">
-                      {header.occupantsNow} residents recorded; licence permits{" "}
-                      {header.occupantsPermitted}.
-                    </div>
-                  )}
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="space-y-1">
-                    <Label>Licence max</Label>
-                    <Input
-                      value={maxPersons}
-                      onChange={(e) => setMaxPersons(e.target.value)}
-                      inputMode="numeric"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label>Currently living there</Label>
-                    <Input
-                      value={confirmedPersons}
-                      onChange={(e) => {
-                        setOccupancyOverridden(true);
-                        setConfirmedPersons(e.target.value);
-                      }}
-                      placeholder="Enter count or refresh from tenants"
-                      inputMode="numeric"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      {occupancyOverridden
-                        ? "Manual overwrite — use Refresh to restore active tenant count"
-                        : "Auto-filled from active tenants"}
-                      {!occupancyOverridden && data?.activeTenantCount != null
-                        ? ` (${data.activeTenantCount})`
-                        : occupancyOverridden && data?.activeTenantCount != null
-                          ? ` · tenants on file: ${data.activeTenantCount}`
-                          : ""}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    size="sm"
-                    onClick={async () => {
-                      try {
-                        const res = await apiRequest(
-                          "POST",
-                          `/api/hmo/properties/${propertyId}/occupancy-check`,
-                          {
-                            maxPersons: maxPersons === "" ? null : Number(maxPersons),
-                            confirmedPersons:
-                              confirmedPersons.trim() === "" ? null : Number(confirmedPersons),
-                            proposedAdditional: 0,
-                          },
-                        );
-                        setPreTenancyResult(await res.json());
-                      } catch (e: any) {
-                        toast({
-                          title: "Occupancy check failed",
-                          description: e.message,
-                          variant: "destructive",
-                        });
-                      }
-                    }}
-                  >
-                    Check occupancy
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={async () => {
-                      try {
-                        const res = await apiRequest(
-                          "POST",
-                          `/api/hmo/properties/${propertyId}/occupancy-snapshots`,
-                          {
-                            maxPersons: maxPersons === "" ? null : Number(maxPersons),
-                          },
-                        );
-                        const payload = await res.json();
-                        const fromTenants =
-                          typeof payload?.confirmedPersons === "number"
-                            ? payload.confirmedPersons
-                            : typeof payload?.personCount === "number"
-                              ? payload.personCount
-                              : data?.activeTenantCount;
-                        setOccupancyOverridden(false);
-                        if (fromTenants != null) {
-                          setConfirmedPersons(String(fromTenants));
-                          setHeaderOccupantsNow(String(fromTenants));
-                        }
-                        queryClient.invalidateQueries({
-                          queryKey: ["/api/hmo/properties", propertyId, "overview"],
-                        });
-                        toast({ title: "Occupancy restored from active tenants" });
-                      } catch (e: any) {
-                        toast({
-                          title: "Could not save occupancy",
-                          description: e.message,
-                          variant: "destructive",
-                        });
-                      }
-                    }}
-                  >
-                    Refresh from active tenants
-                  </Button>
-                </div>
-                {preTenancyResult && (
-                  <div
-                    className={cn(
-                      "rounded-lg border px-3 py-2 text-sm",
-                      preTenancyResult.decision === "ALLOW_FOR_CHECKED_CONSTRAINTS" &&
-                        "border-emerald-300 bg-emerald-50",
-                      preTenancyResult.decision === "BLOCK_REVIEW_REQUIRED" &&
-                        "border-rose-300 bg-rose-50",
-                      preTenancyResult.decision === "INSUFFICIENT_EVIDENCE" &&
-                        "border-amber-300 bg-amber-50",
-                    )}
-                  >
-                    <div className="flex items-center gap-2 font-medium">
-                      {preTenancyResult.decision === "ALLOW_FOR_CHECKED_CONSTRAINTS" ? (
-                        <CheckCircle2 className="h-4 w-4" />
-                      ) : (
-                        <AlertCircle className="h-4 w-4" />
-                      )}
-                      {hmoPreTenancyLabel(preTenancyResult.decision)}
-                    </div>
-                    <p className="text-muted-foreground mt-1">{preTenancyResult.reason}</p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </AccordionContent>
-        </AccordionItem>
-
-        <AccordionItem value="inspections" className="border rounded-xl px-4">
-          <AccordionTrigger className="hover:no-underline">
-            <span className="flex items-center gap-2 font-semibold">
-              <ClipboardList className="h-4 w-4 text-primary" /> Inspections
-              {(data?.hmoInspections || []).length > 0 && (
-                <Badge variant="secondary" className="ml-1">
-                  {(data?.hmoInspections || []).length}
-                </Badge>
-              )}
-            </span>
-          </AccordionTrigger>
-          <AccordionContent className="space-y-3 pb-5">
-            <p className="text-sm text-muted-foreground">
-              Visits from templates marked as HMO template. Schedule more on the property Inspection
-              Schedule tab.
-            </p>
-            <Link
-              href={`/properties/${propertyId}?tab=inspection-schedule`}
-              className="text-sm text-primary underline"
-            >
-              Open inspection schedule
-            </Link>
-            {(data?.hmoInspections || []).length === 0 && (
-              <div className="rounded-xl border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
-                No HMO-linked inspections yet. Mark a template as HMO and schedule it for this
-                property.
-              </div>
-            )}
-            {(data?.hmoInspections || []).map((insp) => (
-              <Link
-                key={insp.id}
-                href={`/inspections/${insp.id}`}
-                className="block rounded-lg border px-3 py-3 hover:bg-muted/40 text-sm space-y-1"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="font-medium text-primary">
-                    {insp.templateName || "HMO inspection"}
-                  </span>
-                  <Badge
-                    variant="secondary"
-                    className={
-                      insp.displayStatus.includes("Missed")
-                        ? "border-rose-300 text-rose-800"
-                        : undefined
-                    }
-                  >
-                    {insp.displayStatus}
-                  </Badge>
-                </div>
-                <p className="text-muted-foreground">
-                  {insp.completedDate
-                    ? `Completed ${formatDisplayDate(insp.completedDate)}`
-                    : insp.scheduledDate
-                      ? `Scheduled ${formatDisplayDate(insp.scheduledDate)}`
-                      : `Created ${formatDisplayDate(insp.createdAt)}`}
-                </p>
-              </Link>
-            ))}
-          </AccordionContent>
-        </AccordionItem>
-
-        <AccordionItem value="safety" className="border rounded-xl px-4">
-          <AccordionTrigger className="hover:no-underline">
-            <span className="flex items-center gap-2 font-semibold">
-              <Shield className="h-4 w-4 text-primary" /> Evidence
-              {(data?.evidenceItems || []).length > 0 && (
-                <Badge variant="secondary" className="ml-1">
-                  {(data?.evidenceItems || []).length}
-                </Badge>
-              )}
-            </span>
-          </AccordionTrigger>
-          <AccordionContent className="space-y-3 pb-5">
-            <p className="text-sm text-muted-foreground">
-              Safety certificates, fire/gas/electrical documents, and licence-condition evidence.
-            </p>
-            {(data?.evidenceItems || []).length === 0 && (
-              <div className="rounded-xl border border-dashed px-4 py-8 text-center">
-                <p className="text-sm font-medium">No evidence items yet</p>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Upload compliance documents on the property Compliance tab, or run an assessment.
-                </p>
-              </div>
-            )}
-            {(data?.evidenceItems || []).map((item) => (
-              <div key={item.id} className="rounded-lg border px-3 py-3 text-sm space-y-1">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="font-medium">{item.label}</span>
-                  <Badge variant="secondary">{item.status}</Badge>
-                </div>
-                <p className="text-muted-foreground">
-                  {item.source.replace(/_/g, " ")}
-                  {item.detail ? ` · ${item.detail}` : ""}
-                </p>
-                <div className="flex flex-wrap gap-2 pt-1">
-                  {item.link && (
-                    <Link href={item.link} className="text-primary underline text-sm">
-                      Open compliance documents
-                    </Link>
-                  )}
-                  {(item.status === "Missing" || item.status === "Needs review") && (
-                    <Link
-                      href={`/properties/${propertyId}?tab=compliance`}
-                      className="text-sm text-muted-foreground underline"
-                    >
-                      Upload
-                    </Link>
-                  )}
-                </div>
-              </div>
-            ))}
-          </AccordionContent>
-        </AccordionItem>
-
-        <AccordionItem value="alerts" className="border rounded-xl px-4">
-          <AccordionTrigger className="hover:no-underline">
-            <span className="flex items-center gap-2 font-semibold">
-              <AlertCircle className="h-4 w-4 text-amber-700" /> Alerts
-              {alerts.length > 0 && (
-                <Badge variant="secondary" className="ml-1">
-                  {alerts.length}
-                </Badge>
-              )}
-            </span>
-          </AccordionTrigger>
-          <AccordionContent className="space-y-4 pb-5">
-            {(data?.renewalAlerts || []).slice(0, 3).map((a: any, i: number) => (
-              <div key={i} className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm">
-                <p className="font-medium">
-                  {a?.window === "expired"
-                    ? "Licence document expired — verify licensing position"
-                    : `Renewal due within ${a?.window} days`}
-                </p>
-                <p className="text-muted-foreground mt-1">
-                  Expiry {a?.expiryDate || "—"}. Never treated as automatic unlawful operation.
-                </p>
-              </div>
-            ))}
-
-            {alerts.length === 0 && !(data?.renewalAlerts || []).length && (
-              <p className="text-sm text-muted-foreground">No open alerts.</p>
-            )}
-
-            {alerts.map((f) => {
-              const linkedMr = (data?.linkedMaintenance || []).find((m) => m.findingId === f.id);
-              const alertKind =
-                f.status === "CONFIRMED_NON_COMPLIANT"
-                  ? "Confirmed breach"
-                  : f.status === "POTENTIAL_RISK" || f.status === "REQUIRES_HUMAN_REVIEW"
-                    ? "Potential—verify"
-                    : "Data missing";
-              return (
-                <div key={f.id} className="rounded-lg border px-3 py-3 space-y-2 text-sm">
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div>
-                      <p className="font-medium">{hmoCheckLabel(f.checkId)}</p>
-                      <p className="text-muted-foreground">{f.explanation}</p>
-                    </div>
-                    <div className="flex gap-1.5 flex-wrap justify-end">
-                      <Badge variant="outline">{alertKind}</Badge>
-                      <Badge variant="outline" className={hmoSeverityMeta(f.severity).className}>
-                        {hmoSeverityMeta(f.severity).label}
-                      </Badge>
-                      <Badge variant="secondary">{hmoFindingSpecLabel(f.status)}</Badge>
-                    </div>
-                  </div>
-                  <p className="text-muted-foreground">
-                    Next action: {f.suggestedActionCode || "Review evidence"} · Source:{" "}
-                    {hmoRuleSourceLabel(f.checkId, (f as any).ruleVersionId)}
-                  </p>
-                  {linkedMr ? (
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Link href="/maintenance" className="text-primary underline text-sm">
-                        {linkedMr.verificationStatus === "awaiting_verification"
-                          ? "Open MR (awaiting verification)"
-                          : "Open maintenance request"}
-                      </Link>
-                      {linkedMr.verificationStatus === "awaiting_verification" && (
-                        <Badge variant="outline">Awaiting verification</Badge>
-                      )}
-                    </div>
-                  ) : (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={raiseMrMutation.isPending}
-                      onClick={() => raiseMrMutation.mutate(f.id)}
-                    >
-                      Create maintenance request
-                    </Button>
-                  )}
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <Input
-                      placeholder="Reason"
-                      value={alertReason[f.id] || ""}
-                      onChange={(e) =>
-                        setAlertReason((m) => ({ ...m, [f.id]: e.target.value }))
-                      }
-                    />
-                    {f.severity === "CRITICAL" && (
-                      <Input
-                        placeholder="Reviewer decision (required)"
-                        value={reviewerDecision[f.id] || ""}
-                        onChange={(e) =>
-                          setReviewerDecision((m) => ({ ...m, [f.id]: e.target.value }))
-                        }
-                      />
-                    )}
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={alertMutation.isPending || !(alertReason[f.id] || "").trim()}
-                      onClick={() =>
-                        alertMutation.mutate({
-                          findingId: f.id,
-                          action: "snooze",
-                          reason: alertReason[f.id],
-                          reviewerDecision: reviewerDecision[f.id],
-                        })
-                      }
-                    >
-                      Snooze 7 days
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      disabled={alertMutation.isPending || !(alertReason[f.id] || "").trim()}
-                      onClick={() =>
-                        alertMutation.mutate({
-                          findingId: f.id,
-                          action: "dismiss",
-                          reason: alertReason[f.id],
-                          reviewerDecision: reviewerDecision[f.id],
-                        })
-                      }
-                    >
-                      Dismiss
-                    </Button>
-                  </div>
-                </div>
-              );
-            })}
-
-          </AccordionContent>
-        </AccordionItem>
-
-        <AccordionItem value="timeline" className="border rounded-xl px-4">
-          <AccordionTrigger className="hover:no-underline">
-            <span className="flex items-center gap-2 font-semibold">
-              <History className="h-4 w-4 text-primary" /> Compliance Timeline
-              {(data?.complianceTimeline || []).length > 0 && (
-                <Badge variant="secondary" className="ml-1">
-                  {(data?.complianceTimeline || []).length}
-                </Badge>
-              )}
-            </span>
-          </AccordionTrigger>
-          <AccordionContent className="space-y-4 pb-5">
-            <div className="flex flex-wrap gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                type="button"
-                onClick={() => {
-                  window.open(
-                    `/api/hmo/properties/${propertyId}/export`,
-                    "_blank",
-                    "noopener,noreferrer",
-                  );
-                }}
-              >
-                Export evidence pack (PDF)
-              </Button>
-            </div>
-            {(data?.complianceTimeline || []).length === 0 && (
-              <p className="text-sm text-muted-foreground">
-                Timeline fills as licences, assessments, findings, MRs, and HMO inspections are
-                recorded.
-              </p>
-            )}
-            {(data?.complianceTimeline || []).map((ev) => (
-              <div key={ev.id} className="rounded-lg border px-3 py-2 text-sm space-y-1">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="font-medium">{ev.title}</span>
-                  <Badge variant="outline">{ev.kind.replace(/_/g, " ")}</Badge>
-                </div>
-                <p className="text-muted-foreground">
-                  {formatDisplayDate(ev.at)}
-                  {ev.detail ? ` · ${ev.detail}` : ""}
-                </p>
-                {ev.link && (
-                  <Link href={ev.link} className="text-primary underline text-sm">
-                    Open
-                  </Link>
-                )}
-              </div>
-            ))}
-            <div className="space-y-2 border-t pt-3">
-              <p className="text-sm font-medium flex items-center gap-2">
-                <ClipboardList className="h-4 w-4" /> Licence versions
-              </p>
-              {(data?.licences || []).flatMap((lic) =>
-                (lic.versions || []).map((v) => (
-                  <div key={v.id} className="rounded-lg border px-3 py-2 text-sm">
-                    <div className="flex flex-wrap justify-between gap-2">
-                      <span>
-                        v{v.versionNo || "?"} · {v.fileName || "Document"}
-                      </span>
-                      <Badge variant="secondary">
-                        {v.confirmedAt || v.status === "CONFIRMED"
-                          ? "Confirmed"
-                          : v.status || "Draft"}
-                      </Badge>
-                    </div>
-                    <p className="text-muted-foreground mt-1">
-                      Uploaded {formatDisplayDate(v.createdAt)}
-                      {v.confirmedAt ? ` · Confirmed ${formatDisplayDate(v.confirmedAt)}` : ""}
-                    </p>
-                  </div>
-                )),
-              )}
-              {!data?.licences?.length && (
-                <p className="text-sm text-muted-foreground">No licence versions yet.</p>
-              )}
-            </div>
-          </AccordionContent>
-        </AccordionItem>
-      </Accordion>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
-

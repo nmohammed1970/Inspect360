@@ -1,14 +1,14 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "../db";
 import { hmoPropertyProfiles, hmoRuleImpactRuns } from "@shared/schema";
-import { runAssessment } from "./assessmentRunner";
 import { dispatchHmoNotification } from "./notificationDispatcher";
 import { writeHmoAuditEvent } from "./auditWriter";
 import * as hmoStorage from "./storage";
 
 /**
- * Drain queued rule-impact runs: reassess only the selective property cohort
+ * Drain queued rule-impact runs: mark the selective property cohort for review
  * and raise Rules review needed alerts. Guidance-only rules do not force Non-compliant.
+ * Assessment runs are disabled.
  */
 export async function processQueuedRuleImpactRuns(limit = 5) {
   const queued = await db
@@ -55,23 +55,6 @@ export async function processRuleImpactRun(runId: string) {
 
   for (const propertyId of propertyIds) {
     try {
-      const licences = await hmoStorage.listLicences(run.organizationId, propertyId);
-      const versionId =
-        licences[0]?.currentVersionId || licences[0]?.versions?.[0]?.id || null;
-      if (!versionId) {
-        errors.push(`${propertyId}: no licence version`);
-        continue;
-      }
-
-      await runAssessment({
-        orgId: run.organizationId,
-        propertyId,
-        licenceVersionId: versionId,
-        userId: run.createdBy,
-        reason: `rule_impact:${run.ruleVersionId}`,
-        allowUnconfirmed: true,
-      });
-
       await writeHmoAuditEvent({
         organizationId: run.organizationId,
         actorType: "system",

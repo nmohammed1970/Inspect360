@@ -5,8 +5,7 @@ import { isAuthenticated, requireCompanyModule } from "../auth";
 import { storage as appStorage } from "../storage";
 import { ObjectStorageService } from "../objectStorage";
 import { hasHmoPermission, evaluatePreTenancyCheck, type HmoPermission } from "@shared/hmo";
-import { extractLicenceFromText } from "./extraction";
-import { runAssessment } from "./assessmentRunner";
+import { extractLicenceAddressFromText, extractLicenceFromText } from "./extraction";
 import * as hmoStorage from "./storage";
 import { buildOccupancyFromTenancies, evaluateRooms } from "./occupancy";
 import { preAggregateDashboardMetrics } from "./metrics";
@@ -21,7 +20,11 @@ import {
   HMO_MAX_UPLOAD_BYTES,
   malwareScanHook,
 } from "./documentPipeline";
-import { scoreAddressMatch } from "./addressMatcher";
+import {
+  LICENCE_ADDRESS_MISMATCH_MESSAGE,
+  licenceAddressMatchesProperty,
+  scoreAddressMatch,
+} from "./addressMatcher";
 import {
   createOrReuseMaintenanceForFinding,
   findOpenMaintenanceForFinding,
@@ -217,6 +220,23 @@ export function registerHmoRoutes(app: Express) {
           contentHash = hashContent(extractedText);
         }
 
+        // Address gate: confirm the licence is for this property before full extraction.
+        const licenceAddress = await extractLicenceAddressFromText(extractedText || "");
+        const addressMatch = licenceAddressMatchesProperty({
+          propertyAddress: property.address,
+          propertyName: property.name,
+          extractedAddress: licenceAddress,
+        });
+        if (!addressMatch.matched) {
+          return res.status(422).json({
+            code: "LICENCE_ADDRESS_MISMATCH",
+            message: LICENCE_ADDRESS_MISMATCH_MESSAGE,
+            licenceAddress: licenceAddress || null,
+            propertyAddress: property.address || property.name || null,
+            match: addressMatch,
+          });
+        }
+
         if (contentHash) {
           // Dedupe only within this property — same file is allowed on other properties.
           const existing = await hmoStorage.findLicenceVersionByHash(
@@ -248,6 +268,7 @@ export function registerHmoRoutes(app: Express) {
                 deduped: true,
                 reextracted: true,
                 licenceVersionId: existing.id,
+                addressMatch,
               },
             });
             return res.status(200).json({
@@ -255,10 +276,11 @@ export function registerHmoRoutes(app: Express) {
               licenceVersionId: refreshed?.id || existing.id,
               deduped: true,
               reextracted: true,
+              extraction,
               objectUrl: refreshed?.originalObjectUrl || objectUrl,
               contentHash,
-              message:
-                "Identical file already stored on this property — extraction refreshed. Review fields and save again.",
+              addressMatch,
+              message: "Licence uploaded. Review fields and save to confirm.",
             });
           }
         }
@@ -310,6 +332,7 @@ export function registerHmoRoutes(app: Express) {
           objectUrl,
           contentHash,
           extractWarning,
+          addressMatch,
         });
       } catch (error: any) {
         console.error("[hmo] upload failed:", error);
@@ -594,68 +617,6 @@ export function registerHmoRoutes(app: Express) {
       } catch (error) {
         console.error("[hmo] finding maintenance lookup failed:", error);
         res.status(500).json({ message: "Failed to look up maintenance request" });
-      }
-    },
-  );
-
-  app.post(
-    "/api/hmo/properties/:propertyId/assessments",
-    isAuthenticated,
-    moduleGate,
-    requireHmoPermission("hmo.assessment.run"),
-    async (req: any, res) => {
-      try {
-        const property = await assertPropertyInOrg(req.params.propertyId, orgId(req));
-        if (!property) return res.status(404).json({ message: "Property not found" });
-
-        const licenceVersionId = String(req.body?.licenceVersionId || "");
-        if (!licenceVersionId) {
-          return res.status(400).json({ message: "licenceVersionId is required" });
-        }
-
-        const idempotencyKey =
-          typeof req.body?.idempotencyKey === "string" ? req.body.idempotencyKey : null;
-
-        let job =
-          idempotencyKey != null
-            ? await hmoStorage.createJob({
-                organizationId: orgId(req),
-                propertyId: property.id,
-                jobType: "ASSESSMENT",
-                userId: req.user.id,
-                licenceVersionId,
-                idempotencyKey,
-                status: "RUNNING",
-                progress: 10,
-              })
-            : null;
-
-        if (job?.status === "COMPLETED" && job.resultJson) {
-          return res.json(job.resultJson);
-        }
-
-        const result = await runAssessment({
-          orgId: orgId(req),
-          propertyId: property.id,
-          licenceVersionId,
-          userId: req.user.id,
-          reason: typeof req.body?.reason === "string" ? req.body.reason : "manual",
-        });
-
-        if (job) {
-          await hmoStorage.updateJob(orgId(req), job.id, {
-            status: "COMPLETED",
-            progress: 100,
-            assessmentId: result.assessment.id,
-            resultJson: result as any,
-          });
-        }
-
-        res.status(201).json(result);
-      } catch (error: any) {
-        console.error("[hmo] assessment failed:", error);
-        const status = error?.status || 500;
-        res.status(status).json({ message: error?.message || "Assessment failed" });
       }
     },
   );

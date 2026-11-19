@@ -6251,6 +6251,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           priority: request.priority,
           status: request.status,
           category: request.source || 'general', // Use source as category for now
+          inspectionId: request.inspectionId || null,
           createdAt: request.createdAt,
           reportedByName,
           assignedToName,
