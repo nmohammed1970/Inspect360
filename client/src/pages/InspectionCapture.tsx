@@ -62,6 +62,7 @@ import {
 import {
   listRepeatableInstances,
   matchesSectionScope,
+  mergePhotoUrlLists,
   sectionShouldExpandAsInstances,
 } from "@shared/inspectionGallery";
 import { useCompanyModules } from "@/hooks/useCompanyModules";
@@ -778,8 +779,8 @@ export default function InspectionCapture() {
           [_clientKey]: {
             ...local,
             id: saved?.id || local.id,
-            // Keep whatever the user last edited locally for this seq
-            photos: local.photos,
+            // Prefer union of local + server (server merge may restore gallery-assigned URLs).
+            photos: mergePhotoUrlLists(local.photos, saved?.photos),
             valueJson: local.valueJson,
             note: local.note,
           },

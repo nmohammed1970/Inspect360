@@ -285,16 +285,24 @@ export function FieldWidget({
       const key = normalizeObjectUrl(url) || url;
       return !recentlyRemovedPhotoKeysRef.current.has(key);
     });
-    // Ignore empty prop updates that arrive while we already show photos —
-    // stale entry refetches after note/AI saves used to blank the grid.
-    // Allow empty when the user just cleared locally (allowEmptyPhotosPropRef).
+    // Ignore empty / shorter prop updates while we already show more photos —
+    // stale entry refetches after note/AI saves (or gallery-assign races) used to
+    // blank the grid or shrink 8 → 1. Allow shrink only when the user cleared
+    // locally or the missing URLs were just removed intentionally.
     setLocalPhotos((prev) => {
-      if (next.length === 0 && prev.length > 0) {
-        if (allowEmptyPhotosPropRef.current) {
+      if (next.length < prev.length) {
+        if (next.length === 0 && allowEmptyPhotosPropRef.current) {
           allowEmptyPhotosPropRef.current = false;
           return next;
         }
-        return prev;
+        const nextKeys = new Set(
+          next.map((url) => normalizeObjectUrl(url) || url).filter(Boolean),
+        );
+        const removedWereIntentional = prev.every((url) => {
+          const key = normalizeObjectUrl(url) || url;
+          return nextKeys.has(key) || recentlyRemovedPhotoKeysRef.current.has(key);
+        });
+        if (!removedWereIntentional) return prev;
       }
       if (next.length > 0) allowEmptyPhotosPropRef.current = false;
       if (

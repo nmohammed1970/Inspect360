@@ -1726,25 +1726,53 @@ export async function listDashboardMetrics(organizationId: string) {
         f.status === "POTENTIAL_RISK"
       );
     });
-    const [occ] = await db
-      .select()
-      .from(hmoOccupancySnapshots)
-      .where(
-        and(
-          eq(hmoOccupancySnapshots.organizationId, organizationId),
-          eq(hmoOccupancySnapshots.propertyId, p.propertyId),
-        ),
-      )
-      .orderBy(desc(hmoOccupancySnapshots.asOf))
-      .limit(1);
+    let liveActiveTenants: number | null = null;
+    try {
+      const getAssignments = (appStorage as any).getTenantAssignmentsByProperty;
+      if (typeof getAssignments === "function") {
+        const rows = await getAssignments.call(appStorage, p.propertyId, organizationId);
+        if (Array.isArray(rows)) {
+          const nowMs = Date.now();
+          liveActiveTenants = rows.filter((r: any) => {
+            const assignmentActive = r.assignment?.isActive !== false;
+            const end = r.assignment?.leaseEndDate || null;
+            const notEnded = !end || new Date(end).getTime() > nowMs;
+            return assignmentActive && notEnded;
+          }).length;
+        }
+      }
+    } catch {
+      liveActiveTenants = null;
+    }
+
+    // Prefer live active tenants (same as property HMO tab). Fall back to the
+    // latest occupancy snapshot only when tenant assignments are unavailable.
+    let occupantsNow: number | null = liveActiveTenants;
+    if (occupantsNow == null) {
+      const [occ] = await db
+        .select()
+        .from(hmoOccupancySnapshots)
+        .where(
+          and(
+            eq(hmoOccupancySnapshots.organizationId, organizationId),
+            eq(hmoOccupancySnapshots.propertyId, p.propertyId),
+          ),
+        )
+        .orderBy(desc(hmoOccupancySnapshots.asOf))
+        .limit(1);
+      occupantsNow =
+        occ?.personCount != null && Number.isFinite(Number(occ.personCount))
+          ? Number(occ.personCount)
+          : null;
+    }
 
     const nextActionFinding = alertFindings[0];
     const licenceEvidenceStatus = (p as any).licenceEvidenceStatus || "UNKNOWN";
     const hmoClassification = (property as any)?.hmoClassification || null;
     const occupancyMismatch =
       lic?.maxPersons != null &&
-      occ?.personCount != null &&
-      Number(occ.personCount) > Number(lic.maxPersons);
+      occupantsNow != null &&
+      Number(occupantsNow) > Number(lic.maxPersons);
     const licenceEvidenceMissing =
       licenceEvidenceStatus === "REQUIRED_MISSING" ||
       licenceEvidenceStatus === "UNKNOWN" ||
@@ -1767,6 +1795,16 @@ export async function listDashboardMetrics(organizationId: string) {
       return "National baseline";
     })();
 
+    let urgentCount = 0;
+    let highCount = 0;
+    let mediumCount = 0;
+    for (const f of alertFindings) {
+      const sev = String(f.severity || "").toUpperCase();
+      if (sev === "CRITICAL") urgentCount += 1;
+      else if (sev === "HIGH") highCount += 1;
+      else mediumCount += 1;
+    }
+
     enrichedProfiles.push({
       propertyId: p.propertyId,
       overallStatus: p.overallStatus,
@@ -1781,7 +1819,7 @@ export async function listDashboardMetrics(organizationId: string) {
       licenceEvidenceStatus,
       hmoClassification,
       maxPersons: lic?.maxPersons ?? null,
-      occupantsNow: occ?.personCount ?? null,
+      occupantsNow,
       occupancyMismatch: Boolean(occupancyMismatch || occupancyAlert),
       licenceEvidenceMissing,
       missingSafetyDoc,
@@ -1791,6 +1829,16 @@ export async function listDashboardMetrics(organizationId: string) {
       ruleSourceLabel,
       nextAction: nextActionFinding?.suggestedActionCode || nextActionFinding?.explanation || null,
       managerName: lic?.managerName || null,
+      holderName: lic?.holderName || null,
+      urgentCount,
+      highCount,
+      mediumCount,
+      openFindingCount: alertFindings.length,
+      nextHmoInspectionDate: null as string | null,
+      lastHmoInspectionDate: null as string | null,
+      hmoInspectionOverdue: false,
+      hmoInspectionDueSoon: false,
+      hmoInspectionMissed: false,
     });
   }
 
@@ -1829,6 +1877,7 @@ export async function listDashboardMetrics(organizationId: string) {
         id: inspections.id,
         status: inspections.status,
         scheduledDate: inspections.scheduledDate,
+        completedDate: inspections.completedDate,
         propertyId: inspections.propertyId,
       })
       .from(inspections)
@@ -1850,20 +1899,46 @@ export async function listDashboardMetrics(organizationId: string) {
       else if (t <= in7) hmoInspectionDueSoon += 1;
     }
     for (const p of enrichedProfiles) {
-      (p as any).hmoInspectionMissed = hmoInsp.some(
-        (i) =>
-          i.propertyId === p.propertyId &&
-          i.scheduledDate &&
-          i.status !== "completed" &&
-          i.status !== "reviewed" &&
-          new Date(i.scheduledDate).getTime() < nowMs,
-      );
-      (p as any).hmoInspectionDueSoon = hmoInsp.some((i) => {
-        if (i.propertyId !== p.propertyId || !i.scheduledDate) return false;
-        if (i.status === "completed" || i.status === "reviewed") return false;
-        const t = new Date(i.scheduledDate).getTime();
-        return t >= nowMs && t <= in7;
-      });
+      const forProp = hmoInsp.filter((i) => i.propertyId === p.propertyId);
+      const openUpcoming = forProp
+        .filter(
+          (i) =>
+            i.scheduledDate &&
+            i.status !== "completed" &&
+            i.status !== "reviewed",
+        )
+        .sort(
+          (a, b) =>
+            new Date(a.scheduledDate!).getTime() - new Date(b.scheduledDate!).getTime(),
+        );
+      const completed = forProp
+        .filter((i) => i.status === "completed" || i.status === "reviewed")
+        .sort((a, b) => {
+          const at = new Date(a.completedDate || a.scheduledDate || 0).getTime();
+          const bt = new Date(b.completedDate || b.scheduledDate || 0).getTime();
+          return bt - at;
+        });
+
+      const nextOpen = openUpcoming[0] || null;
+      const lastDone = completed[0] || null;
+      const nextMs = nextOpen?.scheduledDate
+        ? new Date(nextOpen.scheduledDate).getTime()
+        : NaN;
+      const overdue = Number.isFinite(nextMs) && nextMs < nowMs;
+
+      p.hmoInspectionMissed = overdue;
+      p.hmoInspectionOverdue = overdue;
+      p.hmoInspectionDueSoon =
+        Number.isFinite(nextMs) && nextMs >= nowMs && nextMs <= in7;
+      p.nextHmoInspectionDate = nextOpen?.scheduledDate
+        ? new Date(nextOpen.scheduledDate).toISOString()
+        : null;
+      const lastRaw = lastDone?.completedDate || lastDone?.scheduledDate || null;
+      p.lastHmoInspectionDate = lastRaw
+        ? new Date(lastRaw).toISOString()
+        : p.lastAssessedAt
+          ? new Date(p.lastAssessedAt).toISOString()
+          : null;
     }
   } catch {
     hmoInspectionDueSoon = 0;
