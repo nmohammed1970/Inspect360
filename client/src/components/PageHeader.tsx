@@ -34,29 +34,29 @@ export function PageHeader({
       {leading}
       <div className="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-primary/10 via-background to-sky-50/60">
         <div className="absolute inset-y-0 right-0 w-1/3 bg-[radial-gradient(ellipse_at_top_right,hsl(var(--primary)/0.18),transparent_70%)] pointer-events-none" />
-        <div className="relative p-5 sm:p-7 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div className="flex items-start gap-3 min-w-0">
+        <div className="relative p-5 sm:p-7 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex min-w-0 flex-1 items-start gap-3">
             {Icon ? (
               <div className="p-2.5 rounded-2xl bg-primary/15 shrink-0">
                 <Icon className="h-6 w-6 text-primary" aria-hidden />
               </div>
             ) : null}
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <h1
-                className="text-2xl md:text-3xl font-bold tracking-tight font-heading text-foreground"
+                className="text-2xl md:text-3xl font-bold tracking-tight font-heading text-foreground text-balance break-words"
                 data-testid={titleTestId}
               >
                 {title}
               </h1>
               {description ? (
-                <p className="text-muted-foreground mt-1 text-sm sm:text-base max-w-2xl leading-relaxed">
+                <p className="text-muted-foreground mt-1 text-sm sm:text-base max-w-2xl leading-relaxed text-pretty">
                   {description}
                 </p>
               ) : null}
             </div>
           </div>
           {actions ? (
-            <div className="flex flex-wrap items-center gap-2 shrink-0 w-full sm:w-auto">
+            <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto lg:shrink-0 lg:justify-end">
               {actions}
             </div>
           ) : null}

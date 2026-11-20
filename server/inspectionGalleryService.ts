@@ -28,6 +28,7 @@ import {
   mergePhotoUrlLists,
   normalizeObjectUrl,
   resolveGalleryAssignmentLabel,
+  resolveInstanceRefFamily,
   resolveSectionInstanceLabel,
   sectionActsAsRepeatableForInstanceRef,
   sectionShouldExpandAsInstances,
@@ -714,6 +715,25 @@ async function assignmentObjectUrlsForField(
   fieldKey: string,
 ): Promise<string[]> {
   if (isSectionGalleryFieldKey(fieldKey)) return [];
+
+  // Kitchen/room instances often split across UUID / "Kitchen 1" / "Kitchen Overview 1".
+  // Include every alias ref in the family so a stale save cannot drop assigned photos.
+  let refs = [sectionRef];
+  try {
+    const inspection = await storage.getInspection(inspectionId);
+    if (inspection) {
+      const counts = await loadRepeatableCounts(inspectionId, inspection);
+      const family = resolveInstanceRefFamily(
+        inspection.templateSnapshotJson as any,
+        sectionRef,
+        counts,
+      );
+      if (family?.allRefs?.length) refs = family.allRefs;
+    }
+  } catch {
+    /* exact sectionRef only */
+  }
+
   const rows = await db
     .select({ objectUrl: inspectionGalleryImages.objectUrl })
     .from(inspectionGalleryAssignments)
@@ -724,7 +744,7 @@ async function assignmentObjectUrlsForField(
     .where(
       and(
         eq(inspectionGalleryAssignments.inspectionId, inspectionId),
-        eq(inspectionGalleryAssignments.sectionRef, sectionRef),
+        inArray(inspectionGalleryAssignments.sectionRef, refs),
         eq(inspectionGalleryAssignments.fieldKey, fieldKey),
         isNull(inspectionGalleryImages.deletedAt),
       ),
@@ -779,17 +799,46 @@ export async function healInspectionEntryPhotosFromAssignments(
       ),
     );
 
-  type DestBucket = { sectionRef: string; fieldKey: string; urls: string[] };
+  let structure: any = null;
+  let counts: Record<string, number> = {};
+  try {
+    const inspection = await storage.getInspection(id);
+    if (inspection) {
+      structure = inspection.templateSnapshotJson;
+      counts = await loadRepeatableCounts(id, inspection);
+    }
+  } catch {
+    /* family resolve falls back to exact refs */
+  }
+
+  // Bucket by canonical instance family + fieldKey so Kitchen UUID / "Kitchen 1" /
+  // "Kitchen Overview 1" assignments heal onto every related entry row.
+  type DestBucket = {
+    primary: string;
+    fieldKey: string;
+    refs: Set<string>;
+    urls: string[];
+  };
   const byDest = new Map<string, DestBucket>();
   for (const row of rows) {
     if (isSectionGalleryFieldKey(row.fieldKey)) continue;
     const objectUrl = row.objectUrl?.trim();
     if (!objectUrl) continue;
-    const key = `${row.sectionRef}\0${row.fieldKey}`;
+    const family = resolveInstanceRefFamily(structure, row.sectionRef, counts);
+    const primary = family?.primary || row.sectionRef;
+    const allRefs = family?.allRefs?.length ? family.allRefs : [row.sectionRef];
+    const key = `${primary}\0${row.fieldKey}`;
     let bucket = byDest.get(key);
     if (!bucket) {
-      bucket = { sectionRef: row.sectionRef, fieldKey: row.fieldKey, urls: [] };
+      bucket = {
+        primary,
+        fieldKey: row.fieldKey,
+        refs: new Set(allRefs),
+        urls: [],
+      };
       byDest.set(key, bucket);
+    } else {
+      for (const r of allRefs) bucket.refs.add(r);
     }
     bucket.urls.push(objectUrl);
   }
@@ -798,25 +847,42 @@ export async function healInspectionEntryPhotosFromAssignments(
 
   let updated = 0;
   for (const bucket of byDest.values()) {
-    const entry = await findEntry(id, bucket.sectionRef, bucket.fieldKey);
-    const current = Array.isArray(entry?.photos) ? entry!.photos! : [];
-    const merged = mergePhotoUrlLists(current, bucket.urls);
-    if (merged.length === current.length) {
-      // Same count is not enough — confirm keys match
-      const currentKeys = new Set(
-        current.map((p) => normalizeObjectUrl(p) || p).filter(Boolean),
+    const refs = Array.from(bucket.refs);
+    const existingRows = await db
+      .select()
+      .from(inspectionEntries)
+      .where(
+        and(
+          eq(inspectionEntries.inspectionId, id),
+          inArray(inspectionEntries.sectionRef, refs),
+          eq(inspectionEntries.fieldKey, bucket.fieldKey),
+        ),
       );
-      const missing = merged.some((p) => !currentKeys.has(normalizeObjectUrl(p) || p));
-      if (!missing) continue;
-    }
-    if (entry) {
-      if (JSON.stringify(current) === JSON.stringify(merged)) continue;
-      await storage.updateInspectionEntry(entry.id, { photos: merged } as any);
-      updated += 1;
+
+    const merged = mergePhotoUrlLists(
+      ...existingRows.map((e) => (Array.isArray(e.photos) ? e.photos : [])),
+      bucket.urls,
+    );
+    if (!merged.length) continue;
+
+    if (existingRows.length) {
+      for (const entry of existingRows) {
+        const current = Array.isArray(entry.photos) ? entry.photos : [];
+        if (JSON.stringify(current) === JSON.stringify(merged)) continue;
+        const currentKeys = new Set(
+          current.map((p) => normalizeObjectUrl(p) || p).filter(Boolean),
+        );
+        const missing = merged.some(
+          (p) => !currentKeys.has(normalizeObjectUrl(p) || p),
+        );
+        if (!missing && merged.length === current.length) continue;
+        await storage.updateInspectionEntry(entry.id, { photos: merged } as any);
+        updated += 1;
+      }
     } else {
       await storage.createInspectionEntry({
         inspectionId: id,
-        sectionRef: bucket.sectionRef,
+        sectionRef: bucket.primary,
         fieldKey: bucket.fieldKey,
         fieldType: "photo_array",
         photos: merged,
