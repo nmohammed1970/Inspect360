@@ -1059,6 +1059,8 @@ export const inspections = pgTable("inspections", {
   // Inspection can be on either a block or a property (at least one must be set)
   blockId: varchar("block_id"),
   propertyId: varchar("property_id"),
+  /** Tenant user id selected at create (optional; scopes General Info Tenant Name). */
+  tenantId: varchar("tenant_id"),
   /** Nullable so hard-deleted team members can be unassigned from past inspections. */
   inspectorId: varchar("inspector_id"),
   type: inspectionTypeEnum("type").notNull(),
@@ -1103,6 +1105,7 @@ export const inspections = pgTable("inspections", {
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
   index("inspections_organization_id_idx").on(table.organizationId),
+  index("inspections_tenant_id_idx").on(table.tenantId),
 ]);
 
 export const insertInspectionSchema = createInsertSchema(inspections).omit({

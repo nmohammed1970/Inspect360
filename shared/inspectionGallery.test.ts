@@ -9,6 +9,7 @@ import {
   isSectionGalleryFieldKey,
   listPhotoDestinations,
   matchesSectionScope,
+  mergePhotoUrlLists,
   normalizeObjectUrl,
   resolveGalleryAssignmentLabel,
   resolveInstanceRefFamily,
@@ -69,6 +70,17 @@ assert.equal(normalizeObjectUrl("/objects/abc.jpg"), "/objects/abc.jpg");
 assert.equal(normalizeObjectUrl("https://host.example/objects/abc.jpg?x=1"), "/objects/abc.jpg");
 assert.equal(isAllowedGalleryMime("image/png"), true);
 assert.equal(isAllowedGalleryMime("application/pdf"), false);
+
+// Heal union: assignment URLs missing from entry.photos are restored (deduped).
+assert.deepEqual(
+  mergePhotoUrlLists(
+    ["/objects/a.jpg"],
+    ["https://cdn.example/objects/b.jpg", "/objects/a.jpg", "/objects/c.jpg"],
+  ),
+  ["/objects/a.jpg", "https://cdn.example/objects/b.jpg", "/objects/c.jpg"],
+);
+assert.deepEqual(mergePhotoUrlLists(null, ["/objects/x.jpg"]), ["/objects/x.jpg"]);
+assert.deepEqual(mergePhotoUrlLists(["/objects/x.jpg"], null), ["/objects/x.jpg"]);
 
 const counts = extractRepeatableCountsFromEntries([
   { fieldKey: "__repeatable_count_section_bedrooms", valueJson: 2 },

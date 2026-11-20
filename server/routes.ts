@@ -6767,7 +6767,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.id;
       const currentUser = await storage.getUser(userId);
-      const { propertyId, blockId, type, scheduledDate, notes, clerkId, templateId, completionChecklistId: bodyCompletionChecklistId } = req.body;
+      const {
+        propertyId,
+        blockId,
+        type,
+        scheduledDate,
+        notes,
+        clerkId,
+        templateId,
+        tenantId: bodyTenantId,
+        completionChecklistId: bodyCompletionChecklistId,
+      } = req.body;
 
       // Must specify either propertyId OR blockId (not both)
       if ((!propertyId && !blockId) || (propertyId && blockId)) {
@@ -7037,10 +7047,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      // Optional tenant selected at create — must be assigned to this property.
+      let tenantId: string | null = null;
+      const requestedTenantId =
+        typeof bodyTenantId === "string" && bodyTenantId.trim() && bodyTenantId !== "__none__"
+          ? bodyTenantId.trim()
+          : null;
+      if (requestedTenantId) {
+        if (!propertyId) {
+          return res.status(400).json({
+            message: "tenantId can only be set on property inspections",
+          });
+        }
+        const propertyTenants = await storage.getTenantAssignmentsByProperty(
+          propertyId,
+          currentUser.organizationId,
+        );
+        const match = propertyTenants.find((t: any) => t.id === requestedTenantId);
+        if (!match) {
+          return res.status(400).json({
+            message: "Selected tenant is not assigned to this property",
+          });
+        }
+        tenantId = requestedTenantId;
+      }
+
       const inspection = await storage.createInspection({
         organizationId: currentUser.organizationId,
         propertyId: propertyId || null,
         blockId: blockId || null,
+        tenantId,
         inspectorId,
         type,
         scheduledDate: scheduledDate ? new Date(scheduledDate) : new Date(),
@@ -8348,13 +8384,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user) return res.status(403).json({ message: "User not found" });
-      const { unassignGalleryImages } = await import("./inspectionGalleryService");
-      const images = await unassignGalleryImages(
-        req.params.inspectionId,
-        user,
-        Array.isArray(req.body?.items) ? req.body.items : [],
-      );
-      res.json({ images });
+      const {
+        unassignGalleryImages,
+        unassignGalleryObjectUrls,
+        listGallery,
+      } = await import("./inspectionGalleryService");
+      const items = Array.isArray(req.body?.items) ? req.body.items : [];
+      // Field delete path sends objectUrl; gallery UI sends imageId.
+      const byUrl = items.filter((i: any) => i?.objectUrl && !i?.imageId);
+      const byId = items.filter((i: any) => i?.imageId);
+      if (!byUrl.length && !byId.length) {
+        return res.status(400).json({ message: "No unassign items provided" });
+      }
+      if (byUrl.length) {
+        await unassignGalleryObjectUrls(req.params.inspectionId, user, byUrl);
+      }
+      if (byId.length) {
+        const images = await unassignGalleryImages(req.params.inspectionId, user, byId);
+        return res.json({ images });
+      }
+      res.json({ images: await listGallery(req.params.inspectionId, user) });
     } catch (error: any) {
       console.error("Error unassigning gallery images:", error);
       res.status(error?.status || 500).json({ message: error?.message || "Failed to unassign images" });
@@ -19709,6 +19758,17 @@ ${optionalNotes || "No details provided."}`;
         console.warn("[entries] sectionRef alias consolidation skipped:", healErr);
       }
 
+      // Heal entry.photos from gallery assignments (stale field saves can shrink
+      // photos while Section Gallery still shows the same point as assigned).
+      try {
+        const { healInspectionEntryPhotosFromAssignments } = await import(
+          "./inspectionGalleryService"
+        );
+        await healInspectionEntryPhotosFromAssignments(inspectionId);
+      } catch (photoHealErr) {
+        console.warn("[entries] gallery photo heal skipped:", photoHealErr);
+      }
+
       const entries = await storage.getInspectionEntries(inspectionId);
       res.json(entries);
     } catch (error) {
@@ -19820,6 +19880,20 @@ ${optionalNotes || "No details provided."}`;
           e.fieldKey === validatedData.fieldKey &&
           e.inspectionId === validatedData.inspectionId
       );
+
+      // Never let a stale capture save drop photos that are still gallery-assigned.
+      try {
+        const { mergeEntryPhotosWithAssignments } = await import("./inspectionGalleryService");
+        const mergedPhotos = await mergeEntryPhotosWithAssignments(
+          validatedData.inspectionId,
+          validatedData.sectionRef,
+          validatedData.fieldKey,
+          validatedData.photos as string[] | null | undefined,
+        );
+        (validatedData as any).photos = mergedPhotos;
+      } catch (mergeErr) {
+        console.warn("[entries] gallery photo merge on save skipped:", mergeErr);
+      }
 
       let entry;
       if (existingEntry?.id) {

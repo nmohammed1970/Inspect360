@@ -9,29 +9,47 @@ import {
 
 /**
  * Org-scoped company module toggles (Settings → Internal Modules).
- * Fail closed for gated surfaces while org is loading.
+ * Fail closed only while the first org fetch is in flight.
+ * If the org request errors, fall back to shared defaults (modules ON except HMO)
+ * so Maintenance / Work Orders are not permanently hidden on mobile.
  */
 export function useCompanyModules() {
   const { user } = useAuth();
   const organizationId = user?.organizationId;
 
-  const { data: organization, isLoading, isFetched } = useQuery<CompanyModuleFlags>({
+  const {
+    data: organization,
+    isLoading,
+    isFetched,
+    isError,
+    isFetching,
+  } = useQuery<CompanyModuleFlags>({
     queryKey: ['/api/organizations', organizationId],
     queryFn: () => apiRequestJson<CompanyModuleFlags>('GET', `/api/organizations/${organizationId}`),
     enabled: !!organizationId,
     staleTime: 60_000,
+    retry: 2,
   });
 
-  const ready = !!organizationId && isFetched && !isLoading;
+  // First load only — don't keep tabs hidden during background refetch.
+  const ready = !!organizationId && (isFetched || isError) && !(isLoading && !organization);
 
   const isEnabled = (key: CompanyModuleKey): boolean => {
+    if (!organizationId) return false;
     if (!ready) return false;
-    return isCompanyModuleEnabled(organization, key);
+    if (organization) {
+      return isCompanyModuleEnabled(organization, key);
+    }
+    // Org fetch failed or returned empty — match shared defaults (HMO stays opt-in).
+    if (isError) {
+      return key !== 'hmo_compliance';
+    }
+    return false;
   };
 
   return {
     organization,
-    isLoading: !!organizationId && (isLoading || !isFetched),
+    isLoading: !!organizationId && !ready && (isLoading || isFetching || !isFetched),
     isReady: ready,
     isCompanyModuleEnabled: isEnabled,
     rentalsEnabled: isEnabled('rentals'),

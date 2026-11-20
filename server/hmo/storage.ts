@@ -576,8 +576,13 @@ export async function getOverview(organizationId: string, propertyId: string) {
         : null;
 
   const now = Date.now();
-  const activeFindings = findings.filter((f) => {
+  const latestAssessment = assessments[0] || null;
+  const currentFindings = latestAssessment
+    ? findings.filter((f) => f.assessmentId === latestAssessment.id)
+    : findings;
+  const activeFindings = currentFindings.filter((f) => {
     const meta = (f.actualJson || {}) as Record<string, unknown>;
+    if (meta.resolution === "force_closed" || meta.resolution === "recheck_passed") return false;
     if (meta.dismissedAt) return false;
     if (meta.snoozedUntil && new Date(String(meta.snoozedUntil)).getTime() > now) return false;
     return (
@@ -942,6 +947,18 @@ export async function getOverview(organizationId: string, propertyId: string) {
     licences,
     recentFindings: findings.slice(0, 50),
     assessments,
+    complianceAssessment:
+      latestAssessment?.runReason === "compliance_assessment"
+        ? {
+            id: latestAssessment.id,
+            overallStatus: latestAssessment.overallStatus,
+            completedAt: latestAssessment.completedAt,
+          }
+        : null,
+    complianceAlerts:
+      latestAssessment?.runReason === "compliance_assessment"
+        ? findings.filter((f) => f.assessmentId === latestAssessment.id)
+        : [],
     activeTenantCount: liveActiveTenants,
     occupancy: latestOccupancy
       ? { ...latestOccupancy, personCount: occupantsNow }
@@ -1675,13 +1692,31 @@ export async function listDashboardMetrics(organizationId: string) {
     if (!licenceByProperty.has(l.propertyId)) licenceByProperty.set(l.propertyId, l);
   }
 
+  const assessmentRows = await db
+    .select({
+      id: hmoAssessments.id,
+      propertyId: hmoAssessments.propertyId,
+    })
+    .from(hmoAssessments)
+    .where(eq(hmoAssessments.organizationId, organizationId))
+    .orderBy(desc(hmoAssessments.createdAt));
+  const latestAssessmentByProperty = new Map<string, string>();
+  for (const row of assessmentRows) {
+    if (!latestAssessmentByProperty.has(row.propertyId)) {
+      latestAssessmentByProperty.set(row.propertyId, row.id);
+    }
+  }
+
   const enrichedProfiles = [];
   for (const p of profiles.slice(0, 200)) {
     const lic = licenceByProperty.get(p.propertyId);
     const property = await appStorage.getProperty(p.propertyId);
     const findings = await listFindings(organizationId, p.propertyId);
+    const latestAssessmentId = latestAssessmentByProperty.get(p.propertyId);
     const alertFindings = findings.filter((f) => {
+      if (latestAssessmentId && f.assessmentId !== latestAssessmentId) return false;
       const meta = (f.actualJson || {}) as Record<string, unknown>;
+      if (meta.resolution === "force_closed" || meta.resolution === "recheck_passed") return false;
       if (meta.dismissedAt) return false;
       if (meta.snoozedUntil && new Date(String(meta.snoozedUntil)).getTime() > Date.now()) return false;
       return (
@@ -2319,4 +2354,73 @@ export async function upsertRegulatorySource(input: {
     })
     .returning();
   return row;
+}
+
+export async function getLatestAssessment(organizationId: string, propertyId: string) {
+  const [row] = await db
+    .select()
+    .from(hmoAssessments)
+    .where(
+      and(
+        eq(hmoAssessments.organizationId, organizationId),
+        eq(hmoAssessments.propertyId, propertyId),
+      ),
+    )
+    .orderBy(desc(hmoAssessments.createdAt))
+    .limit(1);
+  return row;
+}
+
+export async function updateFindingRecord(
+  organizationId: string,
+  findingId: string,
+  updates: Partial<{
+    status: string;
+    actualJson: Record<string, unknown>;
+    requiredJson: Record<string, unknown>;
+    explanation: string;
+  }>,
+) {
+  const [row] = await db
+    .update(hmoFindings)
+    .set({ ...updates, updatedAt: new Date() })
+    .where(
+      and(eq(hmoFindings.id, findingId), eq(hmoFindings.organizationId, organizationId)),
+    )
+    .returning();
+  return row;
+}
+
+export async function setProfileComplianceStatus(input: {
+  organizationId: string;
+  propertyId: string;
+  assessmentId?: string | null;
+  overallStatus: string;
+  userId?: string | null;
+}) {
+  await db
+    .update(hmoPropertyProfiles)
+    .set({
+      overallStatus: input.overallStatus,
+      profileStatus: input.overallStatus,
+      updatedAt: new Date(),
+      updatedBy: input.userId ?? null,
+    })
+    .where(
+      and(
+        eq(hmoPropertyProfiles.organizationId, input.organizationId),
+        eq(hmoPropertyProfiles.propertyId, input.propertyId),
+      ),
+    );
+  if (input.assessmentId) {
+    await db
+      .update(hmoAssessments)
+      .set({ overallStatus: input.overallStatus, updatedAt: new Date() })
+      .where(
+        and(
+          eq(hmoAssessments.id, input.assessmentId),
+          eq(hmoAssessments.organizationId, input.organizationId),
+        ),
+      );
+  }
 }

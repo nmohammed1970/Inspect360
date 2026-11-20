@@ -10,6 +10,7 @@ import * as hmoStorage from "./storage";
 import { buildOccupancyFromTenancies, evaluateRooms } from "./occupancy";
 import { preAggregateDashboardMetrics } from "./metrics";
 import { triggerPropertyReassessment } from "./reassessmentTriggers";
+import { resolveComplianceFinding, runComplianceAssessment } from "./complianceRun";
 import { processRenewalAlertsForOrg } from "./renewalAlerts";
 import {
   assertAllowedMime,
@@ -533,6 +534,55 @@ export function registerHmoRoutes(app: Express) {
       } catch (error) {
         console.error("[hmo] confirm failed:", error);
         res.status(500).json({ message: "Failed to confirm licence version" });
+      }
+    },
+  );
+
+  app.post(
+    "/api/hmo/properties/:propertyId/run-assessment",
+    isAuthenticated,
+    moduleGate,
+    requireHmoPermission("hmo.assessment.run"),
+    async (req: any, res) => {
+      try {
+        const property = await assertPropertyInOrg(req.params.propertyId, orgId(req));
+        if (!property) return res.status(404).json({ message: "Property not found" });
+        const result = await runComplianceAssessment({
+          orgId: orgId(req),
+          propertyId: property.id,
+          userId: req.user.id,
+        });
+        res.json(result);
+      } catch (error: any) {
+        console.error("[hmo] run assessment failed:", error);
+        const status = error?.status || 500;
+        res.status(status).json({ message: error?.message || "Failed to run assessment" });
+      }
+    },
+  );
+
+  app.post(
+    "/api/hmo/findings/:id/resolve",
+    isAuthenticated,
+    moduleGate,
+    requireHmoPermission("hmo.case.write"),
+    async (req: any, res) => {
+      try {
+        const action =
+          req.body?.action === "force" || req.body?.action === "reopen" ? req.body.action : "recheck";
+        const result = await resolveComplianceFinding({
+          orgId: orgId(req),
+          findingId: req.params.id,
+          userId: req.user.id,
+          action,
+          note: typeof req.body?.note === "string" ? req.body.note : null,
+        });
+        if (!result) return res.status(404).json({ message: "Finding not found" });
+        res.json(result);
+      } catch (error: any) {
+        console.error("[hmo] resolve finding failed:", error);
+        const status = error?.status || 500;
+        res.status(status).json({ message: error?.message || "Failed to update alert" });
       }
     },
   );

@@ -16,6 +16,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -41,7 +42,6 @@ import {
   Upload,
   Pencil,
   History,
-  ImageIcon,
   Mail,
   Phone,
   Plus,
@@ -55,6 +55,7 @@ import {
   Sofa,
   FileText,
   ShieldAlert,
+  ChevronDown,
 } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { PropertyFormDialog } from "@/components/PropertyFormDialog";
@@ -219,6 +220,7 @@ export default function PropertyDetail() {
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [inventoryDialogOpen, setInventoryDialogOpen] = useState(false);
   const [selectedInventoryItem, setSelectedInventoryItem] = useState<AssetInventory | null>(null);
+  const [mediaMapOpen, setMediaMapOpen] = useState(true);
   const { toast } = useToast();
   const { user } = useAuth();
   const locale = useLocale();
@@ -621,64 +623,82 @@ export default function PropertyDetail() {
           </div>
         </div>
 
-        {/* Property Image and Map Section */}
-        <div className={formGrid2}>
-          {/* Property Image with Upload — opens media picker directly */}
-          <Card className="overflow-hidden">
-            {property.imageUrl ? (
-              <div className="relative aspect-video">
-                <PreviewableImage
-                  src={property.imageUrl}
-                  alt={property.name}
-                  title={property.name}
-                  className="w-full h-full object-cover"
-                  data-testid="img-property"
-                />
-                <div className="absolute bottom-2 right-2 z-10">
-                  <ObjectUploader
-                    maxNumberOfFiles={1}
-                    maxFileSize={10 * 1024 * 1024}
-                    buttonVariant="secondary"
-                    buttonClassName="h-9 px-3"
-                    onGetUploadParameters={getPropertyImageUploadParameters}
-                    onComplete={handlePropertyImageUploadComplete}
-                  >
-                    <Upload className="h-4 w-4 mr-2" />
-                    Change Photo
-                  </ObjectUploader>
-                </div>
-              </div>
-            ) : (
-              <div
-                className="aspect-video bg-muted [&>div]:h-full [&>div>button]:h-full [&>div>button]:w-full [&>div>button]:rounded-none"
-                data-testid="button-upload-property-image"
+        {/* Property Image and Map — collapsible; chevron row sits above content */}
+        <Collapsible open={mediaMapOpen} onOpenChange={setMediaMapOpen} className="min-w-0 space-y-2">
+          <div className="flex w-full items-center justify-end">
+            <CollapsibleTrigger asChild>
+              <button
+                type="button"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
+                data-testid="button-toggle-property-media-map"
+                aria-expanded={mediaMapOpen}
+                aria-label={mediaMapOpen ? "Collapse photo and map" : "Expand photo and map"}
               >
-                <ObjectUploader
-                  maxNumberOfFiles={1}
-                  maxFileSize={10 * 1024 * 1024}
-                  buttonVariant="ghost"
-                  buttonClassName="flex h-full w-full flex-col items-center justify-center gap-1 text-muted-foreground hover:bg-muted/80"
-                  onGetUploadParameters={getPropertyImageUploadParameters}
-                  onComplete={handlePropertyImageUploadComplete}
-                >
-                  <Upload className="h-16 w-16 opacity-50" />
-                  <span className="text-sm font-medium">Upload Property Photo</span>
-                  <span className="text-xs font-normal">Click to add an image</span>
-                </ObjectUploader>
-              </div>
-            )}
-          </Card>
+                <ChevronDown className="h-5 w-5" />
+              </button>
+            </CollapsibleTrigger>
+          </div>
 
-          {/* Embedded Google Map */}
-          <Card className="overflow-hidden">
-            <MapPreview
-              address={property?.address}
-              title={property?.address ? `Map of ${property.address}` : undefined}
-              testId="map-embed"
-              externalLinkTestId="link-map-external"
-            />
-          </Card>
-        </div>
+          <CollapsibleContent>
+            <div className={formGrid2}>
+              {/* Property Image with Upload — opens media picker directly */}
+              <Card className="overflow-hidden">
+                {property.imageUrl ? (
+                  <div className="relative aspect-video">
+                    <PreviewableImage
+                      src={property.imageUrl}
+                      alt={property.name}
+                      title={property.name}
+                      className="w-full h-full object-cover"
+                      data-testid="img-property"
+                    />
+                    <div className="absolute bottom-2 right-2 z-10">
+                      <ObjectUploader
+                        maxNumberOfFiles={1}
+                        maxFileSize={10 * 1024 * 1024}
+                        buttonVariant="secondary"
+                        buttonClassName="h-9 px-3"
+                        onGetUploadParameters={getPropertyImageUploadParameters}
+                        onComplete={handlePropertyImageUploadComplete}
+                      >
+                        <Upload className="h-4 w-4 mr-2" />
+                        Change Photo
+                      </ObjectUploader>
+                    </div>
+                  </div>
+                ) : (
+                  <div
+                    className="aspect-video bg-muted [&>div]:h-full [&>div>button]:h-full [&>div>button]:w-full [&>div>button]:rounded-none"
+                    data-testid="button-upload-property-image"
+                  >
+                    <ObjectUploader
+                      maxNumberOfFiles={1}
+                      maxFileSize={10 * 1024 * 1024}
+                      buttonVariant="ghost"
+                      buttonClassName="flex h-full w-full flex-col items-center justify-center gap-1 text-muted-foreground hover:bg-muted/80"
+                      onGetUploadParameters={getPropertyImageUploadParameters}
+                      onComplete={handlePropertyImageUploadComplete}
+                    >
+                      <Upload className="h-16 w-16 opacity-50" />
+                      <span className="text-sm font-medium">Upload Property Photo</span>
+                      <span className="text-xs font-normal">Click to add an image</span>
+                    </ObjectUploader>
+                  </div>
+                )}
+              </Card>
+
+              {/* Embedded Google Map */}
+              <Card className="overflow-hidden">
+                <MapPreview
+                  address={property?.address}
+                  title={property?.address ? `Map of ${property.address}` : undefined}
+                  testId="map-embed"
+                  externalLinkTestId="link-map-external"
+                />
+              </Card>
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
 
       </div>
 

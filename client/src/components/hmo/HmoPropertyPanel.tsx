@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -14,8 +15,21 @@ import {
 import { ModernFilePickerInline } from "@/components/ModernFilePickerInline";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { AlertCircle, CheckCircle2, ChevronDown, ChevronRight, FileText } from "lucide-react";
-import { hmoOverallStatusMeta } from "@/components/hmo/hmoLabels";
+import {
+  AlertCircle,
+  Calendar,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  ClipboardCheck,
+  FileText,
+  LayoutGrid,
+  Link2,
+  Shield,
+  Users,
+  Wrench,
+} from "lucide-react";
+import { hmoCheckLabel, hmoOverallStatusMeta } from "@/components/hmo/hmoLabels";
 import { cn } from "@/lib/utils";
 
 function fieldVal(field: any): string {
@@ -118,6 +132,154 @@ function formatShortDate(value: string | null | undefined): string {
   });
 }
 
+/** Soft pill styles — prefer calm amber/teal over loud solid red for overview chrome. */
+function softStatusPillClass(kind: "ok" | "warn" | "neutral" | "danger"): string {
+  switch (kind) {
+    case "ok":
+      return "bg-teal-50 text-teal-800 border border-teal-100 hover:bg-teal-50";
+    case "warn":
+      return "bg-amber-50 text-amber-900 border border-amber-100 hover:bg-amber-50";
+    case "danger":
+      return "bg-rose-50 text-rose-800 border border-rose-100 hover:bg-rose-50";
+    default:
+      return "bg-slate-50 text-slate-700 border border-slate-200 hover:bg-slate-50";
+  }
+}
+
+type ComplianceAlert = {
+  id: string;
+  checkId: string;
+  status: string;
+  severity: string;
+  explanation?: string | null;
+  actualJson?: {
+    value?: string;
+    resolution?: string | null;
+    resolutionNote?: string | null;
+  } | null;
+  requiredJson?: { value?: string } | null;
+};
+
+function alertIsResolved(alert: ComplianceAlert): boolean {
+  const resolution = alert.actualJson?.resolution;
+  return (
+    resolution === "force_closed" ||
+    resolution === "recheck_passed" ||
+    alert.status === "VERIFIED_COMPLIANT"
+  );
+}
+
+function LicenceAlertList({
+  alerts,
+  forceClose,
+  pendingId,
+  onResolve,
+  onReopen,
+  onNote,
+  onForce,
+  onDismissForce,
+}: {
+  alerts: ComplianceAlert[];
+  forceClose: { id: string; message: string; note: string } | null;
+  pendingId: string | null;
+  onResolve: (id: string) => void;
+  onReopen: (id: string) => void;
+  onNote: (note: string) => void;
+  onForce: (id: string, note: string) => void;
+  onDismissForce: () => void;
+}) {
+  const ordered = [...alerts].sort((a, b) => Number(alertIsResolved(a)) - Number(alertIsResolved(b)));
+  if (ordered.length === 0) {
+    return (
+      <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm text-emerald-900">
+        No open licence alerts. This property is compliant.
+      </div>
+    );
+  }
+  return (
+    <div className="divide-y rounded-lg border">
+      {ordered.map((alert) => {
+        const resolved = alertIsResolved(alert);
+        const forcing = forceClose?.id === alert.id;
+        const busy = pendingId === alert.id;
+        return (
+          <div key={alert.id} className="px-3 py-3 space-y-2">
+            <div className="flex gap-3">
+              <div
+                className={cn(
+                  "w-1 rounded-full shrink-0 self-stretch",
+                  resolved ? "bg-emerald-400" : alert.severity === "CRITICAL" ? "bg-rose-500" : "bg-amber-400",
+                )}
+              />
+              <div className="min-w-0 space-y-1 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-sm font-medium text-slate-900">
+                    {alert.explanation || hmoCheckLabel(alert.checkId)}
+                  </p>
+                  {resolved && (
+                    <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100 border-0">
+                      Resolved
+                    </Badge>
+                  )}
+                </div>
+                <p className="text-xs font-normal text-[#5B6470]">
+                  {hmoCheckLabel(alert.checkId)}
+                  {alert.actualJson?.value ? ` · ${alert.actualJson.value}` : ""}
+                  {alert.requiredJson?.value ? ` · needs ${alert.requiredJson.value}` : ""}
+                </p>
+                {resolved && alert.actualJson?.resolutionNote && (
+                  <p className="text-xs font-normal text-[#5B6470]">Note: {alert.actualJson.resolutionNote}</p>
+                )}
+              </div>
+            </div>
+            {forcing && (
+              <div className="space-y-2 pl-4">
+                <p className="text-sm text-rose-700">{forceClose?.message}</p>
+                <Textarea
+                  value={forceClose?.note || ""}
+                  onChange={(e) => onNote(e.target.value)}
+                  placeholder="Note why this is resolved even though the check still fails"
+                  className="min-h-[72px] text-sm"
+                />
+              </div>
+            )}
+            <div className="flex flex-wrap gap-2 pl-4">
+              {!resolved && !forcing && (
+                <Button size="sm" disabled={busy} onClick={() => onResolve(alert.id)}>
+                  {busy ? "Checking…" : "Resolve"}
+                </Button>
+              )}
+              {forcing && (
+                <Button
+                  size="sm"
+                  disabled={busy || !(forceClose?.note || "").trim()}
+                  onClick={() => onForce(alert.id, forceClose?.note || "")}
+                >
+                  {busy ? "Saving…" : "Resolve"}
+                </Button>
+              )}
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                onClick={() => {
+                  if (forcing) {
+                    onDismissForce();
+                    return;
+                  }
+                  if (resolved) onReopen(alert.id);
+                }}
+              >
+                Not resolved
+              </Button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 type Overview = {
   profile: {
     overallStatus?: string | null;
@@ -170,6 +332,12 @@ type Overview = {
     measurementSource?: string | null;
     humanConfirmed?: boolean | null;
   }>;
+  complianceAssessment?: {
+    id: string;
+    overallStatus?: string | null;
+    completedAt?: string | null;
+  } | null;
+  complianceAlerts?: ComplianceAlert[];
   hmoInspections?: Array<{
     id: string;
     type?: string | null;
@@ -224,6 +392,13 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
     }>
   >([]);
   const [verifiedRoomsOpen, setVerifiedRoomsOpen] = useState(true);
+  const [licenceAlertsExpanded, setLicenceAlertsExpanded] = useState(false);
+  const [maintenanceAlertsExpanded, setMaintenanceAlertsExpanded] = useState(false);
+  const [forceClose, setForceClose] = useState<{
+    id: string;
+    message: string;
+    note: string;
+  } | null>(null);
   const didAutoImportRooms = useRef(false);
 
   const { data, isLoading, error } = useQuery<Overview>({
@@ -410,6 +585,128 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
       toast({ title: "Save failed", description: e.message, variant: "destructive" }),
   });
 
+  const assessMutation = useMutation({
+    mutationFn: async () => {
+      const versionId = lastVersionId || primaryVersion?.id || null;
+      if (versionId) {
+        await apiRequest("POST", `/api/hmo/licence-versions/${versionId}/confirm`, {
+          extraction: editExtraction,
+        });
+      } else {
+        await apiRequest("POST", `/api/hmo/properties/${propertyId}/licences/manual`, {
+          extraction: editExtraction,
+        });
+      }
+      for (const room of roomDrafts) {
+        const hasContent = Boolean(
+          room.id || room.roomName.trim() || room.measuredUsableAreaM2.trim(),
+        );
+        if (!hasContent) continue;
+        const areaText = room.measuredUsableAreaM2.trim();
+        const area = areaText === "" ? null : Number(areaText);
+        if (areaText && !Number.isFinite(area)) {
+          throw new Error("Enter a valid room size in m² before running assessment");
+        }
+        const ceilingText = room.ceilingHeightM.trim();
+        const ceiling = ceilingText === "" ? null : Number(ceilingText);
+        const declaredText = room.declaredPermittedOccupancy.trim();
+        const declared = declaredText === "" ? null : Number(declaredText);
+        await apiRequest("POST", `/api/hmo/properties/${propertyId}/rooms`, {
+          id: room.id || null,
+          roomName: room.roomName.trim() || null,
+          roomType: room.roomType.trim() || null,
+          measuredUsableAreaM2: area,
+          ceilingHeightM: ceiling != null && Number.isFinite(ceiling) ? ceiling : null,
+          declaredPermittedOccupancy:
+            declared != null && Number.isFinite(declared) ? declared : null,
+          sleepingApproved: room.sleepingApproved,
+          measurementSource: room.measurementSource || "manual",
+          humanConfirmed: room.humanConfirmed,
+        });
+      }
+      const res = await apiRequest(
+        "POST",
+        `/api/hmo/properties/${propertyId}/run-assessment`,
+        {},
+      );
+      return res.json();
+    },
+    onSuccess: (payload) => {
+      setForceClose(null);
+      queryClient.invalidateQueries({
+        queryKey: ["/api/hmo/properties", propertyId, "overview"],
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/hmo/dashboard"] });
+      const open = Number(payload?.openAlertCount || 0);
+      if (payload?.overallStatus === "VERIFIED_COMPLIANT") {
+        toast({
+          title: "Compliant",
+          description: "No open licence alerts. The property status is now Compliant.",
+        });
+        return;
+      }
+      if (payload?.overallStatus === "REVIEW_REQUIRED") {
+        toast({
+          title: "Needs attention",
+          description:
+            open === 1
+              ? "1 alert needs a confirmed measurement."
+              : `${open} alerts need attention.`,
+        });
+        return;
+      }
+      toast({
+        title: "Non-compliant",
+        description: open === 1 ? "1 licence alert is open." : `${open} licence alerts are open.`,
+      });
+    },
+    onError: (e: any) =>
+      toast({ title: "Assessment failed", description: e.message, variant: "destructive" }),
+  });
+
+  const resolveMutation = useMutation({
+    mutationFn: async (vars: {
+      id: string;
+      action: "recheck" | "force" | "reopen";
+      note?: string;
+    }) => {
+      const res = await apiRequest("POST", `/api/hmo/findings/${vars.id}/resolve`, {
+        action: vars.action,
+        note: vars.note ?? null,
+      });
+      return res.json();
+    },
+    onSuccess: (payload, vars) => {
+      queryClient.invalidateQueries({
+        queryKey: ["/api/hmo/properties", propertyId, "overview"],
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/hmo/dashboard"] });
+      if (payload?.stillFailing && vars.action === "recheck") {
+        setForceClose({
+          id: vars.id,
+          message: payload.message || "This check still fails. Add a note to resolve it anyway.",
+          note: "",
+        });
+        return;
+      }
+      setForceClose(null);
+      if (payload?.overallStatus === "VERIFIED_COMPLIANT") {
+        toast({
+          title: "Compliant",
+          description: "Every licence alert is resolved.",
+        });
+        return;
+      }
+      if (vars.action === "reopen") {
+        toast({ title: "Marked not resolved" });
+        return;
+      }
+      toast({ title: "Alert resolved" });
+    },
+    onError: (e: any) =>
+      toast({ title: "Could not update alert", description: e.message, variant: "destructive" }),
+  });
+
   const saveRoomsMutation = useMutation({
     mutationFn: async () => {
       for (const room of roomDrafts) {
@@ -491,6 +788,7 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
       { key: "expiry_date", label: "Expiry date", kind: "date" as const },
       { key: "maximum_individuals", label: "Maximum persons" },
       { key: "holder_name", label: "Licence holder" },
+      { key: "manager_name", label: "Manager" },
     ],
     [],
   );
@@ -511,6 +809,9 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
 
   const address = data?.header?.address || data?.property?.address || "Property";
   const statusMeta = hmoOverallStatusMeta(data?.profile?.overallStatus);
+  const licenceAlertOpenCount = (data?.complianceAlerts || []).filter(
+    (alert) => !alertIsResolved(alert),
+  ).length;
   const lifecycle = primaryLicence?.lifecycleStatus || fieldVal(editExtraction?.licence_status);
   const licenceVerified =
     isConfirmed && (lifecycle === "CURRENT" || lifecycle === "Verified" || !lifecycle);
@@ -536,8 +837,6 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
   const expiryDate = data?.header?.expiryDate || primaryLicence?.expiryDate || null;
 
   const openMaintenance = maintenanceLogs.filter((m) => isOpenMaintenanceStatus(m.status));
-  const urgentOpen = openMaintenance.filter((m) => priorityTone(m.priority) === "urgent").length;
-  const mediumOpen = openMaintenance.filter((m) => priorityTone(m.priority) === "medium").length;
 
   const inspections = data?.hmoInspections || [];
   const hmoInspectionIds = new Set(inspections.map((i) => i.id));
@@ -546,6 +845,12 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
   const inspectionFindings = openMaintenance.filter(
     (m) => m.inspectionId && hmoInspectionIds.has(String(m.inspectionId)),
   );
+  const urgentFindings = inspectionFindings.filter(
+    (m) => priorityTone(m.priority) === "urgent",
+  ).length;
+  const mediumFindings = inspectionFindings.filter(
+    (m) => priorityTone(m.priority) === "medium",
+  ).length;
   const lastCompleted = inspections.find(
     (i) => i.displayStatus === "Completed" || i.status === "completed" || i.status === "reviewed",
   );
@@ -557,7 +862,6 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
   );
   const lastInspectionDate = lastCompleted?.completedDate || lastCompleted?.scheduledDate || null;
   const nextInspectionDate = nextScheduled?.scheduledDate || null;
-  const followUpNeeded = openMaintenance.length > 0;
 
   const occupancyWithinLimit =
     occupantsNow != null &&
@@ -576,59 +880,173 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
     setManageOpen(true);
   };
 
+  const licencePillKind: "ok" | "warn" | "neutral" | "danger" = licenceVerified
+    ? "ok"
+    : lifecycle === "EXPIRED_DOCUMENT" || licenceLabel === "Expired"
+      ? "danger"
+      : lifecycle === "UNDER_REVIEW" || licenceLabel === "Under review"
+        ? "warn"
+        : "neutral";
+
+  const setupIncomplete =
+    !primaryLicence ||
+    !isConfirmed ||
+    lifecycle === "UNDER_REVIEW" ||
+    lifecycle === "EXPIRED_DOCUMENT" ||
+    licenceLabel === "Expired";
+
+  const hmoBanner = (() => {
+    if (setupIncomplete) {
+      return {
+        title: "HMO setup incomplete — review licence and schedule inspection.",
+        nextStep: !hasHmoInspection
+          ? "Next step: confirm licence details, then schedule an HMO inspection"
+          : "Next step: confirm licence details in Manage licence",
+      };
+    }
+    if (!hasHmoInspection) {
+      return {
+        title: "No HMO inspection scheduled yet.",
+        nextStep: "Next step: schedule an HMO inspection for this property",
+      };
+    }
+    if (inspectionFindings.length > 0) {
+      return {
+        title: `${inspectionFindings.length} HMO inspection ${
+          inspectionFindings.length === 1 ? "finding needs" : "findings need"
+        } attention.`,
+        nextStep: "Next step: review findings and update maintenance",
+      };
+    }
+    return null;
+  })();
+
+  const occupancyHeadline =
+    occupantsNow != null
+      ? occupantsNow === 0
+        ? "0 active tenants"
+        : occupantsPermitted != null
+          ? `${occupantsNow} of ${occupantsPermitted} people`
+          : `${occupantsNow} active tenant${occupantsNow === 1 ? "" : "s"}`
+      : "Not recorded";
+
+  const lastInspectionHeadline = lastInspectionDate
+    ? formatShortDate(lastInspectionDate)
+    : nextInspectionDate
+      ? "Scheduled"
+      : "Not scheduled";
+
+  const findingsHeadline = !hasHmoInspection
+    ? "Not assessed"
+    : inspectionFindings.length === 0
+      ? "None open"
+      : `${inspectionFindings.length} open`;
+
+  const activityItems: Array<{
+    id: string;
+    title: string;
+    meta: string;
+    tone: "ok" | "warn" | "neutral";
+  }> = [];
+  if (primaryLicence) {
+    activityItems.push({
+      id: "licence",
+      title: isConfirmed ? "Licence on file" : "HMO setup started",
+      meta: [licenceLabel, expiryDate ? `Expires ${formatShortDate(expiryDate)}` : null]
+        .filter(Boolean)
+        .join(" · "),
+      tone: licenceVerified ? "ok" : "warn",
+    });
+  }
+  if (lastCompleted) {
+    activityItems.push({
+      id: `insp-done-${lastCompleted.id}`,
+      title: "HMO inspection completed",
+      meta: formatShortDate(lastInspectionDate),
+      tone: "ok",
+    });
+  } else if (nextScheduled) {
+    activityItems.push({
+      id: `insp-next-${nextScheduled.id}`,
+      title: "HMO inspection scheduled",
+      meta: formatShortDate(nextInspectionDate),
+      tone: "neutral",
+    });
+  } else if (primaryLicence) {
+    activityItems.push({
+      id: "insp-none",
+      title: "HMO inspection not scheduled",
+      meta: "Awaiting first inspection",
+      tone: "warn",
+    });
+  }
+  if (inspectionFindings[0]) {
+    activityItems.push({
+      id: `finding-${inspectionFindings[0].id}`,
+      title: inspectionFindings[0].title || "Open HMO finding",
+      meta: "Needs follow-up",
+      tone: "warn",
+    });
+  }
+  const recentActivity = activityItems.slice(0, 4);
+
   return (
-    <div className="space-y-5" data-testid="hmo-property-panel">
+    <div className="space-y-6" data-testid="hmo-property-panel">
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 space-y-1">
           <h2 className="text-2xl md:text-3xl font-semibold tracking-tight text-slate-900">
             HMO overview
           </h2>
-          <p className="text-sm text-slate-500">
+          <p className="text-sm font-normal text-[#5B6470]">
             {address}
-            <span className="text-slate-400"> · </span>
+            <span className="font-normal text-[#5B6470]"> · </span>
             All HMO information in one place
           </p>
         </div>
         <div className="flex flex-wrap gap-2.5 shrink-0">
-          <Button variant="brand" type="button" asChild>
-            <Link href={`/inspections?propertyId=${propertyId}&create=true`}>
-              + Schedule HMO inspection
-            </Link>
+          <Button variant="outline" type="button" onClick={openLicenceDoc}>
+            View licence
           </Button>
           <Button
             variant="outline"
             type="button"
             onClick={() => setManageOpen(true)}
-            className="border-2 border-primary text-primary font-semibold shadow-sm hover:bg-primary/10 hover:text-primary"
           >
             Manage licence
+          </Button>
+          <Button variant="brand" type="button" asChild>
+            <Link href={`/inspections?propertyId=${propertyId}&create=true`}>
+              + Schedule HMO inspection
+            </Link>
           </Button>
         </div>
       </div>
 
-      {/* Action banner */}
-      {openMaintenance.length > 0 && (
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
-          <div className="flex items-start gap-2 text-amber-950">
-            <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
-            <p className="text-sm font-medium">
-              Action required — {openMaintenance.length} open maintenance{" "}
-              {openMaintenance.length === 1 ? "item" : "items"}
-            </p>
+      {/* HMO-focused next-step banner (calm setup / follow-up copy) */}
+      {hmoBanner && (
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between rounded-lg border border-amber-200/80 bg-amber-50/90 px-4 py-3.5">
+          <div className="flex items-start gap-2.5 text-amber-950 min-w-0">
+            <AlertCircle className="h-4 w-4 mt-0.5 shrink-0 text-amber-700" />
+            <p className="text-sm font-medium leading-snug">{hmoBanner.title}</p>
           </div>
-          <p className="text-sm text-amber-900/80 sm:text-right">
-            Next step: review and resolve outstanding maintenance
+          <p className="text-sm text-amber-900/75 sm:text-right sm:max-w-xs shrink-0 pl-6 sm:pl-0">
+            {hmoBanner.nextStep}
           </p>
         </div>
       )}
 
-      {/* KPI cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-        <div className="rounded-xl border bg-white px-4 py-4 shadow-sm space-y-2">
-          <p className="text-sm text-slate-500">HMO licence</p>
-          <p className="text-2xl font-semibold text-slate-900">{licenceLabel}</p>
-          <p className="text-sm text-slate-500">
+      {/* KPI cards — soft status language, pills instead of loud red headlines */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        <div className="rounded-xl border border-slate-200/80 bg-white px-5 py-5 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm font-normal text-[#5B6470]">HMO licence</p>
+            <Shield className="h-4 w-4 text-[#5B6470] shrink-0" />
+          </div>
+          <Badge className={cn("font-medium px-2.5 py-0.5", softStatusPillClass(licencePillKind))}>
+            {licenceLabel}
+          </Badge>
+          <p className="text-sm font-normal text-[#5B6470]">
             {expiryDate ? `Expires ${formatLongDate(expiryDate)}` : "Expiry not set"}
             {" · "}
             <button
@@ -641,16 +1059,13 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
           </p>
         </div>
 
-        <div className="rounded-xl border bg-white px-4 py-4 shadow-sm space-y-2">
-          <p className="text-sm text-slate-500">Occupancy</p>
-          <p className="text-2xl font-semibold text-slate-900">
-            {occupantsNow != null && occupantsPermitted != null
-              ? `${occupantsNow} of ${occupantsPermitted} people`
-              : occupantsNow != null
-                ? `${occupantsNow} people`
-                : "—"}
-          </p>
-          <p className="text-sm text-slate-500">
+        <div className="rounded-xl border border-slate-200/80 bg-white px-5 py-5 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm font-normal text-[#5B6470]">Occupancy</p>
+            <Users className="h-4 w-4 text-[#5B6470] shrink-0" />
+          </div>
+          <p className="text-xl font-semibold text-slate-900 tracking-tight">{occupancyHeadline}</p>
+          <p className="text-sm font-normal text-[#5B6470]">
             {occupantsPermitted == null
               ? "Licence limit not set"
               : occupancyWithinLimit
@@ -666,15 +1081,20 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
           </p>
         </div>
 
-        <div className="rounded-xl border bg-white px-4 py-4 shadow-sm space-y-2">
-          <p className="text-sm text-slate-500">Last HMO inspection</p>
-          <p className="text-2xl font-semibold text-slate-900">
-            {lastInspectionDate ? formatShortDate(lastInspectionDate) : "—"}
+        <div className="rounded-xl border border-slate-200/80 bg-white px-5 py-5 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm font-normal text-[#5B6470]">Last HMO inspection</p>
+            <ClipboardCheck className="h-4 w-4 text-[#5B6470] shrink-0" />
+          </div>
+          <p className="text-xl font-semibold text-slate-900 tracking-tight">
+            {lastInspectionHeadline}
           </p>
-          <p className="text-sm text-slate-500">
+          <p className="text-sm font-normal text-[#5B6470]">
             {nextInspectionDate
               ? `Next due ${formatShortDate(nextInspectionDate)}`
-              : "No next date scheduled"}
+              : lastInspectionDate
+                ? "No next date scheduled"
+                : "Schedule to start assessment"}
             {" · "}
             {lastCompleted ? (
               <Link href={`/inspections/${lastCompleted.id}`} className="text-teal-700 hover:underline">
@@ -691,25 +1111,23 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
           </p>
         </div>
 
-        <div className="rounded-xl border bg-white px-4 py-4 shadow-sm space-y-2">
-          <p className="text-sm text-slate-500">Unresolved maintenance</p>
-          <p
-            className={cn(
-              "text-2xl font-semibold",
-              openMaintenance.length > 0 ? "text-rose-600" : "text-slate-900",
-            )}
-          >
-            {openMaintenance.length} open
-          </p>
-          <p className="text-sm text-slate-500">
-            {openMaintenance.length === 0
-              ? "No open items"
-              : [
-                  urgentOpen ? `${urgentOpen} urgent` : null,
-                  mediumOpen ? `${mediumOpen} medium priority` : null,
-                ]
-                  .filter(Boolean)
-                  .join(" · ") || `${openMaintenance.length} open`}
+        <div className="rounded-xl border border-slate-200/80 bg-white px-5 py-5 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm font-normal text-[#5B6470]">Unresolved HMO findings</p>
+            <AlertCircle className="h-4 w-4 text-[#5B6470] shrink-0" />
+          </div>
+          <p className="text-xl font-semibold text-slate-900 tracking-tight">{findingsHeadline}</p>
+          <p className="text-sm font-normal text-[#5B6470]">
+            {!hasHmoInspection
+              ? "Findings appear after an HMO inspection"
+              : inspectionFindings.length === 0
+                ? "No open inspection findings"
+                : [
+                    urgentFindings ? `${urgentFindings} urgent` : null,
+                    mediumFindings ? `${mediumFindings} medium` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ") || "From linked HMO inspections"}
           </p>
         </div>
       </div>
@@ -718,39 +1136,55 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 space-y-4">
           {/* Issues requiring attention — HMO inspection findings */}
-          <section className="rounded-xl border bg-white shadow-sm overflow-hidden">
-            <div className="px-5 py-4 border-b">
-              <div className="min-w-0 space-y-1">
+          <section className="rounded-xl border border-slate-200/80 bg-white overflow-hidden">
+            <div className="px-6 py-5 border-b border-slate-100">
+              <div className="min-w-0 space-y-1.5">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="font-semibold text-slate-900 text-base">
+                  <h3 className="font-semibold text-slate-900 text-base flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4 text-[#5B6470] shrink-0" />
                     Issues requiring attention
                   </h3>
-                  <Badge className="bg-rose-100 text-rose-800 hover:bg-rose-100 border-0 font-medium">
-                    {inspectionFindings.length} recorded
+                  <Badge
+                    className={cn(
+                      "font-medium px-2 py-0.5",
+                      softStatusPillClass(
+                        inspectionFindings.length > 0
+                          ? "warn"
+                          : hasHmoInspection
+                            ? "ok"
+                            : "neutral",
+                      ),
+                    )}
+                  >
+                    {!hasHmoInspection
+                      ? "Not assessed"
+                      : inspectionFindings.length === 0
+                        ? "Clear"
+                        : `${inspectionFindings.length} open`}
                   </Badge>
                 </div>
-                <p className="text-sm text-slate-500">
+                <p className="text-sm font-normal text-[#5B6470]">
                   Only unresolved findings from HMO inspections are shown here
                 </p>
               </div>
             </div>
 
             {inspectionFindings.length === 0 ? (
-              <div className="flex flex-col items-center text-center px-6 py-10 space-y-3">
-                <div className="h-14 w-14 rounded-full bg-teal-50 flex items-center justify-center">
-                  <CheckCircle2 className="h-7 w-7 text-teal-600" />
+              <div className="flex flex-col items-center text-center px-8 py-14 space-y-5">
+                <div className="h-16 w-16 rounded-full bg-slate-50 border border-slate-100 flex items-center justify-center">
+                  <CheckCircle2 className="h-8 w-8 text-[#5B6470]" />
                 </div>
-                <div className="space-y-1.5 max-w-md">
-                  <p className="font-semibold text-slate-900">
+                <div className="space-y-2 max-w-md">
+                  <p className="text-base font-semibold text-slate-900">
                     No HMO inspection findings available
                   </p>
-                  <p className="text-sm text-slate-500 leading-relaxed">
+                  <p className="text-sm font-normal text-[#5B6470] leading-relaxed">
                     {hasHmoInspection
                       ? "No unresolved findings from HMO inspections yet. New issues raised during an HMO inspection will appear here."
                       : "No HMO inspection has been linked to this property. Schedule one to start capturing issues here automatically."}
                   </p>
                 </div>
-                <Button size="sm" className="mt-1 bg-teal-600 hover:bg-teal-700" asChild>
+                <Button className="mt-1 bg-teal-600 hover:bg-teal-700" asChild>
                   <Link href={`/inspections?propertyId=${propertyId}&create=true`}>
                     Schedule HMO inspection
                   </Link>
@@ -779,7 +1213,7 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
                         />
                         <div className="min-w-0 space-y-0.5">
                           <p className="font-medium text-slate-900 text-sm">{m.title}</p>
-                          <p className="text-sm text-slate-500 truncate">
+                          <p className="text-sm font-normal text-[#5B6470] truncate">
                             {[
                               linkedInsp
                                 ? `Inspection ${formatShortDate(
@@ -827,13 +1261,113 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
             )}
           </section>
 
-          {/* Alerts = maintenance logs */}
-          <section className="rounded-xl border bg-white shadow-sm">
-            <div className="flex items-center justify-between gap-3 px-4 py-3 border-b">
+          {/* Recent activity — light timeline instead of a dense alerts dump */}
+          <section className="rounded-xl border border-slate-200/80 bg-white overflow-hidden">
+            <div className="px-6 py-5 border-b border-slate-100">
+              <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+                <Calendar className="h-4 w-4 text-[#5B6470] shrink-0" />
+                Recent HMO activity
+              </h3>
+              <p className="text-sm font-normal text-[#5B6470] mt-1">
+                Licence, inspections, and follow-ups in one quiet timeline
+              </p>
+            </div>
+            <div className="px-6 py-5">
+              {recentActivity.length === 0 ? (
+                <p className="text-sm font-normal text-[#5B6470] py-2">No HMO activity recorded yet.</p>
+              ) : (
+                <ul className="space-y-4">
+                  {recentActivity.map((item, index) => (
+                    <li key={item.id} className="flex gap-3">
+                      <div className="flex flex-col items-center pt-1">
+                        <span
+                          className={cn(
+                            "h-2.5 w-2.5 rounded-full shrink-0",
+                            item.tone === "ok" && "bg-teal-500",
+                            item.tone === "warn" && "bg-amber-400",
+                            item.tone === "neutral" && "bg-slate-300",
+                          )}
+                        />
+                        {index < recentActivity.length - 1 && (
+                          <span className="w-px flex-1 bg-slate-200 mt-1 min-h-[1.25rem]" />
+                        )}
+                      </div>
+                      <div className="min-w-0 pb-1">
+                        <p className="text-sm font-medium text-slate-900">{item.title}</p>
+                        <p className="text-sm font-normal text-[#5B6470] mt-0.5">{item.meta}</p>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </section>
+
+          {data?.complianceAssessment && (
+            <section className="rounded-xl border border-slate-200/80 bg-white overflow-hidden">
+              <button
+                type="button"
+                className="flex w-full items-center justify-between gap-3 px-6 py-4 text-left hover:bg-slate-50/80 transition-colors"
+                onClick={() => setLicenceAlertsExpanded((v) => !v)}
+                aria-expanded={licenceAlertsExpanded}
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  {licenceAlertsExpanded ? (
+                    <ChevronDown className="h-4 w-4 text-[#5B6470] shrink-0" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4 text-[#5B6470] shrink-0" />
+                  )}
+                  <h3 className="font-semibold text-slate-900">Licence alerts</h3>
+                  {licenceAlertOpenCount > 0 && (
+                    <Badge
+                      className={cn("font-medium px-2 py-0.5", softStatusPillClass("warn"))}
+                    >
+                      {licenceAlertOpenCount} open
+                    </Badge>
+                  )}
+                </div>
+                <span className="text-xs font-normal text-[#5B6470] shrink-0">
+                  {licenceAlertsExpanded ? "Hide" : "Show"}
+                </span>
+              </button>
+              {licenceAlertsExpanded && (
+                <div className="px-4 pb-4 border-t border-slate-100">
+                  <LicenceAlertList
+                    alerts={data.complianceAlerts || []}
+                    forceClose={forceClose}
+                    pendingId={
+                      resolveMutation.isPending ? resolveMutation.variables?.id || null : null
+                    }
+                    onResolve={(id) => resolveMutation.mutate({ id, action: "recheck" })}
+                    onReopen={(id) => resolveMutation.mutate({ id, action: "reopen" })}
+                    onNote={(note) =>
+                      setForceClose((current) => (current ? { ...current, note } : current))
+                    }
+                    onForce={(id, note) => resolveMutation.mutate({ id, action: "force", note })}
+                    onDismissForce={() => setForceClose(null)}
+                  />
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* Maintenance alerts — collapsed by default to keep overview calm */}
+          <section className="rounded-xl border border-slate-200/80 bg-white overflow-hidden">
+            <button
+              type="button"
+              className="flex w-full items-center justify-between gap-3 px-6 py-4 text-left hover:bg-slate-50/80 transition-colors"
+              onClick={() => setMaintenanceAlertsExpanded((v) => !v)}
+              aria-expanded={maintenanceAlertsExpanded}
+            >
               <div className="flex items-center gap-2 min-w-0">
-                <h3 className="font-semibold text-slate-900">Alerts</h3>
+                {maintenanceAlertsExpanded ? (
+                  <ChevronDown className="h-4 w-4 text-[#5B6470] shrink-0" />
+                ) : (
+                  <ChevronRight className="h-4 w-4 text-[#5B6470] shrink-0" />
+                )}
+                <h3 className="font-semibold text-slate-900">Maintenance alerts</h3>
                 {openMaintenance.length > 0 && (
-                  <Badge className="bg-rose-100 text-rose-800 hover:bg-rose-100 border-0">
+                  <Badge className={cn("font-medium px-2 py-0.5", softStatusPillClass("warn"))}>
                     {openMaintenance.length} open
                   </Badge>
                 )}
@@ -841,82 +1375,92 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
               <Link
                 href={`/maintenance?propertyId=${propertyId}`}
                 className="text-sm text-teal-700 hover:underline shrink-0"
+                onClick={(e) => e.stopPropagation()}
               >
                 View all →
               </Link>
-            </div>
-            <div className="divide-y max-h-[22.5rem] overflow-y-auto">
-              {maintenanceLoading ? (
-                <p className="px-4 py-6 text-sm text-slate-500">Loading maintenance logs…</p>
-              ) : maintenanceLogs.length === 0 ? (
-                <p className="px-4 py-6 text-sm text-slate-500">
-                  No maintenance logs for this property.
-                </p>
-              ) : (
-                maintenanceLogs.map((m) => {
-                  const tone = priorityTone(m.priority);
-                  return (
-                    <div
-                      key={m.id}
-                      className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between px-4 py-3"
-                    >
-                      <div className="flex gap-3 min-w-0">
-                        <div
-                          className={cn(
-                            "w-1 rounded-full shrink-0 self-stretch min-h-[2.5rem]",
-                            tone === "urgent" && "bg-rose-500",
-                            tone === "medium" && "bg-amber-400",
-                            tone === "low" && "bg-slate-300",
-                          )}
-                        />
-                        <div className="min-w-0 space-y-0.5">
-                          <p className="font-medium text-slate-900 text-sm">{m.title}</p>
-                          <p className="text-sm text-slate-500 truncate">
-                            {[
-                              m.category,
-                              formatShortDate(m.createdAt),
-                              m.assignedToName
-                                ? `Assigned to ${m.assignedToName}`
-                                : m.reportedByName
-                                  ? `Reported by ${m.reportedByName}`
-                                  : null,
-                            ]
-                              .filter(Boolean)
-                              .join(" · ")}
-                          </p>
+            </button>
+            {maintenanceAlertsExpanded && (
+              <div className="divide-y border-t border-slate-100 max-h-[18rem] overflow-y-auto">
+                {maintenanceLoading ? (
+                  <p className="px-6 py-6 text-sm font-normal text-[#5B6470]">Loading maintenance logs…</p>
+                ) : openMaintenance.length === 0 ? (
+                  <p className="px-6 py-6 text-sm font-normal text-[#5B6470]">
+                    No open maintenance items for this property.
+                  </p>
+                ) : (
+                  openMaintenance.slice(0, 8).map((m) => {
+                    const tone = priorityTone(m.priority);
+                    return (
+                      <div
+                        key={m.id}
+                        className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between px-6 py-3.5"
+                      >
+                        <div className="flex gap-3 min-w-0">
+                          <div
+                            className={cn(
+                              "w-1 rounded-full shrink-0 self-stretch min-h-[2.5rem]",
+                              tone === "urgent" && "bg-rose-400",
+                              tone === "medium" && "bg-amber-300",
+                              tone === "low" && "bg-slate-200",
+                            )}
+                          />
+                          <div className="min-w-0 space-y-0.5">
+                            <p className="font-medium text-slate-900 text-sm">{m.title}</p>
+                            <p className="text-sm font-normal text-[#5B6470] truncate">
+                              {[
+                                m.category,
+                                formatShortDate(m.createdAt),
+                                m.assignedToName
+                                  ? `Assigned to ${m.assignedToName}`
+                                  : m.reportedByName
+                                    ? `Reported by ${m.reportedByName}`
+                                    : null,
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between sm:justify-end gap-3 pl-4 sm:pl-0">
+                          <Badge
+                            className={cn(
+                              "font-medium capitalize px-2 py-0.5",
+                              softStatusPillClass(
+                                tone === "urgent" ? "danger" : tone === "medium" ? "warn" : "neutral",
+                              ),
+                            )}
+                          >
+                            {tone === "urgent"
+                              ? "Urgent"
+                              : tone === "medium"
+                                ? "Medium"
+                                : m.priority || "Open"}
+                          </Badge>
+                          <Link
+                            href={`/maintenance/${m.id}`}
+                            className="text-sm text-teal-700 hover:underline whitespace-nowrap"
+                          >
+                            View →
+                          </Link>
                         </div>
                       </div>
-                      <div className="flex items-center justify-between sm:justify-end gap-4 pl-4 sm:pl-0">
-                        <span
-                          className={cn(
-                            "text-sm font-medium capitalize",
-                            tone === "urgent" && "text-rose-600",
-                            tone === "medium" && "text-amber-700",
-                            tone === "low" && "text-slate-600",
-                          )}
-                        >
-                          {m.priority || "Normal"} · {String(m.status || "").replace(/_/g, " ")}
-                        </span>
-                        <Link
-                          href={`/maintenance/${m.id}`}
-                          className="text-sm text-teal-700 hover:underline whitespace-nowrap"
-                        >
-                          View issue →
-                        </Link>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
           </section>
         </div>
 
         {/* Right column */}
         <div className="space-y-4">
-          <section className="rounded-xl border bg-white shadow-sm px-4 py-4 space-y-3">
+          <section className="rounded-xl border border-slate-200/80 bg-white px-5 py-5 space-y-4">
             <div className="flex items-center justify-between gap-2">
-              <h3 className="font-semibold text-slate-900">Licence & permitted use</h3>
+              <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+                <Shield className="h-4 w-4 text-[#5B6470] shrink-0" />
+                Licence & permitted use
+              </h3>
               <button
                 type="button"
                 className="text-sm font-semibold text-teal-700 hover:underline"
@@ -925,16 +1469,14 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
                 View licence →
               </button>
             </div>
-            <dl className="space-y-2.5 text-sm">
+            <dl className="space-y-3 text-sm">
               <div className="flex items-center justify-between gap-3">
-                <dt className="text-slate-500">Licence status</dt>
+                <dt className="font-medium text-[#5B6470]">Licence status</dt>
                 <dd>
                   <Badge
                     className={cn(
-                      "border-0",
-                      licenceVerified
-                        ? "bg-teal-100 text-teal-900 hover:bg-teal-100"
-                        : "bg-slate-100 text-slate-800 hover:bg-slate-100",
+                      "font-semibold px-2.5 py-0.5",
+                      softStatusPillClass(licencePillKind),
                     )}
                   >
                     {licenceLabel}
@@ -942,20 +1484,20 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
                 </dd>
               </div>
               <div className="flex items-center justify-between gap-3">
-                <dt className="text-slate-500">Licence expiry</dt>
-                <dd className="font-medium text-slate-900">
+                <dt className="font-medium text-[#5B6470]">Licence expiry</dt>
+                <dd className="font-semibold text-slate-900">
                   {expiryDate ? formatShortDate(expiryDate) : "—"}
                 </dd>
               </div>
               <div className="flex items-center justify-between gap-3">
-                <dt className="text-slate-500">Max permitted people</dt>
-                <dd className="font-medium text-slate-900">
-                  {occupantsPermitted != null ? occupantsPermitted : "—"}
+                <dt className="font-medium text-[#5B6470]">Max permitted people</dt>
+                <dd className="font-semibold text-slate-900">
+                  {occupantsPermitted != null ? occupantsPermitted : "Needs confirmation"}
                 </dd>
               </div>
               <div className="flex items-center justify-between gap-3">
-                <dt className="text-slate-500">Source</dt>
-                <dd className="font-medium text-slate-900 text-right">
+                <dt className="font-medium text-[#5B6470]">Source</dt>
+                <dd className="font-semibold text-slate-900 text-right">
                   {primaryVersion?.fileName || primaryLicence
                     ? "Uploaded HMO licence"
                     : "Not uploaded"}
@@ -964,9 +1506,12 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
             </dl>
           </section>
 
-          <section className="rounded-xl border bg-white shadow-sm px-4 py-4 space-y-3">
+          <section className="rounded-xl border border-slate-200/80 bg-white px-5 py-5 space-y-4">
             <div className="flex items-center justify-between gap-2">
-              <h3 className="font-semibold text-slate-900">HMO inspection</h3>
+              <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+                <ClipboardCheck className="h-4 w-4 text-[#5B6470] shrink-0" />
+                HMO inspection
+              </h3>
               {lastCompleted ? (
                 <Link
                   href={`/inspections/${lastCompleted.id}`}
@@ -979,37 +1524,53 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
                   href={`/properties/${propertyId}?tab=inspection-schedule`}
                   className="text-sm font-semibold text-teal-700 hover:underline"
                 >
-                  View inspection →
+                  View schedule →
                 </Link>
               )}
             </div>
-            <div className="rounded-lg bg-slate-50 border px-3 py-3 space-y-2">
+            <div className="rounded-lg bg-slate-50/80 border border-slate-100 px-4 py-3.5 space-y-2.5">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm font-medium text-slate-900">
+                <p className="text-sm font-semibold text-slate-900 flex items-center gap-2">
+                  <Calendar className="h-3.5 w-3.5 text-[#5B6470] shrink-0" />
                   {lastCompleted
                     ? `Completed · ${formatLongDate(lastInspectionDate)}`
                     : nextScheduled
                       ? `${nextScheduled.displayStatus} · ${formatLongDate(nextInspectionDate)}`
-                      : "No HMO inspection recorded"}
+                      : "Not scheduled"}
                 </p>
-                {followUpNeeded && (
-                  <Badge className="bg-amber-100 text-amber-900 hover:bg-amber-100 border-0">
-                    Follow-up needed
-                  </Badge>
-                )}
+                <Badge
+                  className={cn(
+                    "font-semibold px-2 py-0.5",
+                    softStatusPillClass(
+                      inspectionFindings.length > 0
+                        ? "warn"
+                        : hasHmoInspection
+                          ? "ok"
+                          : "neutral",
+                    ),
+                  )}
+                >
+                  {inspectionFindings.length > 0
+                    ? "Follow-up needed"
+                    : hasHmoInspection
+                      ? "Assessed"
+                      : "Not assessed"}
+                </Badge>
               </div>
-              <p className="text-sm text-slate-500">
-                {openMaintenance.length > 0
-                  ? `${openMaintenance.length} maintenance ${
-                      openMaintenance.length === 1 ? "item needs" : "items need"
-                    } attention. Photos and notes stay on the inspection / maintenance records.`
-                  : "All photos and inspector notes are saved in the inspection record when completed."}
+              <p className="text-sm font-medium text-[#5B6470] leading-relaxed">
+                {!hasHmoInspection
+                  ? "Schedule an HMO inspection to assess this property. Photos and notes will live on the inspection record."
+                  : inspectionFindings.length > 0
+                    ? `${inspectionFindings.length} open finding${
+                        inspectionFindings.length === 1 ? "" : "s"
+                      } from HMO inspections need follow-up.`
+                    : "All photos and inspector notes are saved on the inspection record."}
               </p>
             </div>
             <div className="flex items-center justify-between gap-2 text-sm">
-              <span className="text-slate-500">
+              <span className="font-medium text-[#5B6470]">
                 Next scheduled:{" "}
-                <span className="text-slate-800">
+                <span className="font-semibold text-slate-900">
                   {nextInspectionDate ? formatLongDate(nextInspectionDate) : "—"}
                 </span>
               </span>
@@ -1022,39 +1583,52 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
             </div>
           </section>
 
-          <section className="rounded-xl border bg-white shadow-sm px-4 py-4 space-y-3">
+          <section className="rounded-xl border border-slate-200/80 bg-white px-5 py-5 space-y-4">
             <div className="flex items-center justify-between gap-2">
-              <h3 className="font-semibold text-slate-900">Linked records</h3>
-              <span className="text-xs text-slate-400">No duplicate data entry</span>
+              <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+                <Link2 className="h-4 w-4 text-[#5B6470] shrink-0" />
+                Linked records
+              </h3>
+              <span className="text-xs font-medium text-[#5B6470]">No duplicate data entry</span>
             </div>
-            <div className="space-y-2.5 text-sm">
+            <div className="space-y-3 text-sm">
               {(
                 [
                   {
                     label: "Tenants",
                     href: `/properties/${propertyId}?tab=tenants`,
                     action: "View occupancy →",
+                    Icon: Users,
                   },
                   {
                     label: "Floor plan",
                     href: `/properties/${propertyId}`,
                     action: "Open floor plan →",
+                    Icon: LayoutGrid,
                   },
                   {
                     label: "Maintenance",
                     href: `/maintenance?propertyId=${propertyId}`,
                     action: "View work orders →",
+                    Icon: Wrench,
                   },
                   {
                     label: "Documents",
                     href: `/properties/${propertyId}?tab=compliance-schedule`,
                     action: "Compliance documents →",
+                    Icon: FileText,
                   },
                 ] as const
               ).map((row) => (
                 <div key={row.label} className="flex items-center justify-between gap-3">
-                  <span className="text-slate-500">{row.label}</span>
-                  <Link href={row.href} className="font-semibold text-teal-700 hover:underline">
+                  <span className="font-medium text-[#5B6470] flex items-center gap-2 min-w-0">
+                    <row.Icon className="h-4 w-4 shrink-0 text-[#5B6470]" />
+                    {row.label}
+                  </span>
+                  <Link
+                    href={row.href}
+                    className="font-semibold text-teal-700 hover:underline shrink-0"
+                  >
                     {row.action}
                   </Link>
                 </div>
@@ -1173,13 +1747,39 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
               ))}
             </div>
 
-            <Button
-              size="sm"
-              onClick={() => saveFieldsMutation.mutate()}
-              disabled={saveFieldsMutation.isPending}
-            >
-              {saveFieldsMutation.isPending ? "Saving…" : "Save overwritten details"}
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                onClick={() => saveFieldsMutation.mutate()}
+                disabled={saveFieldsMutation.isPending || assessMutation.isPending}
+              >
+                {saveFieldsMutation.isPending ? "Saving…" : "Save"}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => assessMutation.mutate()}
+                disabled={assessMutation.isPending || saveFieldsMutation.isPending}
+              >
+                {assessMutation.isPending ? "Running…" : "Run assessment"}
+              </Button>
+            </div>
+            <p className="text-xs font-normal text-[#5B6470]">
+              Saves these details, then compares the licence with confirmed room sizes, active
+              tenants, and the expiry date. The licence status dropdown stays as you saved it.
+            </p>
+            {data?.complianceAssessment && (
+              <LicenceAlertList
+                alerts={data.complianceAlerts || []}
+                forceClose={forceClose}
+                pendingId={resolveMutation.isPending ? resolveMutation.variables?.id || null : null}
+                onResolve={(id) => resolveMutation.mutate({ id, action: "recheck" })}
+                onReopen={(id) => resolveMutation.mutate({ id, action: "reopen" })}
+                onNote={(note) => setForceClose((current) => (current ? { ...current, note } : current))}
+                onForce={(id, note) => resolveMutation.mutate({ id, action: "force", note })}
+                onDismissForce={() => setForceClose(null)}
+              />
+            )}
 
             <div className="rounded-lg border px-3 py-3 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1285,3 +1885,4 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
     </div>
   );
 }
+

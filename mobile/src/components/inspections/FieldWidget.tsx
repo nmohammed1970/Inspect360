@@ -44,7 +44,11 @@ import { uploadLocalFile } from '../../services/objectUpload';
 import { triggerSync } from '../../services/offline/backgroundSync';
 import { MultiPhotoCameraModal } from '../camera/MultiPhotoCameraModal';
 import { remainingFieldPhotoSlots } from '../camera/multiPhotoSession';
-import { GALLERY_FIELD_PHOTO_MAX, matchesSectionScope } from '../../../../shared/inspectionGallery';
+import {
+  GALLERY_FIELD_PHOTO_MAX,
+  matchesSectionScope,
+  normalizeObjectUrl,
+} from '../../../../shared/inspectionGallery';
 import { formatDisplayHeading } from '../../../../shared/propertyRooms';
 import {
   normalizeFieldOptions,
@@ -627,7 +631,7 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
             ? String(value)
             : '';
 
-    if (safeField.type === 'auto_inspector') {
+    if (safeField.type === 'auto_inspector' || safeField.type === 'auto_tenant_names') {
       if (savedValue !== String(autoValue)) {
         setLocalValue(autoValue);
         onChange(autoValue, undefined, undefined);
@@ -1050,35 +1054,46 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
       return;
     }
 
-    try {
-      // Update local state immediately (works offline)
-      const newPhotos = localPhotos.filter(p => p !== photoUrl);
+    const targetKey = normalizeObjectUrl(photoUrl) || photoUrl;
+    const applyRemove = async () => {
+      const newPhotos = localPhotos.filter(
+        (p) => p !== photoUrl && (normalizeObjectUrl(p) || p) !== targetKey,
+      );
       if (newPhotos.length === 0) allowEmptyPhotosPropRef.current = true;
       setLocalPhotos(newPhotos);
       const composedValue = composeValue(localValue, localCondition, localCleanliness);
       onChange(composedValue, localNote, newPhotos);
-      
-      // If it's a local photo, delete it from local storage
+
       if (isLocalPath(photoUrl)) {
         try {
           const { deleteLocalImageFile } = await import('../../services/offline/storage');
           await deleteLocalImageFile(photoUrl);
         } catch (deleteError) {
           console.warn('[FieldWidget] Error deleting local image file:', deleteError);
-          // Continue anyway - photo is removed from UI
         }
       }
-      
-      // Entry update will be handled by onChange callback which triggers updateEntry mutation
-      // This will sync to server when online (via sync service)
+    };
+
+    try {
+      // Unassign before shrinking entry.photos so a server heal cannot resurrect it.
+      if (isOnline && inspectionId && sectionRef && !isLocalPath(photoUrl)) {
+        const fieldKey = field.id || (field as { key?: string }).key || '';
+        const refs = [sectionRef, ...(galleryAliasRefs || [])]
+          .map((r) => String(r || '').trim())
+          .filter(Boolean);
+        await Promise.all(
+          refs.map((ref) =>
+            apiRequestJson('POST', `/api/inspections/${inspectionId}/gallery/unassign`, {
+              items: [{ objectUrl: photoUrl, sectionRef: ref, fieldKey }],
+            }).catch(() => null),
+          ),
+        );
+        queryClient.invalidateQueries({ queryKey: ['gallery', inspectionId] });
+      }
+      await applyRemove();
     } catch (error) {
       console.error('[FieldWidget] Error removing photo:', error);
-      // Still update UI even if error occurs
-      const newPhotos = localPhotos.filter(p => p !== photoUrl);
-      if (newPhotos.length === 0) allowEmptyPhotosPropRef.current = true;
-      setLocalPhotos(newPhotos);
-      const composedValue = composeValue(localValue, localCondition, localCleanliness);
-      onChange(composedValue, localNote, newPhotos);
+      await applyRemove();
     }
   };
 
@@ -1409,11 +1424,11 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
         const autoValue =
           (safeField.type === 'auto_inspector'
             ? autoContext?.inspectorName || localValue
-            : localValue ||
-              (safeField.type === 'auto_address'
-                ? autoContext?.address
-                : safeField.type === 'auto_tenant_names'
-                  ? autoContext?.tenantNames
+            : safeField.type === 'auto_tenant_names'
+              ? autoContext?.tenantNames || localValue
+              : localValue ||
+                (safeField.type === 'auto_address'
+                  ? autoContext?.address
                   : autoContext?.inspectionDate)) || '';
         return (
             <Input
