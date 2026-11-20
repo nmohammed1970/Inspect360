@@ -42,7 +42,7 @@ import {
 } from "@shared/fieldOptionColors";
 import { OptionValueBadge } from "@/components/OptionValueBadge";
 import { fieldAllowsMultiplePhotos } from "@shared/fieldAttachedPhotos";
-import { GALLERY_FIELD_PHOTO_MAX } from "@shared/inspectionGallery";
+import { GALLERY_FIELD_PHOTO_MAX, normalizeObjectUrl } from "@shared/inspectionGallery";
 
 interface TemplateField {
   id: string;
@@ -151,6 +151,8 @@ export function FieldWidget({
   const [localPhotos, setLocalPhotos] = useState<string[]>(photos || []);
   /** When true, allow props `photos=[]` through (user just cleared locally). */
   const allowEmptyPhotosPropRef = useRef(false);
+  /** URLs removed locally — block prop/heal resurrection until unassign+save finish. */
+  const recentlyRemovedPhotoKeysRef = useRef<Set<string>>(new Set());
   const [localMarkedForReview, setLocalMarkedForReview] = useState(markedForReview || false);
   // Initialize audioUrls from valueJson (support audioUrls array or legacy audioUrl)
   const getInitialAudioUrls = (): string[] => {
@@ -279,7 +281,10 @@ export function FieldWidget({
   }, [note]);
 
   useEffect(() => {
-    const next = photos || [];
+    const next = (photos || []).filter((url) => {
+      const key = normalizeObjectUrl(url) || url;
+      return !recentlyRemovedPhotoKeysRef.current.has(key);
+    });
     // Ignore empty prop updates that arrive while we already show photos —
     // stale entry refetches after note/AI saves used to blank the grid.
     // Allow empty when the user just cleared locally (allowEmptyPhotosPropRef).
@@ -402,6 +407,16 @@ export function FieldWidget({
       if (!Number.isFinite(savedNum) || savedNum < 1) {
         setLocalValue(autoNum);
         onChange({ value: autoNum }, undefined, undefined);
+      }
+      return;
+    }
+
+    // Tenant Name is derived from the inspection's selected tenant — correct
+    // stale multi-tenant joins that were saved before tenantId was persisted.
+    if (field.type === "auto_tenant_names") {
+      if (savedValue !== String(autoValue)) {
+        setLocalValue(autoValue);
+        onChange(autoValue, undefined, undefined);
       }
       return;
     }
@@ -686,14 +701,59 @@ export function FieldWidget({
     });
   };
 
+  const unassignPhotoFromGallery = async (photoUrl: string) => {
+    if (!inspectionId || !sectionRef) return;
+    const fieldKey = field.id || (field as { key?: string }).key || "";
+    if (!fieldKey) return;
+    const refs = [
+      sectionRef,
+      ...(Array.isArray(galleryAliasRefs) ? galleryAliasRefs : []),
+    ]
+      .map((r) => String(r || "").trim())
+      .filter(Boolean);
+    try {
+      await Promise.all(
+        refs.map((ref) =>
+          apiRequest("POST", `/api/inspections/${inspectionId}/gallery/unassign`, {
+            items: [{ objectUrl: photoUrl, sectionRef: ref, fieldKey }],
+          }).catch(() => null),
+        ),
+      );
+      queryClient.invalidateQueries({
+        queryKey: ["/api/inspections", inspectionId, "gallery"],
+      });
+    } catch (e) {
+      console.warn("[FieldWidget] Gallery unassign on remove failed:", e);
+    }
+  };
+
   const handlePhotoRemove = (photoUrl: string) => {
+    const targetKey = normalizeObjectUrl(photoUrl) || photoUrl;
+    recentlyRemovedPhotoKeysRef.current.add(targetKey);
+
+    // Optimistic UI — block prop/heal resurrection via recentlyRemovedPhotoKeysRef.
+    let newPhotos: string[] = [];
     setLocalPhotos((prev) => {
-      const newPhotos = prev.filter((p) => p !== photoUrl);
+      newPhotos = prev.filter(
+        (p) => p !== photoUrl && (normalizeObjectUrl(p) || p) !== targetKey,
+      );
       if (newPhotos.length === 0) allowEmptyPhotosPropRef.current = true;
-      const composedValue = composeValue(localValue, localCondition, localCleanliness, audioUrls);
-      // Always pass the photos array (even if empty) so removal is persisted
-      onChange(composedValue, localNote || undefined, newPhotos);
       return newPhotos;
+    });
+
+    // Unassign before entry save so mergeEntryPhotosWithAssignments cannot restore it.
+    void unassignPhotoFromGallery(photoUrl).finally(() => {
+      const composedValue = composeValue(
+        localValue,
+        localCondition,
+        localCleanliness,
+        audioUrls,
+      );
+      onChange(composedValue, localNote || undefined, newPhotos);
+      // Keep the block briefly so a concurrent GET heal cannot flash the photo back.
+      setTimeout(() => {
+        recentlyRemovedPhotoKeysRef.current.delete(targetKey);
+      }, 2000);
     });
   };
 
@@ -2245,7 +2305,7 @@ export function FieldWidget({
         );
 
       case "auto_tenant_names":
-        const tenantValue = localValue || autoContext?.tenantNames || "";
+        const tenantValue = autoContext?.tenantNames || localValue || "";
         return (
           <Input
             value={tenantValue}

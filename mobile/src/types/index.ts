@@ -23,6 +23,8 @@ export interface Inspection {
   id: string;
   propertyId?: string;
   blockId?: string;
+  /** Tenant user id selected at create (optional). */
+  tenantId?: string | null;
   templateId: string;
   clerkId?: string;
   inspectorId?: string;
