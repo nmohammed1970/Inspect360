@@ -541,11 +541,15 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
     // stale entry refetches after note/AI saves used to blank the grid (same as web).
     // Allow empty when the user just cleared locally (allowEmptyPhotosPropRef).
     setLocalPhotos((prev) => {
-      if (next.length === 0 && prev.length > 0) {
-        if (allowEmptyPhotosPropRef.current) {
+      // Ignore empty / shorter prop updates while local has more photos —
+      // stale refetches must not shrink gallery-assigned sets (8 → 1).
+      if (next.length < prev.length) {
+        if (next.length === 0 && allowEmptyPhotosPropRef.current) {
           allowEmptyPhotosPropRef.current = false;
           return next;
         }
+        // Local already matches (or is shorter) after a user remove — accept.
+        // Stale server shrink while local still has more — keep local.
         return prev;
       }
       if (next.length > 0) allowEmptyPhotosPropRef.current = false;
