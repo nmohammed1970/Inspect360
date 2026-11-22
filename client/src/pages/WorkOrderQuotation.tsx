@@ -408,6 +408,12 @@ export default function WorkOrderQuotation() {
       return res.json();
     },
     onSuccess: (data) => {
+      queryClient.invalidateQueries({
+        queryKey: ["/api/work-orders", workOrderId, "quotes"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["/api/work-orders", workOrderId, "invoices"],
+      });
       toast({ title: "Invoice draft created" });
       setLocation(`/work-orders/${workOrderId}/invoices/${data.id}`);
     },

@@ -11,8 +11,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { BarChart3, TrendingUp, Users, AlertCircle, Clock, Calendar, User, CheckCircle2, Edit, Trash2, ChevronRight, ChevronLeft, Filter, Wrench, ArrowUpDown, Pause, Play, X, FileText } from "lucide-react";
-import { useLocation } from "wouter";
+import { BarChart3, TrendingUp, Users, AlertCircle, Clock, Calendar, User, CheckCircle2, Edit, Trash2, ChevronRight, ChevronLeft, Filter, Wrench, ArrowUpDown, Pause, Play, X, Receipt } from "lucide-react";
+import { WorkOrderQuotesInvoicesPanel } from "@/components/maintenance-quotes/WorkOrderQuotesInvoicesPanel";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { formatDistanceToNow, format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
@@ -1165,10 +1165,11 @@ function WorkOrderCard({
   onDragStartCard,
   onDragEndCard,
 }: WorkOrderCardProps) {
-  const [, navigate] = useLocation();
+  const [financeOpen, setFinanceOpen] = useState(false);
   const isOverdue = workOrder.slaDue && new Date(workOrder.slaDue) < new Date() && workOrder.status !== "completed";
   
   return (
+    <>
     <Card 
       draggable
       onDragStart={(e) => {
@@ -1203,13 +1204,13 @@ function WorkOrderCard({
                 className="h-7 w-7 cursor-pointer"
                 onClick={(e) => {
                   e.stopPropagation();
-                  navigate(`/work-orders/${workOrder.id}/quotes/new`);
+                  setFinanceOpen(true);
                 }}
                 onPointerDown={(e) => e.stopPropagation()}
-                data-testid={`button-quotation-${workOrder.id}`}
-                title="Quotation"
+                data-testid={`button-quotes-invoices-${workOrder.id}`}
+                title="Quotes & invoices"
               >
-                <FileText className="h-3.5 w-3.5" />
+                <Receipt className="h-3.5 w-3.5" />
               </Button>
               <Button
                 size="icon"
@@ -1301,5 +1302,25 @@ function WorkOrderCard({
         </div>
       </CardContent>
     </Card>
+
+    <Dialog open={financeOpen} onOpenChange={setFinanceOpen}>
+      <DialogContent
+        className={cn(dialogContentBase, "max-w-lg max-h-[90vh] overflow-y-auto")}
+        onClick={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        <DialogHeader>
+          <DialogTitle>Quotes & invoices</DialogTitle>
+          <DialogDescription>
+            Quotation history and invoices for this work order.
+          </DialogDescription>
+        </DialogHeader>
+        <WorkOrderQuotesInvoicesPanel
+          workOrderId={workOrder.id}
+          onNavigateAway={() => setFinanceOpen(false)}
+        />
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }

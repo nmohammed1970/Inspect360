@@ -10,6 +10,10 @@ import {
 } from "../workOrderAccess";
 import { sendInvoiceToCustomerEmail } from "./maintenanceFinanceEmails";
 import {
+  createDirectInvoice,
+  InvoiceServiceError,
+} from "./invoiceService";
+import {
   maintenanceInvoiceLines,
   maintenanceInvoicePayments,
   maintenanceInvoiceShareTokens,
@@ -22,6 +26,7 @@ import {
   computeQuoteTotals,
   computePaymentSummary,
 } from "@shared/maintenanceFinanceMath";
+import { MAINTENANCE_PRICE_BOOK_CURRENCIES } from "@shared/maintenancePriceBookConstants";
 import {
   INVOICE_SHARE_TOKEN_TTL_MS,
   invoiceHeaderPatchSchema,
@@ -103,8 +108,12 @@ async function loadInvoiceWoContext(workOrderId: string, organizationId: string)
   const request = await storage.getMaintenanceRequest(workOrder.maintenanceRequestId);
   let property: Awaited<ReturnType<typeof storage.getProperty>> | null = null;
   let block: Awaited<ReturnType<typeof storage.getBlock>> | null = null;
+  let landlord: Awaited<ReturnType<typeof storage.getContact>> | null = null;
   if (request?.propertyId) {
     property = (await storage.getProperty(request.propertyId)) || null;
+    if (property?.landlordContactId) {
+      landlord = (await storage.getContact(property.landlordContactId)) || null;
+    }
     if (property?.blockId) {
       block = (await storage.getBlock(property.blockId)) || null;
     }
@@ -112,10 +121,38 @@ async function loadInvoiceWoContext(workOrderId: string, organizationId: string)
   if (request?.blockId && !block) {
     block = (await storage.getBlock(request.blockId)) || null;
   }
+  let recipient: {
+    recipientContactId: string;
+    recipientName: string | null;
+    recipientEmail: string | null;
+    recipientPhone: string | null;
+    recipientAddress: string | null;
+  } | null = null;
+  if (landlord) {
+    const name =
+      [landlord.firstName, landlord.lastName].filter(Boolean).join(" ").trim() ||
+      landlord.companyName ||
+      null;
+    const addressParts = [
+      landlord.address,
+      landlord.city,
+      landlord.state,
+      landlord.postalCode,
+      landlord.country,
+    ].filter(Boolean);
+    recipient = {
+      recipientContactId: landlord.id,
+      recipientName: name,
+      recipientEmail: landlord.email || null,
+      recipientPhone: landlord.phone || null,
+      recipientAddress: addressParts.length ? addressParts.join(", ") : null,
+    };
+  }
   return {
     issueTitle: request?.title || "Maintenance work",
     locationLabel:
       property?.name || property?.address || block?.name || "Work order location",
+    recipient,
   };
 }
 
@@ -162,6 +199,42 @@ export function registerMaintenanceInvoiceRoutes(app: Express) {
       } catch (error) {
         console.error("[invoices] list failed:", error);
         res.status(500).json({ message: "Failed to list invoices" });
+      }
+    },
+  );
+
+  app.post(
+    "/api/work-orders/:workOrderId/invoices",
+    ...ownerGuards,
+    async (req: any, res: Response) => {
+      try {
+        const organizationId = orgId(req);
+        const access = await assertWoAccess(req.user, req.params.workOrderId);
+        if ("error" in access) return res.status(access.error).json({ message: access.message });
+
+        const org = await storage.getOrganization(organizationId);
+        const preferred = org?.preferredCurrency || "GBP";
+        const currency = (MAINTENANCE_PRICE_BOOK_CURRENCIES as readonly string[]).includes(
+          preferred,
+        )
+          ? preferred
+          : "GBP";
+
+        const ctx = await loadInvoiceWoContext(req.params.workOrderId, organizationId);
+        const invoice = await createDirectInvoice({
+          organizationId,
+          workOrderId: req.params.workOrderId,
+          actorUserId: req.user.id,
+          currency,
+          recipient: ctx?.recipient ?? null,
+        });
+        res.status(201).json(invoice);
+      } catch (error: any) {
+        if (error instanceof InvoiceServiceError) {
+          return res.status(error.statusCode).json({ message: error.message });
+        }
+        console.error("[invoices] create failed:", error);
+        res.status(500).json({ message: error?.message || "Failed to create invoice" });
       }
     },
   );

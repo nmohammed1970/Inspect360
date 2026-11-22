@@ -7,7 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Wrench, Upload, Sparkles, Loader2, X, Check, ChevronsUpDown, Pencil, Trash2, Clipboard, Calendar, User as UserIcon, AlertCircle, CheckCircle2, Clock, Filter, FileText } from "lucide-react";
+import { Plus, Wrench, Upload, Sparkles, Loader2, X, Check, ChevronsUpDown, Pencil, Trash2, Clipboard, Calendar, User as UserIcon, AlertCircle, CheckCircle2, Clock, Filter, Receipt } from "lucide-react";
+import { WorkOrderQuotesInvoicesPanel } from "@/components/maintenance-quotes/WorkOrderQuotesInvoicesPanel";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -192,6 +193,7 @@ export default function Maintenance() {
   const [isWorkOrderDialogOpen, setIsWorkOrderDialogOpen] = useState(false);
   const [selectedRequestForWorkOrder, setSelectedRequestForWorkOrder] = useState<MaintenanceRequestWithDetails | null>(null);
   const [selectedWorkOrderDetail, setSelectedWorkOrderDetail] = useState<WorkOrder | null>(null);
+  const [financeWorkOrderId, setFinanceWorkOrderId] = useState<string | null>(null);
   const [completeWorkOrderId, setCompleteWorkOrderId] = useState<string | null>(null);
   const [requestToDelete, setRequestToDelete] = useState<MaintenanceRequestWithDetails | null>(null);
   const [workOrderToDelete, setWorkOrderToDelete] = useState<WorkOrder | null>(null);
@@ -2094,11 +2096,11 @@ export default function Maintenance() {
                               variant="outline"
                               size="sm"
                               className="h-8"
-                              onClick={() => navigate(`/work-orders/${workOrder.id}/quotes/new`)}
-                              data-testid={`button-quotation-${workOrder.id}`}
+                              onClick={() => setFinanceWorkOrderId(workOrder.id)}
+                              data-testid={`button-quotes-invoices-${workOrder.id}`}
                             >
-                              <FileText className="h-3.5 w-3.5 mr-1.5" />
-                              Quotation
+                              <Receipt className="h-3.5 w-3.5 mr-1.5" />
+                              Quotes & invoices
                             </Button>
                           </div>
                         </CardContent>
@@ -2111,6 +2113,31 @@ export default function Maintenance() {
           )}
         </TabsContent>
       </Tabs>
+
+      <Dialog
+        open={!!financeWorkOrderId}
+        onOpenChange={(open) => {
+          if (!open) setFinanceWorkOrderId(null);
+        }}
+      >
+        <DialogContent className={cn(dialogContentBase, "max-w-lg max-h-[90vh] overflow-y-auto")}>
+          <DialogHeader>
+            <DialogTitle>Quotes & invoices</DialogTitle>
+            <DialogDescription>
+              Quotation history and invoices for this work order.
+            </DialogDescription>
+          </DialogHeader>
+          {financeWorkOrderId && (
+            <WorkOrderQuotesInvoicesPanel
+              workOrderId={financeWorkOrderId}
+              onNavigateAway={() => {
+                setFinanceWorkOrderId(null);
+                setSelectedWorkOrderDetail(null);
+              }}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Assignee Work Order detail (certificates + description) */}
       <Dialog
@@ -2208,14 +2235,12 @@ export default function Maintenance() {
                   variant="outline"
                   className="w-full"
                   onClick={() => {
-                    const id = selectedWorkOrderDetail.id;
-                    setSelectedWorkOrderDetail(null);
-                    navigate(`/work-orders/${id}/quotes/new`);
+                    setFinanceWorkOrderId(selectedWorkOrderDetail.id);
                   }}
-                  data-testid={`button-quotation-detail-${selectedWorkOrderDetail.id}`}
+                  data-testid={`button-quotes-invoices-detail-${selectedWorkOrderDetail.id}`}
                 >
-                  <FileText className="h-4 w-4 mr-2" />
-                  Quotation
+                  <Receipt className="h-4 w-4 mr-2" />
+                  Quotes & invoices
                 </Button>
                 <WorkOrderCertificatePanel
                   workOrderId={selectedWorkOrderDetail.id}

@@ -26,6 +26,7 @@ import Compliance from "@/pages/Compliance";
 import Maintenance from "@/pages/Maintenance";
 import WorkOrderQuotation from "@/pages/WorkOrderQuotation";
 import WorkOrderQuotationNew from "@/pages/WorkOrderQuotationNew";
+import WorkOrderInvoiceNew from "@/pages/WorkOrderInvoiceNew";
 import WorkOrderInvoice from "@/pages/WorkOrderInvoice";
 import MaintenanceFinance from "@/pages/MaintenanceFinance";
 import PublicQuote from "@/pages/PublicQuote";
@@ -745,6 +746,13 @@ function AppContent() {
                   {() => (
                     <CompanyModuleRoute module="maintenance">
                       <WorkOrderQuotation />
+                    </CompanyModuleRoute>
+                  )}
+                </Route>
+                <Route path="/work-orders/:workOrderId/invoices/new">
+                  {() => (
+                    <CompanyModuleRoute module="maintenance">
+                      <WorkOrderInvoiceNew />
                     </CompanyModuleRoute>
                   )}
                 </Route>
