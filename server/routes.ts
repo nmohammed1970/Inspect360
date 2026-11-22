@@ -21318,6 +21318,8 @@ ${optionalNotes || "No details provided."}`;
   registerBillingCatalogRoutes(app);
   const { registerAdminInspectionTemplateRoutes } = await import("./adminInspectionTemplateRoutes");
   registerAdminInspectionTemplateRoutes(app, isAdminAuthenticated);
+  const { registerMaintenancePriceBookRoutes } = await import("./maintenance/priceBookRoutes");
+  registerMaintenancePriceBookRoutes(app);
 
   // Admin Login
   app.post("/api/admin/login", async (req, res) => {

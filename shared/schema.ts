@@ -1375,6 +1375,44 @@ export const insertMaintenanceRequestSchema = createInsertSchema(maintenanceRequ
 export type MaintenanceRequest = typeof maintenanceRequests.$inferSelect;
 export type InsertMaintenanceRequest = z.infer<typeof insertMaintenanceRequestSchema>;
 
+/** Org-scoped catalog of reusable quotation line templates. */
+export const maintenancePriceBookItems = pgTable(
+  "maintenance_price_book_items",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    organizationId: varchar("organization_id").notNull(),
+    name: varchar("name").notNull(),
+    sku: varchar("sku"),
+    description: text("description"),
+    unit: varchar("unit").notNull().default("hour"),
+    defaultUnitPriceMinor: integer("default_unit_price_minor").notNull(),
+    currency: currencyEnum("currency").notNull().default("GBP"),
+    vatRate: varchar("vat_rate").notNull().default("standard_20"),
+    category: varchar("category").notNull().default("labour"),
+    costRateMinor: integer("cost_rate_minor"),
+    environmentTags: text("environment_tags").array().default(sql`'{}'::text[]`),
+    productivityRate: numeric("productivity_rate"),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow(),
+  },
+  (table) => [
+    index("maintenance_price_book_items_org_idx").on(table.organizationId),
+    index("maintenance_price_book_items_org_active_idx").on(table.organizationId, table.active),
+    uniqueIndex("maintenance_price_book_items_org_sku_uidx")
+      .on(table.organizationId, table.sku)
+      .where(sql`sku IS NOT NULL AND length(trim(sku)) > 0`),
+  ],
+);
+
+export const insertMaintenancePriceBookItemSchema = createInsertSchema(maintenancePriceBookItems).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type MaintenancePriceBookItem = typeof maintenancePriceBookItems.$inferSelect;
+export type InsertMaintenancePriceBookItem = z.infer<typeof insertMaintenancePriceBookItemSchema>;
+
 // Tenant Maintenance Chat Conversations (AI Chatbot for preventative maintenance)
 export const tenantMaintenanceChats = pgTable("tenant_maintenance_chats", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
