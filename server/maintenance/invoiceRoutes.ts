@@ -4,11 +4,11 @@ import { createHash, randomBytes } from "crypto";
 import { isAuthenticated, requireCompanyModule, requireRole } from "../auth";
 import { db } from "../db";
 import { storage } from "../storage";
-import { sendEmail } from "../resend";
 import {
   buildWorkOrderIdentity,
   canAccessWorkOrder,
 } from "../workOrderAccess";
+import { sendInvoiceToCustomerEmail } from "./maintenanceFinanceEmails";
 import {
   maintenanceInvoiceLines,
   maintenanceInvoicePayments,
@@ -345,13 +345,19 @@ export function registerMaintenanceInvoiceRoutes(app: Express) {
         try {
           const { buildInvoicePdfBuffer } = await import("./buildDocumentPdf");
           const pdf = await buildInvoicePdfBuffer({ invoice: updated, lines });
-          await sendEmail({
+          await sendInvoiceToCustomerEmail({
             to: invoice.recipientEmail!,
-            subject: `Invoice ${invoice.invoiceReference}`,
-            html: `<p>Hello ${invoice.recipientName || ""},</p>
-              <p>Please find invoice <strong>${invoice.invoiceReference}</strong> attached as a PDF.</p>
-              <p>You can also <a href="${link}">view the invoice online</a>.</p>`,
+            recipientName: invoice.recipientName,
+            organizationId: orgId(req),
+            workOrderId: invoice.workOrderId,
+            invoiceId: invoice.id,
+            invoiceReference: invoice.invoiceReference,
+            currency: invoice.currency,
+            totalMinor: updated.totalMinor,
+            dueAt: updated.dueAt,
+            publicLink: link,
             attachments: [{ filename: pdf.filename, content: pdf.buffer }],
+            baseUrl: publicAppBaseUrl(req),
           });
           emailSent = true;
         } catch (emailErr: any) {

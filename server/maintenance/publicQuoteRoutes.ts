@@ -1,7 +1,6 @@
 import type { Express, Response } from "express";
 import { and, asc, eq } from "drizzle-orm";
 import { db } from "../db";
-import { sendEmail } from "../resend";
 import { storage } from "../storage";
 import {
   maintenanceQuoteLines,
@@ -12,9 +11,11 @@ import {
   appendWorkOrderEvent,
   findValidQuoteToken,
   onQuoteAccepted,
+  publicAppBaseUrl,
   revokeActiveQuoteTokens,
   transitionOrThrow,
 } from "./quoteLifecycle";
+import { sendQuoteCustomerResponseEmail } from "./maintenanceFinanceEmails";
 
 async function loadPublicQuote(rawToken: string) {
   const tokenRow = await findValidQuoteToken(rawToken);
@@ -162,12 +163,17 @@ export function registerPublicMaintenanceQuoteRoutes(app: Express) {
       try {
         const ownerUsers = await storage.getUsersByOrganization(quote.organizationId);
         const owners = (ownerUsers || []).filter((u: any) => u.role === "owner" && u.email);
+        const baseUrl = publicAppBaseUrl(req);
         for (const owner of owners.slice(0, 5)) {
-          await sendEmail({
+          await sendQuoteCustomerResponseEmail({
             to: owner.email,
-            subject: `Customer ${decision.replace("_", " ")} — ${quote.quoteReference}`,
-            html: `<p>Customer responded <strong>${decision}</strong> on ${quote.quoteReference}.</p>
-              ${reason ? `<p>Reason: ${reason}</p>` : ""}`,
+            organizationId: quote.organizationId,
+            workOrderId: quote.workOrderId,
+            quoteId: quote.id,
+            quoteReference: quote.quoteReference,
+            decision,
+            reason,
+            baseUrl,
           });
         }
       } catch (emailErr) {

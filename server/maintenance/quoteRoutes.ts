@@ -3,12 +3,15 @@ import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { isAuthenticated, requireCompanyModule, requireRole } from "../auth";
 import { db } from "../db";
 import { storage } from "../storage";
-import { sendEmail } from "../resend";
 import {
   buildWorkOrderIdentity,
   canAccessWorkOrder,
   type WorkOrderIdentity,
 } from "../workOrderAccess";
+import {
+  sendQuoteOwnerDecisionEmail,
+  sendQuoteToCustomerEmail,
+} from "./maintenanceFinanceEmails";
 import {
   maintenanceQuoteLines,
   maintenanceQuotes,
@@ -725,11 +728,16 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
         try {
           const preparer = await storage.getUser(quote.preparedByUserId);
           if (preparer?.email) {
-            await sendEmail({
+            await sendQuoteOwnerDecisionEmail({
               to: preparer.email,
-              subject: `Quote ${quote.quoteReference} — ${decision.replace("_", " ")}`,
-              html: `<p>Your quotation <strong>${quote.quoteReference}</strong> was marked <strong>${nextStatus}</strong>.</p>
-                ${reason ? `<p>Reason: ${reason}</p>` : ""}`,
+              organizationId,
+              workOrderId: quote.workOrderId,
+              quoteId: quote.id,
+              quoteReference: quote.quoteReference,
+              versionNumber: quote.versionNumber,
+              decision,
+              reason,
+              baseUrl: publicAppBaseUrl(req),
             });
           }
         } catch (emailErr) {
@@ -820,13 +828,19 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
             issueTitle: ctx?.issueTitle,
             locationLabel: ctx?.locationLabel,
           });
-          await sendEmail({
+          await sendQuoteToCustomerEmail({
             to: quote.recipientEmail!,
-            subject: `Quotation ${quote.quoteReference} for your review`,
-            html: `<p>Hello ${quote.recipientName},</p>
-              <p>Please review quotation <strong>${quote.quoteReference}</strong>.</p>
-              <p>A PDF copy is attached. You can also <a href="${link}">view and respond online</a>.</p>
-              <p>This link expires on ${expiresAt.toUTCString()}.</p>`,
+            recipientName: quote.recipientName,
+            organizationId,
+            quoteReference: quote.quoteReference,
+            versionNumber: quote.versionNumber,
+            currency: quote.currency,
+            totalMinor: updated.totalMinor,
+            publicLink: link,
+            expiresAt,
+            isResend,
+            issueTitle: ctx?.issueTitle,
+            locationLabel: ctx?.locationLabel,
             attachments: [{ filename: pdf.filename, content: pdf.buffer }],
           });
           emailSent = true;
@@ -909,11 +923,19 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
             issueTitle: ctx?.issueTitle,
             locationLabel: ctx?.locationLabel,
           });
-          await sendEmail({
+          await sendQuoteToCustomerEmail({
             to: quote.recipientEmail!,
-            subject: `Quotation ${quote.quoteReference} (updated link)`,
-            html: `<p>Hello ${quote.recipientName},</p>
-              <p>A PDF copy is attached. You can also <a href="${link}">view and respond online</a>.</p>`,
+            recipientName: quote.recipientName,
+            organizationId,
+            quoteReference: quote.quoteReference,
+            versionNumber: quote.versionNumber,
+            currency: quote.currency,
+            totalMinor: updated.totalMinor,
+            publicLink: link,
+            expiresAt,
+            isResend: true,
+            issueTitle: ctx?.issueTitle,
+            locationLabel: ctx?.locationLabel,
             attachments: [{ filename: pdf.filename, content: pdf.buffer }],
           });
           emailSent = true;
