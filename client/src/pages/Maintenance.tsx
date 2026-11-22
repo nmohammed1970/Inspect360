@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Wrench, Upload, Sparkles, Loader2, X, Check, ChevronsUpDown, Pencil, Trash2, Clipboard, Calendar, User as UserIcon, AlertCircle, CheckCircle2, Clock, Filter } from "lucide-react";
+import { Plus, Wrench, Upload, Sparkles, Loader2, X, Check, ChevronsUpDown, Pencil, Trash2, Clipboard, Calendar, User as UserIcon, AlertCircle, CheckCircle2, Clock, Filter, FileText } from "lucide-react";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -2080,6 +2080,16 @@ export default function Maintenance() {
                                 View details
                               </Button>
                             )}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-8"
+                              onClick={() => navigate(`/work-orders/${workOrder.id}/quotes/new`)}
+                              data-testid={`button-quotation-${workOrder.id}`}
+                            >
+                              <FileText className="h-3.5 w-3.5 mr-1.5" />
+                              Quotation
+                            </Button>
                           </div>
                         </CardContent>
                       </Card>
@@ -2184,6 +2194,19 @@ export default function Maintenance() {
                     </div>
                   );
                 })()}
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => {
+                    const id = selectedWorkOrderDetail.id;
+                    setSelectedWorkOrderDetail(null);
+                    navigate(`/work-orders/${id}/quotes/new`);
+                  }}
+                  data-testid={`button-quotation-detail-${selectedWorkOrderDetail.id}`}
+                >
+                  <FileText className="h-4 w-4 mr-2" />
+                  Quotation
+                </Button>
                 <WorkOrderCertificatePanel
                   workOrderId={selectedWorkOrderDetail.id}
                   propertyId={selectedWorkOrderDetail.maintenanceRequest.propertyId}

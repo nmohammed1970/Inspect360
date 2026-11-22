@@ -32,13 +32,25 @@ function serializeItem(row: typeof maintenancePriceBookItems.$inferSelect) {
 }
 
 export function registerMaintenancePriceBookRoutes(app: Express) {
-  const guards = [
+  const writeGuards = [
     isAuthenticated,
     requireCompanyModule("maintenance"),
     requireRole("owner", "clerk"),
   ] as const;
 
-  app.get("/api/maintenance/price-book-items", ...guards, async (req: any, res) => {
+  /** Read/search: any non-tenant with maintenance (quote autocomplete). */
+  const readGuards = [
+    isAuthenticated,
+    requireCompanyModule("maintenance"),
+    (req: any, res: any, next: any) => {
+      if (req.user?.role === "tenant") {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      next();
+    },
+  ] as const;
+
+  app.get("/api/maintenance/price-book-items", ...readGuards, async (req: any, res) => {
     try {
       const organizationId = orgId(req);
       const conditions = [eq(maintenancePriceBookItems.organizationId, organizationId)];
@@ -88,7 +100,7 @@ export function registerMaintenancePriceBookRoutes(app: Express) {
     }
   });
 
-  app.post("/api/maintenance/price-book-items", ...guards, async (req: any, res) => {
+  app.post("/api/maintenance/price-book-items", ...writeGuards, async (req: any, res) => {
     try {
       const organizationId = orgId(req);
       const parsed = maintenancePriceBookItemCreateSchema.safeParse(req.body);
@@ -130,7 +142,7 @@ export function registerMaintenancePriceBookRoutes(app: Express) {
     }
   });
 
-  app.patch("/api/maintenance/price-book-items/:id", ...guards, async (req: any, res) => {
+  app.patch("/api/maintenance/price-book-items/:id", ...writeGuards, async (req: any, res) => {
     try {
       const organizationId = orgId(req);
       const id = String(req.params.id || "");
@@ -199,7 +211,7 @@ export function registerMaintenancePriceBookRoutes(app: Express) {
     }
   });
 
-  app.delete("/api/maintenance/price-book-items/:id", ...guards, async (req: any, res) => {
+  app.delete("/api/maintenance/price-book-items/:id", ...writeGuards, async (req: any, res) => {
     try {
       const organizationId = orgId(req);
       const id = String(req.params.id || "");

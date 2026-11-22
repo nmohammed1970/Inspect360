@@ -15340,10 +15340,13 @@ ${optionalNotes || "No details provided."}`;
 
   // IMPORTANT: Route order matters in Express!
   // More specific routes MUST come before less specific ones
-  // 1. /api/maintenance/:requestId/tags (most specific - has /tags suffix)
-  // 2. /api/maintenance/:id (less specific - just ID)
-  // 3. /api/maintenance (least specific - no ID)
-  
+  // 1. /api/maintenance/price-book-items (literal path)
+  // 2. /api/maintenance/:requestId/tags (most specific - has /tags suffix)
+  // 3. /api/maintenance/:id (less specific - just ID)
+  // 4. /api/maintenance (least specific - no ID)
+  const { registerMaintenancePriceBookRoutes } = await import("./maintenance/priceBookRoutes");
+  registerMaintenancePriceBookRoutes(app);
+
   // Get single maintenance request by ID - comes AFTER /tags route but BEFORE /maintenance route
   console.log('[Routes] About to register GET /api/maintenance/:id route');
   app.get("/api/maintenance/:id", isAuthenticated, requireCompanyModule("maintenance"), async (req: any, res) => {
@@ -21318,8 +21321,8 @@ ${optionalNotes || "No details provided."}`;
   registerBillingCatalogRoutes(app);
   const { registerAdminInspectionTemplateRoutes } = await import("./adminInspectionTemplateRoutes");
   registerAdminInspectionTemplateRoutes(app, isAdminAuthenticated);
-  const { registerMaintenancePriceBookRoutes } = await import("./maintenance/priceBookRoutes");
-  registerMaintenancePriceBookRoutes(app);
+  const { registerMaintenanceQuoteRoutes } = await import("./maintenance/quoteRoutes");
+  registerMaintenanceQuoteRoutes(app);
 
   // Admin Login
   app.post("/api/admin/login", async (req, res) => {

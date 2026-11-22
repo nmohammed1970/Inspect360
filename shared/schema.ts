@@ -1413,6 +1413,111 @@ export const insertMaintenancePriceBookItemSchema = createInsertSchema(maintenan
 export type MaintenancePriceBookItem = typeof maintenancePriceBookItems.$inferSelect;
 export type InsertMaintenancePriceBookItem = z.infer<typeof insertMaintenancePriceBookItemSchema>;
 
+/** Per-org yearly counters for quote / invoice / credit note numbers. */
+export const maintenanceDocumentSequences = pgTable(
+  "maintenance_document_sequences",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    organizationId: varchar("organization_id").notNull(),
+    documentType: varchar("document_type").notNull(),
+    year: integer("year").notNull(),
+    nextValue: integer("next_value").notNull().default(1),
+    updatedAt: timestamp("updated_at").defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("maintenance_document_sequences_org_type_year_uidx").on(
+      table.organizationId,
+      table.documentType,
+      table.year,
+    ),
+  ],
+);
+
+export type MaintenanceDocumentSequence = typeof maintenanceDocumentSequences.$inferSelect;
+
+/** Work-order quotations (draft → owner approval → customer → convert). */
+export const maintenanceQuotes = pgTable(
+  "maintenance_quotes",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    organizationId: varchar("organization_id").notNull(),
+    workOrderId: varchar("work_order_id").notNull(),
+    status: varchar("status").notNull().default("draft"),
+    quoteNumber: integer("quote_number").notNull(),
+    quoteReference: varchar("quote_reference").notNull(),
+    versionNumber: integer("version_number").notNull().default(1),
+    quoteType: varchar("quote_type").notNull().default("original"),
+    currency: currencyEnum("currency").notNull().default("GBP"),
+    recipientContactId: varchar("recipient_contact_id"),
+    recipientName: varchar("recipient_name"),
+    recipientEmail: varchar("recipient_email"),
+    recipientPhone: varchar("recipient_phone"),
+    recipientAddress: text("recipient_address"),
+    scopeDescription: text("scope_description"),
+    engineerNotes: text("engineer_notes"),
+    validUntil: timestamp("valid_until"),
+    subtotalMinor: integer("subtotal_minor").notNull().default(0),
+    taxMinor: integer("tax_minor").notNull().default(0),
+    totalMinor: integer("total_minor").notNull().default(0),
+    preparedByUserId: varchar("prepared_by_user_id").notNull(),
+    submittedAt: timestamp("submitted_at"),
+    submittedByUserId: varchar("submitted_by_user_id"),
+    parentQuoteId: varchar("parent_quote_id"),
+    supersededByQuoteId: varchar("superseded_by_quote_id"),
+    variationOfQuoteId: varchar("variation_of_quote_id"),
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow(),
+  },
+  (table) => [
+    index("maintenance_quotes_org_idx").on(table.organizationId),
+    index("maintenance_quotes_work_order_idx").on(table.workOrderId),
+    uniqueIndex("maintenance_quotes_org_number_version_uidx").on(
+      table.organizationId,
+      table.quoteNumber,
+      table.versionNumber,
+    ),
+  ],
+);
+
+export const insertMaintenanceQuoteSchema = createInsertSchema(maintenanceQuotes).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type MaintenanceQuote = typeof maintenanceQuotes.$inferSelect;
+export type InsertMaintenanceQuote = z.infer<typeof insertMaintenanceQuoteSchema>;
+
+export const maintenanceQuoteLines = pgTable(
+  "maintenance_quote_lines",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    quoteId: varchar("quote_id").notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+    name: varchar("name").notNull().default(""),
+    description: text("description"),
+    category: varchar("category").notNull().default("labour"),
+    unit: varchar("unit").notNull().default("hour"),
+    quantity: numeric("quantity").notNull().default("1"),
+    unitPriceMinor: integer("unit_price_minor").notNull().default(0),
+    vatRate: varchar("vat_rate").notNull().default("standard_20"),
+    lineNetMinor: integer("line_net_minor").notNull().default(0),
+    lineTaxMinor: integer("line_tax_minor").notNull().default(0),
+    lineTotalMinor: integer("line_total_minor").notNull().default(0),
+    priceBookItemId: varchar("price_book_item_id"),
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow(),
+  },
+  (table) => [index("maintenance_quote_lines_quote_idx").on(table.quoteId)],
+);
+
+export const insertMaintenanceQuoteLineSchema = createInsertSchema(maintenanceQuoteLines).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type MaintenanceQuoteLine = typeof maintenanceQuoteLines.$inferSelect;
+export type InsertMaintenanceQuoteLine = z.infer<typeof insertMaintenanceQuoteLineSchema>;
+
 // Tenant Maintenance Chat Conversations (AI Chatbot for preventative maintenance)
 export const tenantMaintenanceChats = pgTable("tenant_maintenance_chats", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

@@ -11,7 +11,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { BarChart3, TrendingUp, Users, AlertCircle, Clock, Calendar, User, CheckCircle2, Edit, Trash2, ChevronRight, ChevronLeft, Filter, Wrench, ArrowUpDown, Pause, Play, X } from "lucide-react";
+import { BarChart3, TrendingUp, Users, AlertCircle, Clock, Calendar, User, CheckCircle2, Edit, Trash2, ChevronRight, ChevronLeft, Filter, Wrench, ArrowUpDown, Pause, Play, X, FileText } from "lucide-react";
+import { useLocation } from "wouter";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { formatDistanceToNow, format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
@@ -1164,6 +1165,7 @@ function WorkOrderCard({
   onDragStartCard,
   onDragEndCard,
 }: WorkOrderCardProps) {
+  const [, navigate] = useLocation();
   const isOverdue = workOrder.slaDue && new Date(workOrder.slaDue) < new Date() && workOrder.status !== "completed";
   
   return (
@@ -1195,6 +1197,20 @@ function WorkOrderCard({
               {workOrder.maintenanceRequest.title}
             </h4>
             <div className="flex items-center gap-0.5 flex-shrink-0">
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-7 w-7 cursor-pointer"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigate(`/work-orders/${workOrder.id}/quotes/new`);
+                }}
+                onPointerDown={(e) => e.stopPropagation()}
+                data-testid={`button-quotation-${workOrder.id}`}
+                title="Quotation"
+              >
+                <FileText className="h-3.5 w-3.5" />
+              </Button>
               <Button
                 size="icon"
                 variant="ghost"

@@ -24,6 +24,8 @@ import Inspections from "@/pages/Inspections";
 import InspectionDetail from "@/pages/InspectionDetail";
 import Compliance from "@/pages/Compliance";
 import Maintenance from "@/pages/Maintenance";
+import WorkOrderQuotation from "@/pages/WorkOrderQuotation";
+import WorkOrderQuotationNew from "@/pages/WorkOrderQuotationNew";
 import Analytics from "@/pages/Analytics";
 import Reports from "@/pages/Reports";
 import InspectionsReport from "@/pages/InspectionsReport";
@@ -719,6 +721,20 @@ function AppContent() {
                   {() => (
                     <CompanyModuleRoute module="hmo_compliance">
                       <HmoDashboard />
+                    </CompanyModuleRoute>
+                  )}
+                </Route>
+                <Route path="/work-orders/:workOrderId/quotes/new">
+                  {() => (
+                    <CompanyModuleRoute module="maintenance">
+                      <WorkOrderQuotationNew />
+                    </CompanyModuleRoute>
+                  )}
+                </Route>
+                <Route path="/work-orders/:workOrderId/quotes/:quoteId">
+                  {() => (
+                    <CompanyModuleRoute module="maintenance">
+                      <WorkOrderQuotation />
                     </CompanyModuleRoute>
                   )}
                 </Route>
