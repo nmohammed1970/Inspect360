@@ -16,6 +16,10 @@ import {
   transitionOrThrow,
 } from "./quoteLifecycle";
 import { sendQuoteCustomerResponseEmail } from "./maintenanceFinanceEmails";
+import {
+  loadPublicOrgBrand,
+  loadPublicWorkContext,
+} from "./publicFinanceContext";
 
 async function loadPublicQuote(rawToken: string) {
   const tokenRow = await findValidQuoteToken(rawToken);
@@ -55,18 +59,28 @@ export function registerPublicMaintenanceQuoteRoutes(app: Express) {
           .where(eq(maintenanceQuoteShareTokens.id, tokenRow.id));
       }
 
+      const [organization, work] = await Promise.all([
+        loadPublicOrgBrand(quote.organizationId),
+        loadPublicWorkContext(quote.workOrderId, quote.organizationId),
+      ]);
+
       res.json({
         quoteReference: quote.quoteReference,
         versionNumber: quote.versionNumber,
         status: quote.status,
         currency: quote.currency,
         recipientName: quote.recipientName,
+        recipientEmail: quote.recipientEmail,
+        recipientPhone: quote.recipientPhone,
+        recipientAddress: quote.recipientAddress,
         scopeDescription: quote.scopeDescription,
         subtotalMinor: quote.subtotalMinor,
         taxMinor: quote.taxMinor,
         totalMinor: quote.totalMinor,
         expiresAt: tokenRow.expiresAt,
         canRespond: quote.status === "sent",
+        organization,
+        work,
         lines: lines.map((l) => ({
           name: l.name,
           description: l.description,
@@ -93,8 +107,14 @@ export function registerPublicMaintenanceQuoteRoutes(app: Express) {
         return res.status(404).json({ message: "Link is invalid or expired" });
       }
       const { quote, lines } = loaded;
+      const work = await loadPublicWorkContext(quote.workOrderId, quote.organizationId);
       const { buildQuotePdfBuffer } = await import("./buildDocumentPdf");
-      const pdf = await buildQuotePdfBuffer({ quote, lines });
+      const pdf = await buildQuotePdfBuffer({
+        quote,
+        lines,
+        issueTitle: work?.issueTitle,
+        locationLabel: work?.locationLabel,
+      });
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", `attachment; filename="${pdf.filename}"`);
       res.send(pdf.buffer);

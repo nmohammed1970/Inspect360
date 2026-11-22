@@ -37,6 +37,10 @@ import {
   appendWorkOrderEvent,
   publicAppBaseUrl,
 } from "./quoteLifecycle";
+import {
+  loadPublicOrgBrand,
+  loadPublicWorkContext,
+} from "./publicFinanceContext";
 
 function orgId(req: any): string {
   return req.user.organizationId as string;
@@ -246,15 +250,35 @@ export function registerMaintenanceInvoiceRoutes(app: Express) {
       try {
         const access = await assertWoAccess(req.user, req.params.workOrderId);
         if ("error" in access) return res.status(access.error).json({ message: access.message });
-        const invoice = await getInvoice(orgId(req), req.params.workOrderId, req.params.invoiceId);
+        const organizationId = orgId(req);
+        const invoice = await getInvoice(organizationId, req.params.workOrderId, req.params.invoiceId);
         if (!invoice) return res.status(404).json({ message: "Invoice not found" });
         const lines = await loadLines(invoice.id);
-        const payments = await db
-          .select()
-          .from(maintenanceInvoicePayments)
-          .where(eq(maintenanceInvoicePayments.invoiceId, invoice.id))
-          .orderBy(desc(maintenanceInvoicePayments.paidAt));
-        res.json({ ...invoice, lines: lines.map(serializeLine), payments });
+        const [payments, work] = await Promise.all([
+          db
+            .select()
+            .from(maintenanceInvoicePayments)
+            .where(eq(maintenanceInvoicePayments.invoiceId, invoice.id))
+            .orderBy(desc(maintenanceInvoicePayments.paidAt)),
+          loadPublicWorkContext(invoice.workOrderId, organizationId),
+        ]);
+        res.json({
+          ...invoice,
+          lines: lines.map(serializeLine),
+          payments,
+          context: work
+            ? {
+                workOrderId: invoice.workOrderId,
+                workOrderStatus: work.workOrderStatus,
+                issueTitle: work.issueTitle,
+                locationLabel: work.locationLabel,
+                propertyName: work.propertyName,
+                propertyAddress: work.propertyAddress,
+                blockName: work.blockName,
+                assigneeName: work.assigneeName,
+              }
+            : null,
+        });
       } catch (error) {
         console.error("[invoices] get failed:", error);
         res.status(500).json({ message: "Failed to load invoice" });
@@ -651,17 +675,27 @@ export function registerMaintenanceInvoiceRoutes(app: Express) {
           .set({ viewedAt: new Date() })
           .where(eq(maintenanceInvoiceShareTokens.id, tokenRow.id));
       }
+      const [organization, work] = await Promise.all([
+        loadPublicOrgBrand(invoice.organizationId),
+        loadPublicWorkContext(invoice.workOrderId, invoice.organizationId),
+      ]);
       res.json({
         invoiceReference: invoice.invoiceReference,
         status: invoice.status,
         currency: invoice.currency,
         recipientName: invoice.recipientName,
+        recipientEmail: invoice.recipientEmail,
+        recipientPhone: invoice.recipientPhone,
+        recipientAddress: invoice.recipientAddress,
         notes: invoice.notes,
+        dueAt: invoice.dueAt,
         subtotalMinor: invoice.subtotalMinor,
         taxMinor: invoice.taxMinor,
         totalMinor: invoice.totalMinor,
         paymentStatus: invoice.paymentStatus,
         paidMinor: invoice.paidMinor,
+        organization,
+        work,
         lines: lines.map(serializeLine),
       });
     } catch (error) {
@@ -690,8 +724,14 @@ export function registerMaintenanceInvoiceRoutes(app: Express) {
         return res.status(404).json({ message: "Invoice not found" });
       }
       const lines = await loadLines(invoice.id);
+      const work = await loadPublicWorkContext(invoice.workOrderId, invoice.organizationId);
       const { buildInvoicePdfBuffer } = await import("./buildDocumentPdf");
-      const pdf = await buildInvoicePdfBuffer({ invoice, lines });
+      const pdf = await buildInvoicePdfBuffer({
+        invoice,
+        lines,
+        issueTitle: work?.issueTitle,
+        locationLabel: work?.locationLabel,
+      });
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", `attachment; filename="${pdf.filename}"`);
       res.send(pdf.buffer);

@@ -1,7 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link, useLocation, useParams } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Download, FileText, Loader2 } from "lucide-react";
+import {
+  Copy,
+  Download,
+  FileText,
+  Link2,
+  Loader2,
+  MapPin,
+  User as UserIcon,
+  Wrench,
+} from "lucide-react";
 import { downloadPdfFromUrl } from "@/components/maintenance-quotes/downloadPdf";
 import { PageHeader } from "@/components/PageHeader";
 import { Badge } from "@/components/ui/badge";
@@ -20,7 +29,12 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { MAINTENANCE_PAYMENT_METHODS } from "@shared/maintenanceQuoteConstants";
+import {
+  MAINTENANCE_INVOICE_STATUS_LABELS,
+  MAINTENANCE_PAYMENT_METHODS,
+  MAINTENANCE_PAYMENT_METHOD_LABELS,
+  MAINTENANCE_PAYMENT_STATUS_LABELS,
+} from "@shared/maintenanceQuoteConstants";
 import { formatMoneyMinor } from "@/components/maintenance-quotes/quoteMoney";
 import {
   QuoteLinesEditor,
@@ -32,6 +46,7 @@ import type {
   MaintenancePriceBookUnit,
   MaintenancePriceBookVatRate,
 } from "@shared/maintenancePriceBookConstants";
+import { cn } from "@/lib/utils";
 
 type InvoiceDetail = {
   id: string;
@@ -42,6 +57,8 @@ type InvoiceDetail = {
   currency: string;
   recipientName: string | null;
   recipientEmail: string | null;
+  recipientPhone: string | null;
+  recipientAddress: string | null;
   notes: string | null;
   dueAt: string | null;
   subtotalMinor: number;
@@ -68,6 +85,16 @@ type InvoiceDetail = {
     reference: string | null;
     notes: string | null;
   }>;
+  context?: {
+    workOrderId: string;
+    workOrderStatus: string | null;
+    issueTitle: string;
+    locationLabel: string;
+    propertyName: string | null;
+    propertyAddress: string | null;
+    blockName: string | null;
+    assigneeName: string | null;
+  } | null;
 };
 
 export default function WorkOrderInvoice() {
@@ -95,7 +122,10 @@ export default function WorkOrderInvoice() {
   const editable = invoice?.status === "draft";
   const [recipientName, setRecipientName] = useState("");
   const [recipientEmail, setRecipientEmail] = useState("");
+  const [recipientPhone, setRecipientPhone] = useState("");
+  const [recipientAddress, setRecipientAddress] = useState("");
   const [notes, setNotes] = useState("");
+  const [dueAt, setDueAt] = useState("");
   const [lines, setLines] = useState<EditableQuoteLine[]>([blankQuoteLine()]);
   const [hydrated, setHydrated] = useState<string | null>(null);
 
@@ -112,7 +142,10 @@ export default function WorkOrderInvoice() {
     if (!invoice || hydrated === invoice.id) return;
     setRecipientName(invoice.recipientName || "");
     setRecipientEmail(invoice.recipientEmail || "");
+    setRecipientPhone(invoice.recipientPhone || "");
+    setRecipientAddress(invoice.recipientAddress || "");
     setNotes(invoice.notes || "");
+    setDueAt(invoice.dueAt ? invoice.dueAt.slice(0, 10) : "");
     setLines(
       (invoice.lines || []).length
         ? (invoice.lines || []).map((line) => ({
@@ -138,7 +171,10 @@ export default function WorkOrderInvoice() {
       await apiRequest("PATCH", `/api/work-orders/${workOrderId}/invoices/${invoiceId}`, {
         recipientName: recipientName || null,
         recipientEmail: recipientEmail || null,
+        recipientPhone: recipientPhone || null,
+        recipientAddress: recipientAddress || null,
         notes: notes || null,
+        dueAt: dueAt || null,
       });
       const res = await apiRequest(
         "PUT",
@@ -244,10 +280,26 @@ export default function WorkOrderInvoice() {
       toast({ title: "Payment failed", description: e.message, variant: "destructive" }),
   });
 
+  const copyLink = async () => {
+    if (!lastPublicLink) return;
+    try {
+      await navigator.clipboard.writeText(lastPublicLink);
+      toast({ title: "Link copied" });
+    } catch {
+      toast({ title: "Could not copy link", variant: "destructive" });
+    }
+  };
+
   if (isLoading) {
     return (
-      <div className="p-6 space-y-4">
+      <div className="p-6 space-y-4 max-w-[1400px] mx-auto">
         <Skeleton className="h-28 w-full rounded-2xl" />
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <Skeleton className="h-24 rounded-xl" />
+          <Skeleton className="h-24 rounded-xl" />
+          <Skeleton className="h-24 rounded-xl" />
+          <Skeleton className="h-24 rounded-xl" />
+        </div>
         <Skeleton className="h-64 w-full rounded-xl" />
       </div>
     );
@@ -266,8 +318,17 @@ export default function WorkOrderInvoice() {
     );
   }
 
+  const outstanding = Math.max(0, invoice.totalMinor - invoice.paidMinor);
+  const statusLabel =
+    MAINTENANCE_INVOICE_STATUS_LABELS[invoice.status] || invoice.status.replace(/_/g, " ");
+  const paymentLabel =
+    MAINTENANCE_PAYMENT_STATUS_LABELS[invoice.paymentStatus] ||
+    invoice.paymentStatus.replace(/_/g, " ");
+  const breadcrumbProperty =
+    invoice.context?.propertyName || invoice.context?.blockName || "Property";
+
   return (
-    <div className="space-y-4 p-4 md:p-6 max-w-[1100px] mx-auto">
+    <div className="space-y-4 p-4 md:p-6 max-w-[1400px] mx-auto">
       <PageHeader
         icon={FileText}
         leading={
@@ -276,21 +337,32 @@ export default function WorkOrderInvoice() {
               Maintenance
             </Link>
             <span>/</span>
+            <span className="truncate max-w-[12rem]">{breadcrumbProperty}</span>
+            <span>/</span>
+            <Link
+              href={`/maintenance?tab=work-orders`}
+              className="hover:text-foreground"
+            >
+              Work orders
+            </Link>
+            <span>/</span>
             <span className="text-foreground font-medium">Invoice</span>
           </nav>
         }
         title={
           <span className="inline-flex items-center gap-2 flex-wrap">
             {invoice.invoiceReference}
-            <Badge variant="outline" className="capitalize">
-              {invoice.status}
-            </Badge>
-            <Badge variant="secondary" className="capitalize">
-              {invoice.paymentStatus.replace(/_/g, " ")}
-            </Badge>
+            <Badge variant="outline">{statusLabel}</Badge>
+            <Badge variant="secondary">{paymentLabel}</Badge>
           </span>
         }
-        description={`Total ${formatMoneyMinor(invoice.totalMinor, invoice.currency)} · Paid ${formatMoneyMinor(invoice.paidMinor, invoice.currency)}`}
+        description={
+          invoice.context
+            ? [invoice.context.issueTitle, invoice.context.locationLabel]
+                .filter(Boolean)
+                .join(" · ")
+            : `Total ${formatMoneyMinor(invoice.totalMinor, invoice.currency)}`
+        }
         actions={
           <>
             <Button
@@ -334,14 +406,51 @@ export default function WorkOrderInvoice() {
         }
       />
 
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <SummaryTile
+          label="Invoice"
+          title={statusLabel}
+          detail={invoice.invoiceReference}
+          icon={<FileText className="h-4 w-4 text-primary" />}
+        />
+        <SummaryTile
+          label="Property / Block"
+          title={invoice.context?.locationLabel || "—"}
+          detail={invoice.context?.propertyAddress || invoice.context?.blockName || ""}
+          icon={<MapPin className="h-4 w-4 text-primary" />}
+        />
+        <SummaryTile
+          label="Assigned Engineer"
+          title={invoice.context?.assigneeName || "Unassigned"}
+          detail="Work Order Assignee"
+          icon={<UserIcon className="h-4 w-4 text-primary" />}
+        />
+        <SummaryTile
+          label="Amount due"
+          title={formatMoneyMinor(outstanding, invoice.currency)}
+          detail={`Total ${formatMoneyMinor(invoice.totalMinor, invoice.currency)} · Paid ${formatMoneyMinor(invoice.paidMinor, invoice.currency)}`}
+          icon={<span className="text-primary font-semibold text-sm">Σ</span>}
+          emphasize
+        />
+      </div>
+
       {lastPublicLink ? (
-        <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm">
-          <p className="font-medium mb-1">Customer invoice link</p>
-          <Input readOnly value={lastPublicLink} className="font-mono text-xs" />
+        <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm space-y-2">
+          <div className="flex items-center gap-2 font-medium">
+            <Link2 className="h-4 w-4 text-primary" />
+            Customer invoice link
+          </div>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <Input readOnly value={lastPublicLink} className="font-mono text-xs" />
+            <Button type="button" variant="outline" onClick={() => void copyLink()}>
+              <Copy className="h-4 w-4 mr-2" />
+              Copy
+            </Button>
+          </div>
         </div>
       ) : null}
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
+      <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
         <div className="space-y-4">
           <Card>
             <CardHeader className="pb-3">
@@ -362,6 +471,32 @@ export default function WorkOrderInvoice() {
                   disabled={!editable}
                   value={recipientEmail}
                   onChange={(e) => setRecipientEmail(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Phone</Label>
+                <Input
+                  disabled={!editable}
+                  value={recipientPhone}
+                  onChange={(e) => setRecipientPhone(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Due date</Label>
+                <Input
+                  type="date"
+                  disabled={!editable}
+                  value={dueAt}
+                  onChange={(e) => setDueAt(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label>Address</Label>
+                <Textarea
+                  disabled={!editable}
+                  value={recipientAddress}
+                  onChange={(e) => setRecipientAddress(e.target.value)}
+                  rows={2}
                 />
               </div>
               <div className="space-y-1.5 sm:col-span-2">
@@ -386,12 +521,71 @@ export default function WorkOrderInvoice() {
                 currency={invoice.currency}
                 disabled={!editable}
                 onChange={setLines}
+                totalLabel="Total"
               />
             </CardContent>
           </Card>
         </div>
 
         <div className="space-y-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Totals</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 text-sm tabular-nums">
+              <div className="flex justify-between text-muted-foreground">
+                <span>Subtotal</span>
+                <span>{formatMoneyMinor(invoice.subtotalMinor, invoice.currency)}</span>
+              </div>
+              <div className="flex justify-between text-muted-foreground">
+                <span>VAT</span>
+                <span>{formatMoneyMinor(invoice.taxMinor, invoice.currency)}</span>
+              </div>
+              <div className="flex justify-between font-semibold border-t pt-2">
+                <span>Total</span>
+                <span>{formatMoneyMinor(invoice.totalMinor, invoice.currency)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Paid</span>
+                <span>{formatMoneyMinor(invoice.paidMinor, invoice.currency)}</span>
+              </div>
+              <div className="flex justify-between font-semibold text-primary">
+                <span>Outstanding</span>
+                <span>{formatMoneyMinor(outstanding, invoice.currency)}</span>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Linked work order</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 text-sm">
+              <div className="flex items-start gap-2">
+                <Wrench className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+                <div>
+                  <p className="font-medium">
+                    {invoice.context?.issueTitle || "Maintenance work"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {invoice.context?.locationLabel || "—"}
+                    {invoice.context?.workOrderStatus
+                      ? ` · ${invoice.context.workOrderStatus.replace(/_/g, " ")}`
+                      : ""}
+                  </p>
+                </div>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full"
+                onClick={() => setLocation("/maintenance?tab=work-orders")}
+              >
+                Back to work orders
+              </Button>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-base">Record payment</CardTitle>
@@ -430,7 +624,7 @@ export default function WorkOrderInvoice() {
                   <SelectContent>
                     {MAINTENANCE_PAYMENT_METHODS.map((m) => (
                       <SelectItem key={m} value={m}>
-                        {m.replace(/_/g, " ")}
+                        {MAINTENANCE_PAYMENT_METHOD_LABELS[m]}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -464,16 +658,26 @@ export default function WorkOrderInvoice() {
                 <p className="text-muted-foreground">No payments yet</p>
               ) : (
                 (invoice.payments || []).map((p) => (
-                  <div key={p.id} className="flex justify-between border-b pb-2 last:border-0">
-                    <div>
+                  <div key={p.id} className="border-b pb-2 last:border-0 space-y-0.5">
+                    <div className="flex justify-between gap-2">
                       <p className="font-medium">
                         {formatMoneyMinor(p.amountMinor, invoice.currency)}
                       </p>
-                      <p className="text-xs text-muted-foreground capitalize">
-                        {p.method.replace(/_/g, " ")} ·{" "}
-                        {new Date(p.paidAt).toLocaleDateString()}
+                      <p className="text-xs text-muted-foreground">
+                        {new Date(p.paidAt).toLocaleDateString("en-GB")}
                       </p>
                     </div>
+                    <p className="text-xs text-muted-foreground">
+                      {MAINTENANCE_PAYMENT_METHOD_LABELS[
+                        p.method as (typeof MAINTENANCE_PAYMENT_METHODS)[number]
+                      ] || p.method.replace(/_/g, " ")}
+                      {p.reference ? ` · Ref ${p.reference}` : ""}
+                    </p>
+                    {p.notes ? (
+                      <p className="text-xs text-muted-foreground whitespace-pre-wrap">
+                        {p.notes}
+                      </p>
+                    ) : null}
                   </div>
                 ))
               )}
@@ -484,3 +688,30 @@ export default function WorkOrderInvoice() {
     </div>
   );
 }
+
+const SummaryTile = ({
+  label,
+  title,
+  detail,
+  icon,
+  emphasize,
+}: {
+  label: string;
+  title: string;
+  detail?: string;
+  icon: ReactNode;
+  emphasize?: boolean;
+}) => (
+  <Card className="overflow-hidden">
+    <CardContent className="p-4 space-y-1">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
+        {icon}
+      </div>
+      <p className={cn("font-semibold leading-snug", emphasize && "text-lg text-primary")}>
+        {title}
+      </p>
+      {detail ? <p className="text-xs text-muted-foreground line-clamp-2">{detail}</p> : null}
+    </CardContent>
+  </Card>
+);

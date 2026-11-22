@@ -186,6 +186,29 @@ export const MAINTENANCE_PAYMENT_METHODS = [
   "other",
 ] as const;
 
+export const MAINTENANCE_PAYMENT_METHOD_LABELS: Record<
+  (typeof MAINTENANCE_PAYMENT_METHODS)[number],
+  string
+> = {
+  bank_transfer: "Bank Transfer",
+  cash: "Cash",
+  card: "Card",
+  cheque: "Cheque",
+  other: "Other",
+};
+
+export const MAINTENANCE_INVOICE_STATUS_LABELS: Record<string, string> = {
+  draft: "Draft",
+  sent: "Sent",
+  void: "Void",
+};
+
+export const MAINTENANCE_PAYMENT_STATUS_LABELS: Record<string, string> = {
+  unpaid: "Unpaid",
+  partially_paid: "Partially Paid",
+  paid: "Paid",
+};
+
 export const invoicePaymentCreateSchema = z.object({
   amountMinor: z.coerce.number().int().positive().max(999_999_999),
   paidAt: z.string().min(1),

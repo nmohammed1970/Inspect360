@@ -53,6 +53,8 @@ interface QuoteLinesEditorProps {
   currency: string;
   disabled?: boolean;
   onChange: (lines: EditableQuoteLine[]) => void;
+  /** Footer total label — defaults to quote wording. */
+  totalLabel?: string;
 }
 
 function newBlankLine(): EditableQuoteLine {
@@ -88,6 +90,7 @@ export const QuoteLinesEditor = ({
   currency,
   disabled,
   onChange,
+  totalLabel = "Total Proposed",
 }: QuoteLinesEditorProps) => {
   const updateAt = (index: number, patch: Partial<EditableQuoteLine>) => {
     const next = lines.map((line, i) => {
@@ -377,7 +380,7 @@ export const QuoteLinesEditor = ({
             <span>{formatMoneyMinor(totals.taxMinor, currency)}</span>
           </div>
           <div className="flex justify-between gap-8 border-t pt-1.5 text-base font-semibold">
-            <span>Total Proposed</span>
+            <span>{totalLabel}</span>
             <span data-testid="text-quote-total">
               {formatMoneyMinor(totals.totalMinor, currency)}
             </span>
