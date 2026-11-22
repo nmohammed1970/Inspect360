@@ -21,6 +21,7 @@ import {
   loadPublicWorkContext,
 } from "./publicFinanceContext";
 
+
 async function loadPublicQuote(rawToken: string) {
   const tokenRow = await findValidQuoteToken(rawToken);
   if (!tokenRow) return null;
@@ -134,7 +135,7 @@ export function registerPublicMaintenanceQuoteRoutes(app: Express) {
       if (!loaded) {
         return res.status(404).json({ message: "Link is invalid or expired" });
       }
-      const { quote } = loaded;
+      const { quote, lines } = loaded;
       if (quote.status !== "sent") {
         return res.status(409).json({ message: "This quotation is no longer awaiting a response" });
       }
@@ -184,6 +185,7 @@ export function registerPublicMaintenanceQuoteRoutes(app: Express) {
         const ownerUsers = await storage.getUsersByOrganization(quote.organizationId);
         const owners = (ownerUsers || []).filter((u: any) => u.role === "owner" && u.email);
         const baseUrl = publicAppBaseUrl(req);
+        const work = await loadPublicWorkContext(quote.workOrderId, quote.organizationId);
         for (const owner of owners.slice(0, 5)) {
           await sendQuoteCustomerResponseEmail({
             to: owner.email,
@@ -193,6 +195,13 @@ export function registerPublicMaintenanceQuoteRoutes(app: Express) {
             quoteReference: quote.quoteReference,
             decision,
             reason,
+            currency: quote.currency,
+            subtotalMinor: quote.subtotalMinor,
+            taxMinor: quote.taxMinor,
+            totalMinor: quote.totalMinor,
+            lines,
+            issueTitle: work?.issueTitle,
+            locationLabel: work?.locationLabel,
             baseUrl,
           });
         }

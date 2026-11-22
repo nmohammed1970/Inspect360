@@ -30,7 +30,21 @@ type ReceiptBlock = {
   taxMinor: number;
   totalMinor: number;
   lines: FinanceEmailLine[];
+  /** Footer total row label — quotes use "Total proposed". */
+  totalLabel?: string;
 };
+
+const OWNER_DECISION_LABELS = {
+  approve: "Approved",
+  reject: "Rejected",
+  request_changes: "Changes requested",
+} as const;
+
+const CUSTOMER_DECISION_LABELS = {
+  accept: "Accepted",
+  decline: "Declined",
+  request_changes: "Changes requested",
+} as const;
 
 function escapeHtml(value: unknown): string {
   return String(value ?? "")
@@ -92,6 +106,7 @@ function renderDetailRows(rows: DetailRow[]): string {
 
 function renderReceiptBlock(receipt: ReceiptBlock, accent: string): string {
   const totalFormatted = formatMoneyMinor(receipt.totalMinor, receipt.currency);
+  const totalLabel = receipt.totalLabel || "Total";
   const lineRows =
     receipt.lines.length === 0
       ? `<tr>
@@ -166,7 +181,7 @@ function renderReceiptBlock(receipt: ReceiptBlock, accent: string): string {
           </td>
         </tr>
         <tr>
-          <td style="padding: 10px 0 0 0; font-weight: 700; font-size: 16px; color: #1a1a1a; border-top: 1px dashed #ccc;">Total</td>
+          <td style="padding: 10px 0 0 0; font-weight: 700; font-size: 16px; color: #1a1a1a; border-top: 1px dashed #ccc;">${escapeHtml(totalLabel)}</td>
           <td style="padding: 10px 0 0 0; text-align: right; font-weight: 700; font-size: 18px; color: ${escapeHtml(accent)}; border-top: 1px dashed #ccc;">
             ${escapeHtml(totalFormatted)}
           </td>
@@ -291,9 +306,15 @@ export async function sendQuoteOwnerDecisionEmail(input: {
   workOrderId: string;
   quoteId: string;
   quoteReference: string;
-  versionNumber: number;
   decision: "approve" | "reject" | "request_changes";
   reason?: string | null;
+  currency: string;
+  subtotalMinor: number;
+  taxMinor: number;
+  totalMinor: number;
+  lines: FinanceEmailLine[] | Array<Record<string, unknown>>;
+  issueTitle?: string | null;
+  locationLabel?: string | null;
   baseUrl?: string;
 }): Promise<void> {
   const branding = await loadBranding(input.organizationId);
@@ -305,33 +326,45 @@ export async function sendQuoteOwnerDecisionEmail(input: {
   } as const;
   const intros = {
     approve:
-      "Good news — an owner has approved this quotation. You can now send it to the customer when ready.",
-    reject: "An owner has rejected this quotation. Please review the reason and create a revision if needed.",
+      "Good news — an owner has approved this quotation. You can now send it to the customer when ready. The itemised breakdown is below.",
+    reject:
+      "An owner has rejected this quotation. Please review the reason and the items below, then create a revision if needed.",
     request_changes:
-      "An owner has requested changes before this quotation can be approved. Please update the draft and resubmit.",
+      "An owner has requested changes before this quotation can be approved. Please update the draft using the notes and itemised details below, then resubmit.",
   } as const;
+  const totalLabel = formatMoneyMinor(input.totalMinor, input.currency);
 
   const html = buildFinanceEmailHtml({
     branding,
     headline: headlines[input.decision],
     greeting: "Hello,",
     intro: intros[input.decision],
-    detailTitle: "Quotation summary",
+    detailTitle: "Quotation details",
     details: [
       { label: "Reference", value: input.quoteReference },
-      { label: "Version", value: `v${input.versionNumber}` },
-      { label: "Decision", value: input.decision.replace(/_/g, " ") },
+      { label: "Decision", value: OWNER_DECISION_LABELS[input.decision] },
+      ...(input.issueTitle ? [{ label: "Work", value: input.issueTitle }] : []),
+      ...(input.locationLabel ? [{ label: "Location", value: input.locationLabel }] : []),
       ...(input.reason?.trim()
         ? [{ label: "Reason", value: input.reason.trim() }]
         : []),
     ],
+    receipt: {
+      heroLabel: "Proposed total",
+      currency: input.currency,
+      subtotalMinor: input.subtotalMinor,
+      taxMinor: input.taxMinor,
+      totalMinor: input.totalMinor,
+      lines: mapEmailLines(input.lines as FinanceEmailLine[]),
+      totalLabel: "Total proposed",
+    },
     ctaLabel: "Open quotation",
     ctaUrl: staffQuoteUrl(base, input.workOrderId, input.quoteId),
   });
 
   await sendEmail({
     to: input.to,
-    subject: `${headlines[input.decision]} — ${input.quoteReference}`,
+    subject: `${headlines[input.decision]} — ${input.quoteReference} (${totalLabel})`,
     html,
   });
 }
@@ -341,7 +374,6 @@ export async function sendQuoteToCustomerEmail(input: {
   recipientName?: string | null;
   organizationId: string;
   quoteReference: string;
-  versionNumber: number;
   currency: string;
   subtotalMinor: number;
   taxMinor: number;
@@ -381,7 +413,7 @@ export async function sendQuoteToCustomerEmail(input: {
     introExtra,
     detailTitle: "Quotation details",
     details: [
-      { label: "Reference", value: `${input.quoteReference} · v${input.versionNumber}` },
+      { label: "Reference", value: input.quoteReference },
       ...(input.issueTitle ? [{ label: "Work", value: input.issueTitle }] : []),
       ...(input.locationLabel ? [{ label: "Location", value: input.locationLabel }] : []),
       ...(expiryLine ? [{ label: "Link expires", value: expiryLine }] : []),
@@ -393,6 +425,7 @@ export async function sendQuoteToCustomerEmail(input: {
       taxMinor: input.taxMinor,
       totalMinor: input.totalMinor,
       lines: mapEmailLines(input.lines as FinanceEmailLine[]),
+      totalLabel: "Total proposed",
     },
     note: expiryLine
       ? `Please respond before the link expires on ${expiryLine}.`
@@ -417,6 +450,13 @@ export async function sendQuoteCustomerResponseEmail(input: {
   quoteReference: string;
   decision: "accept" | "decline" | "request_changes";
   reason?: string | null;
+  currency: string;
+  subtotalMinor: number;
+  taxMinor: number;
+  totalMinor: number;
+  lines: FinanceEmailLine[] | Array<Record<string, unknown>>;
+  issueTitle?: string | null;
+  locationLabel?: string | null;
   baseUrl?: string;
 }): Promise<void> {
   const branding = await loadBranding(input.organizationId);
@@ -428,33 +468,45 @@ export async function sendQuoteCustomerResponseEmail(input: {
   } as const;
   const intros = {
     accept:
-      "The customer has accepted this quotation. Work can now be authorised and you may convert it to an invoice when ready.",
+      "The customer has accepted this quotation. Work can now be authorised and you may convert it to an invoice when ready. The accepted items are summarised below.",
     decline:
-      "The customer has declined this quotation. Review their feedback and create a revision if appropriate.",
+      "The customer has declined this quotation. Review their feedback and the itemised details below, then create a revision if appropriate.",
     request_changes:
-      "The customer has asked for changes. Please revise the quotation, resubmit for owner approval, then send again.",
+      "The customer has asked for changes. Please revise the quotation using their note and the itemised details below, resubmit for owner approval, then send again.",
   } as const;
+  const totalLabel = formatMoneyMinor(input.totalMinor, input.currency);
 
   const html = buildFinanceEmailHtml({
     branding,
     headline: headlines[input.decision],
     greeting: "Hello,",
     intro: intros[input.decision],
-    detailTitle: "Response summary",
+    detailTitle: "Quotation details",
     details: [
       { label: "Reference", value: input.quoteReference },
-      { label: "Customer decision", value: input.decision.replace(/_/g, " ") },
+      { label: "Customer decision", value: CUSTOMER_DECISION_LABELS[input.decision] },
+      ...(input.issueTitle ? [{ label: "Work", value: input.issueTitle }] : []),
+      ...(input.locationLabel ? [{ label: "Location", value: input.locationLabel }] : []),
       ...(input.reason?.trim()
         ? [{ label: "Their note", value: input.reason.trim() }]
         : []),
     ],
+    receipt: {
+      heroLabel: "Proposed total",
+      currency: input.currency,
+      subtotalMinor: input.subtotalMinor,
+      taxMinor: input.taxMinor,
+      totalMinor: input.totalMinor,
+      lines: mapEmailLines(input.lines as FinanceEmailLine[]),
+      totalLabel: "Total proposed",
+    },
     ctaLabel: "Open quotation",
     ctaUrl: staffQuoteUrl(base, input.workOrderId, input.quoteId),
   });
 
   await sendEmail({
     to: input.to,
-    subject: `${headlines[input.decision]} — ${input.quoteReference}`,
+    subject: `${headlines[input.decision]} — ${input.quoteReference} (${totalLabel})`,
     html,
   });
 }
@@ -510,6 +562,7 @@ export async function sendInvoiceToCustomerEmail(input: {
       taxMinor: input.taxMinor,
       totalMinor: input.totalMinor,
       lines: mapEmailLines(input.lines as FinanceEmailLine[]),
+      totalLabel: "Total",
     },
     note: "If you have questions about this invoice, please contact the organisation using the details below.",
     ctaLabel: "View invoice",
@@ -532,4 +585,6 @@ export const __test = {
   loadBranding,
   mapEmailLines,
   vatLabel,
+  OWNER_DECISION_LABELS,
+  CUSTOMER_DECISION_LABELS,
 };

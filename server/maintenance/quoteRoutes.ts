@@ -724,6 +724,9 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
           payload: { quoteId: quote.id, decision, nextStatus },
         });
 
+        const lines = await loadLines(quote.id);
+        const ctx = await loadWoContext(quote.workOrderId, organizationId);
+
         // Best-effort notify preparer
         try {
           const preparer = await storage.getUser(quote.preparedByUserId);
@@ -734,9 +737,15 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
               workOrderId: quote.workOrderId,
               quoteId: quote.id,
               quoteReference: quote.quoteReference,
-              versionNumber: quote.versionNumber,
               decision,
               reason,
+              currency: quote.currency,
+              subtotalMinor: quote.subtotalMinor,
+              taxMinor: quote.taxMinor,
+              totalMinor: quote.totalMinor,
+              lines,
+              issueTitle: ctx?.issueTitle,
+              locationLabel: ctx?.locationLabel,
               baseUrl: publicAppBaseUrl(req),
             });
           }
@@ -744,7 +753,6 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
           console.warn("[quotes] owner-decision email failed:", emailErr);
         }
 
-        const lines = await loadLines(quote.id);
         res.json(serializeQuote(updated, lines));
       } catch (error: any) {
         console.error("[quotes] owner-decision failed:", error);
@@ -833,7 +841,6 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
             recipientName: quote.recipientName,
             organizationId,
             quoteReference: quote.quoteReference,
-            versionNumber: quote.versionNumber,
             currency: quote.currency,
             subtotalMinor: updated.subtotalMinor,
             taxMinor: updated.taxMinor,
@@ -931,7 +938,6 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
             recipientName: quote.recipientName,
             organizationId,
             quoteReference: quote.quoteReference,
-            versionNumber: quote.versionNumber,
             currency: quote.currency,
             subtotalMinor: updated.subtotalMinor,
             taxMinor: updated.taxMinor,
