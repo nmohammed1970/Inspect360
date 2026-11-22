@@ -97,6 +97,28 @@ async function loadLines(invoiceId: string) {
     .orderBy(asc(maintenanceInvoiceLines.sortOrder));
 }
 
+async function loadInvoiceWoContext(workOrderId: string, organizationId: string) {
+  const workOrder = await storage.getWorkOrder(workOrderId);
+  if (!workOrder || workOrder.organizationId !== organizationId) return null;
+  const request = await storage.getMaintenanceRequest(workOrder.maintenanceRequestId);
+  let property: Awaited<ReturnType<typeof storage.getProperty>> | null = null;
+  let block: Awaited<ReturnType<typeof storage.getBlock>> | null = null;
+  if (request?.propertyId) {
+    property = (await storage.getProperty(request.propertyId)) || null;
+    if (property?.blockId) {
+      block = (await storage.getBlock(property.blockId)) || null;
+    }
+  }
+  if (request?.blockId && !block) {
+    block = (await storage.getBlock(request.blockId)) || null;
+  }
+  return {
+    issueTitle: request?.title || "Maintenance work",
+    locationLabel:
+      property?.name || property?.address || block?.name || "Work order location",
+  };
+}
+
 async function refreshPaymentStatus(invoice: MaintenanceInvoice) {
   const payments = await db
     .select()
@@ -340,6 +362,7 @@ export function registerMaintenanceInvoiceRoutes(app: Express) {
         });
 
         const lines = await loadLines(invoice.id);
+        const ctx = await loadInvoiceWoContext(invoice.workOrderId, orgId(req));
         let emailSent = false;
         let emailError: string | null = null;
         try {
@@ -353,9 +376,14 @@ export function registerMaintenanceInvoiceRoutes(app: Express) {
             invoiceId: invoice.id,
             invoiceReference: invoice.invoiceReference,
             currency: invoice.currency,
+            subtotalMinor: updated.subtotalMinor,
+            taxMinor: updated.taxMinor,
             totalMinor: updated.totalMinor,
+            lines,
             dueAt: updated.dueAt,
             publicLink: link,
+            issueTitle: ctx?.issueTitle,
+            locationLabel: ctx?.locationLabel,
             attachments: [{ filename: pdf.filename, content: pdf.buffer }],
             baseUrl: publicAppBaseUrl(req),
           });

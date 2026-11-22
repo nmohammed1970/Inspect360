@@ -1,3 +1,4 @@
+import { MAINTENANCE_PRICE_BOOK_VAT_LABELS } from "@shared/maintenancePriceBookConstants";
 import { sendEmail } from "../resend";
 import { storage } from "../storage";
 import { publicAppBaseUrl } from "./quoteLifecycle";
@@ -11,6 +12,25 @@ type Branding = {
 };
 
 type DetailRow = { label: string; value: string };
+
+export type FinanceEmailLine = {
+  name: string;
+  description?: string | null;
+  quantity: number | string;
+  unitPriceMinor: number;
+  vatRate: string;
+  lineNetMinor: number;
+  lineTotalMinor: number;
+};
+
+type ReceiptBlock = {
+  heroLabel: string;
+  currency: string;
+  subtotalMinor: number;
+  taxMinor: number;
+  totalMinor: number;
+  lines: FinanceEmailLine[];
+};
 
 function escapeHtml(value: unknown): string {
   return String(value ?? "")
@@ -40,6 +60,12 @@ function formatMoneyMinor(minor: number, currency: string): string {
   }
 }
 
+function vatLabel(vatRate: string): string {
+  return (
+    (MAINTENANCE_PRICE_BOOK_VAT_LABELS as Record<string, string>)[vatRate] || vatRate
+  );
+}
+
 async function loadBranding(organizationId: string): Promise<Branding> {
   const org = await storage.getOrganization(organizationId);
   return {
@@ -64,13 +90,100 @@ function renderDetailRows(rows: DetailRow[]): string {
     .join("");
 }
 
+function renderReceiptBlock(receipt: ReceiptBlock, accent: string): string {
+  const totalFormatted = formatMoneyMinor(receipt.totalMinor, receipt.currency);
+  const lineRows =
+    receipt.lines.length === 0
+      ? `<tr>
+          <td colspan="4" style="padding: 14px; color: #888; text-align: center; font-size: 14px;">
+            No line items
+          </td>
+        </tr>`
+      : receipt.lines
+          .map((line) => {
+            const desc = (line.description || "").trim();
+            const vat = vatLabel(String(line.vatRate || ""));
+            return `<tr>
+              <td style="padding: 12px; border-bottom: 1px solid #eee; vertical-align: top;">
+                <div style="font-weight: 600; color: #1a1a1a; font-size: 14px;">${escapeHtml(line.name || "Item")}</div>
+                ${desc ? `<div style="font-size: 12px; color: #888; margin-top: 2px;">${escapeHtml(desc)}</div>` : ""}
+                <div style="font-size: 11px; color: #aaa; margin-top: 2px;">${escapeHtml(vat)}</div>
+              </td>
+              <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: center; vertical-align: top; font-size: 14px; color: #333;">
+                ${escapeHtml(String(line.quantity))}
+              </td>
+              <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right; vertical-align: top; font-size: 14px; color: #333; white-space: nowrap;">
+                ${escapeHtml(formatMoneyMinor(line.unitPriceMinor, receipt.currency))}
+              </td>
+              <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right; vertical-align: top; font-size: 14px; font-weight: 600; color: #1a1a1a; white-space: nowrap;">
+                ${escapeHtml(formatMoneyMinor(line.lineNetMinor, receipt.currency))}
+              </td>
+            </tr>`;
+          })
+          .join("");
+
+  return `
+    <div style="background: linear-gradient(135deg, ${escapeHtml(accent)} 0%, #3B7A8C 100%); color: #ffffff; padding: 24px; border-radius: 8px; margin-bottom: 24px; text-align: center;">
+      <p style="margin: 0 0 8px 0; font-size: 13px; opacity: 0.9; text-transform: uppercase; letter-spacing: 1px;">
+        ${escapeHtml(receipt.heroLabel)}
+      </p>
+      <p style="margin: 0; font-size: 36px; font-weight: 700; line-height: 1.2;">
+        ${escapeHtml(totalFormatted)}
+      </p>
+    </div>
+
+    <div style="margin-bottom: 24px;">
+      <h2 style="margin: 0 0 12px 0; font-size: 14px; font-weight: 700; color: ${escapeHtml(accent)}; text-transform: uppercase; letter-spacing: 0.5px;">
+        Itemised breakdown
+      </h2>
+      <table style="width: 100%; border-collapse: collapse; background-color: #fff; border: 1px solid #e5e5e5; border-radius: 8px; overflow: hidden;">
+        <thead>
+          <tr style="background-color: #f9fafb;">
+            <th style="padding: 10px 12px; text-align: left; font-size: 11px; text-transform: uppercase; color: #666; font-weight: 600;">Item</th>
+            <th style="padding: 10px 12px; text-align: center; font-size: 11px; text-transform: uppercase; color: #666; font-weight: 600;">Qty</th>
+            <th style="padding: 10px 12px; text-align: right; font-size: 11px; text-transform: uppercase; color: #666; font-weight: 600;">Unit</th>
+            <th style="padding: 10px 12px; text-align: right; font-size: 11px; text-transform: uppercase; color: #666; font-weight: 600;">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${lineRows}
+        </tbody>
+      </table>
+    </div>
+
+    <div style="background-color: #f0fdfa; border: 1px solid ${escapeHtml(accent)}; padding: 16px 20px; border-radius: 8px; margin-bottom: 24px;">
+      <table style="width: 100%; border-collapse: collapse;">
+        <tr>
+          <td style="padding: 6px 0; color: #666; font-size: 14px;">Subtotal</td>
+          <td style="padding: 6px 0; text-align: right; font-weight: 600; font-size: 14px; color: #333;">
+            ${escapeHtml(formatMoneyMinor(receipt.subtotalMinor, receipt.currency))}
+          </td>
+        </tr>
+        <tr>
+          <td style="padding: 6px 0; color: #666; font-size: 14px;">VAT</td>
+          <td style="padding: 6px 0; text-align: right; font-weight: 600; font-size: 14px; color: #333;">
+            ${escapeHtml(formatMoneyMinor(receipt.taxMinor, receipt.currency))}
+          </td>
+        </tr>
+        <tr>
+          <td style="padding: 10px 0 0 0; font-weight: 700; font-size: 16px; color: #1a1a1a; border-top: 1px dashed #ccc;">Total</td>
+          <td style="padding: 10px 0 0 0; text-align: right; font-weight: 700; font-size: 18px; color: ${escapeHtml(accent)}; border-top: 1px dashed #ccc;">
+            ${escapeHtml(totalFormatted)}
+          </td>
+        </tr>
+      </table>
+    </div>`;
+}
+
 function buildFinanceEmailHtml(input: {
   branding: Branding;
   headline: string;
   greeting: string;
   intro: string;
+  introExtra?: string | null;
   detailTitle?: string;
   details: DetailRow[];
+  receipt?: ReceiptBlock | null;
   note?: string | null;
   ctaLabel?: string | null;
   ctaUrl?: string | null;
@@ -92,6 +205,14 @@ function buildFinanceEmailHtml(input: {
       : "";
 
   const contactBits = [branding.email, branding.phone].filter(Boolean).join(" · ");
+  const receiptHtml = input.receipt ? renderReceiptBlock(input.receipt, accent) : "";
+  const detailsHtml =
+    input.details.length > 0
+      ? `<div style="background-color: #f8f9fa; border-left: 4px solid ${escapeHtml(accent)}; padding: 20px; border-radius: 4px; margin-bottom: 24px;">
+          ${input.detailTitle ? `<h2 style="margin: 0 0 16px 0; font-size: 16px; font-weight: 600; color: #1a1a1a;">${escapeHtml(input.detailTitle)}</h2>` : ""}
+          ${renderDetailRows(input.details)}
+        </div>`
+      : "";
 
   return `<!DOCTYPE html>
 <html>
@@ -111,12 +232,11 @@ function buildFinanceEmailHtml(input: {
     </div>
 
     <p style="margin: 0 0 12px 0; font-size: 16px;">${escapeHtml(input.greeting)}</p>
-    <p style="margin: 0 0 24px 0; font-size: 16px; color: #444;">${escapeHtml(input.intro)}</p>
+    <p style="margin: 0 0 12px 0; font-size: 16px; color: #444;">${escapeHtml(input.intro)}</p>
+    ${input.introExtra ? `<p style="margin: 0 0 24px 0; font-size: 15px; color: #555;">${escapeHtml(input.introExtra)}</p>` : `<div style="margin-bottom: 12px;"></div>`}
 
-    <div style="background-color: #f8f9fa; border-left: 4px solid ${escapeHtml(accent)}; padding: 20px; border-radius: 4px; margin-bottom: 24px;">
-      ${input.detailTitle ? `<h2 style="margin: 0 0 16px 0; font-size: 16px; font-weight: 600; color: #1a1a1a;">${escapeHtml(input.detailTitle)}</h2>` : ""}
-      ${renderDetailRows(input.details)}
-    </div>
+    ${receiptHtml}
+    ${detailsHtml}
 
     ${input.note ? `<p style="margin: 0 0 8px 0; font-size: 14px; color: #555;">${escapeHtml(input.note)}</p>` : ""}
     ${cta}
@@ -133,6 +253,28 @@ function buildFinanceEmailHtml(input: {
   </div>
 </body>
 </html>`;
+}
+
+function mapEmailLines(
+  lines: Array<{
+    name?: string | null;
+    description?: string | null;
+    quantity?: number | string | null;
+    unitPriceMinor?: number | null;
+    vatRate?: string | null;
+    lineNetMinor?: number | null;
+    lineTotalMinor?: number | null;
+  }>,
+): FinanceEmailLine[] {
+  return lines.map((line) => ({
+    name: (line.name || "").trim() || "Item",
+    description: line.description ?? null,
+    quantity: line.quantity == null ? 0 : line.quantity,
+    unitPriceMinor: Number(line.unitPriceMinor) || 0,
+    vatRate: String(line.vatRate || "standard_20"),
+    lineNetMinor: Number(line.lineNetMinor) || 0,
+    lineTotalMinor: Number(line.lineTotalMinor) || 0,
+  }));
 }
 
 function staffQuoteUrl(
@@ -201,7 +343,10 @@ export async function sendQuoteToCustomerEmail(input: {
   quoteReference: string;
   versionNumber: number;
   currency: string;
+  subtotalMinor: number;
+  taxMinor: number;
   totalMinor: number;
+  lines: FinanceEmailLine[] | Array<Record<string, unknown>>;
   publicLink: string;
   expiresAt?: Date | null;
   isResend?: boolean;
@@ -214,41 +359,51 @@ export async function sendQuoteToCustomerEmail(input: {
   const headline = input.isResend
     ? "Updated quotation for your review"
     : "Quotation ready for your review";
+  const totalLabel = formatMoneyMinor(input.totalMinor, input.currency);
   const intro = input.isResend
-    ? `${branding.displayName} has sent an updated quotation. Please review the details and respond using the button below. A PDF copy is attached.`
-    : `${branding.displayName} has prepared a quotation for your review. Please check the details and respond using the button below. A PDF copy is attached for your records.`;
+    ? `${branding.displayName} has sent an updated quotation (${input.quoteReference}). Please review the revised itemised breakdown and proposed total of ${totalLabel} below.`
+    : `${branding.displayName} has prepared a quotation (${input.quoteReference}) for your review. The itemised work and proposed total of ${totalLabel} are summarised below.`;
+  const introExtra =
+    "A PDF copy is attached for your records. You can accept, decline, or request changes using the secure link — no login required.";
+
+  const expiryLine = input.expiresAt
+    ? input.expiresAt.toLocaleString("en-GB", {
+        dateStyle: "medium",
+        timeStyle: "short",
+      })
+    : null;
 
   const html = buildFinanceEmailHtml({
     branding,
     headline,
     greeting: `Hello ${name},`,
     intro,
+    introExtra,
     detailTitle: "Quotation details",
     details: [
       { label: "Reference", value: `${input.quoteReference} · v${input.versionNumber}` },
-      { label: "Proposed total", value: formatMoneyMinor(input.totalMinor, input.currency) },
       ...(input.issueTitle ? [{ label: "Work", value: input.issueTitle }] : []),
       ...(input.locationLabel ? [{ label: "Location", value: input.locationLabel }] : []),
-      ...(input.expiresAt
-        ? [
-            {
-              label: "Link expires",
-              value: input.expiresAt.toLocaleString("en-GB", {
-                dateStyle: "medium",
-                timeStyle: "short",
-              }),
-            },
-          ]
-        : []),
+      ...(expiryLine ? [{ label: "Link expires", value: expiryLine }] : []),
     ],
-    note: "You can accept, decline, or request changes on the secure page — no login required.",
+    receipt: {
+      heroLabel: "Proposed total",
+      currency: input.currency,
+      subtotalMinor: input.subtotalMinor,
+      taxMinor: input.taxMinor,
+      totalMinor: input.totalMinor,
+      lines: mapEmailLines(input.lines as FinanceEmailLine[]),
+    },
+    note: expiryLine
+      ? `Please respond before the link expires on ${expiryLine}.`
+      : "Please review and respond at your earliest convenience.",
     ctaLabel: "View & respond",
     ctaUrl: input.publicLink,
   });
 
   await sendEmail({
     to: input.to,
-    subject: `${headline} — ${input.quoteReference}`,
+    subject: `${headline} — ${input.quoteReference} (${totalLabel})`,
     html,
     attachments: input.attachments,
   });
@@ -312,42 +467,58 @@ export async function sendInvoiceToCustomerEmail(input: {
   invoiceId: string;
   invoiceReference: string;
   currency: string;
+  subtotalMinor: number;
+  taxMinor: number;
   totalMinor: number;
+  lines: FinanceEmailLine[] | Array<Record<string, unknown>>;
   dueAt?: Date | null;
   publicLink: string;
+  locationLabel?: string | null;
+  issueTitle?: string | null;
   attachments?: Array<{ filename: string; content: Buffer }>;
   baseUrl?: string;
 }): Promise<void> {
   const branding = await loadBranding(input.organizationId);
   const name = (input.recipientName || "").trim() || "there";
   const headline = `Invoice from ${branding.displayName}`;
+  const totalLabel = formatMoneyMinor(input.totalMinor, input.currency);
+  const dueLine = input.dueAt
+    ? input.dueAt.toLocaleDateString("en-GB", { dateStyle: "medium" })
+    : null;
+
+  const intro = `Please find your invoice ${input.invoiceReference} from ${branding.displayName}. The amount due is ${totalLabel}${dueLine ? `, payable by ${dueLine}` : ""}.`;
+  const introExtra =
+    "The itemised charges are summarised below, and a PDF copy is attached for your records. You can also view the full invoice online.";
 
   const html = buildFinanceEmailHtml({
     branding,
     headline,
     greeting: `Hello ${name},`,
-    intro: `Please find your invoice from ${branding.displayName}. A PDF copy is attached, and you can also view it online using the button below.`,
+    intro,
+    introExtra,
     detailTitle: "Invoice details",
     details: [
       { label: "Invoice", value: input.invoiceReference },
-      { label: "Amount due", value: formatMoneyMinor(input.totalMinor, input.currency) },
-      ...(input.dueAt
-        ? [
-            {
-              label: "Due by",
-              value: input.dueAt.toLocaleDateString("en-GB", { dateStyle: "medium" }),
-            },
-          ]
-        : []),
+      ...(input.issueTitle ? [{ label: "Work", value: input.issueTitle }] : []),
+      ...(input.locationLabel ? [{ label: "Location", value: input.locationLabel }] : []),
+      ...(dueLine ? [{ label: "Due by", value: dueLine }] : []),
     ],
-    note: "If you have questions about this invoice, please reply to the organisation contact listed below.",
+    receipt: {
+      heroLabel: "Amount due",
+      currency: input.currency,
+      subtotalMinor: input.subtotalMinor,
+      taxMinor: input.taxMinor,
+      totalMinor: input.totalMinor,
+      lines: mapEmailLines(input.lines as FinanceEmailLine[]),
+    },
+    note: "If you have questions about this invoice, please contact the organisation using the details below.",
     ctaLabel: "View invoice",
     ctaUrl: input.publicLink,
   });
 
   await sendEmail({
     to: input.to,
-    subject: `${headline} — ${input.invoiceReference}`,
+    subject: `${headline} — ${input.invoiceReference} (${totalLabel})`,
     html,
     attachments: input.attachments,
   });
@@ -359,4 +530,6 @@ export const __test = {
   formatMoneyMinor,
   buildFinanceEmailHtml,
   loadBranding,
+  mapEmailLines,
+  vatLabel,
 };
