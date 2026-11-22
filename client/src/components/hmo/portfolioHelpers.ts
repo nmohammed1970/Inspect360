@@ -101,8 +101,10 @@ export function needsVerify(p: PortfolioProfile): boolean {
 
 export function isUrgent(p: PortfolioProfile): boolean {
   if ((p.urgentCount || 0) > 0) return true;
+  if ((p.highCount || 0) > 0) return true;
   if (p.overallStatus === "CRITICAL_EXCEPTION") return true;
-  if (String(p.alertSeverity || "").toUpperCase() === "CRITICAL") return true;
+  const sev = String(p.alertSeverity || "").toUpperCase();
+  if (sev === "CRITICAL" || sev === "HIGH") return true;
   return false;
 }
 
@@ -215,7 +217,8 @@ export function sortProfiles(
 export function suggestedNextAction(p: PortfolioProfile, asOf = Date.now()): string {
   if (p.nextAction?.trim()) return p.nextAction.trim();
   if (p.alertProblem?.trim()) return p.alertProblem.trim();
-  if (isUrgent(p)) return "Review urgent inspection findings";
+  if (isUrgent(p)) return "Review urgent maintenance alerts";
+  if ((p.openFindingCount || p.alertCount || 0) > 0) return "Review open maintenance alerts";
   if (inspectionOverdue(p)) return "Book overdue HMO inspection";
   if (isLicenceExpired(p, asOf)) return "Confirm current licence position";
   if (p.occupancyMismatch) return "Investigate occupancy exception";

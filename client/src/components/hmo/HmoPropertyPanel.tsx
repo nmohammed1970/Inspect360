@@ -103,6 +103,14 @@ function isOpenMaintenanceStatus(status: string | null | undefined): boolean {
   return !["completed", "closed", "cancelled", "canceled", "resolved", "done"].includes(s);
 }
 
+/** Drop legacy "HMO: ROOM-01 — …" / "HMO: LIC-03 — …" check-id prefixes from alert titles. */
+function displayMaintenanceTitle(title: string | null | undefined): string {
+  const raw = String(title || "").trim();
+  if (!raw) return "Maintenance alert";
+  const stripped = raw.replace(/^HMO:\s*[A-Z]{2,12}-?\d*\s*[—\-–:]\s*/i, "").trim();
+  return stripped || raw;
+}
+
 function priorityTone(priority: string | null | undefined): "urgent" | "medium" | "low" {
   const p = String(priority || "").toLowerCase();
   if (p === "urgent" || p === "critical" || p === "high") return "urgent";
@@ -1212,7 +1220,9 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
                           )}
                         />
                         <div className="min-w-0 space-y-0.5">
-                          <p className="font-medium text-slate-900 text-sm">{m.title}</p>
+                          <p className="font-medium text-slate-900 text-sm">
+                            {displayMaintenanceTitle(m.title)}
+                          </p>
                           <p className="text-sm font-normal text-[#5B6470] truncate">
                             {[
                               linkedInsp
@@ -1406,7 +1416,9 @@ export function HmoPropertyPanel({ propertyId }: { propertyId: string }) {
                             )}
                           />
                           <div className="min-w-0 space-y-0.5">
-                            <p className="font-medium text-slate-900 text-sm">{m.title}</p>
+                            <p className="font-medium text-slate-900 text-sm">
+                              {displayMaintenanceTitle(m.title)}
+                            </p>
                             <p className="text-sm font-normal text-[#5B6470] truncate">
                               {[
                                 m.category,

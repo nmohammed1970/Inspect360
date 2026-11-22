@@ -28,7 +28,6 @@ import { ObjectUploader } from "@/components/ObjectUploader";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
   ArrowLeft,
-  Building2,
   Users,
   ClipboardCheck,
   Package,
@@ -49,11 +48,6 @@ import {
   Banknote,
   Receipt,
   LayoutDashboard,
-  BedDouble,
-  Bath,
-  CookingPot,
-  Sofa,
-  FileText,
   ShieldAlert,
   ChevronDown,
 } from "lucide-react";
@@ -66,7 +60,7 @@ import { useLocale } from "@/contexts/LocaleContext";
 import { MapPreview } from "@/components/MapPreview";
 import AddTenantDialog from "@/components/AddTenantDialog";
 import { cn } from "@/lib/utils";
-import { pagePad, dialogContentBase, formGrid2, textBreak, tabsListScroll } from "@/lib/responsive";
+import { pagePad, dialogContentBase, formGrid2, textBreak, tabsListScroll, tabTriggerResponsive } from "@/lib/responsive";
 import {
   defaultLengthUnitForCountry,
   defaultAreaUnitForCountry,
@@ -75,6 +69,14 @@ import {
   fromMillimetres,
   looksLikeAreaOnlyDimensions,
 } from "@shared/propertyRooms";
+import { PropertyOverviewFacts } from "@/components/property/PropertyOverviewFacts";
+import { PropertyLayoutSummary } from "@/components/property/PropertyLayoutSummary";
+import { PropertyFloorPlanPanel } from "@/components/property/PropertyFloorPlanPanel";
+import {
+  PropertyRoomsAreas,
+  type PropertyOverviewRoom,
+} from "@/components/property/PropertyRoomsAreas";
+import { overviewCardClass } from "@/components/property/overviewChrome";
 
 interface Property {
   id: string;
@@ -343,22 +345,13 @@ export default function PropertyDetail() {
     enabled: !!propertyId,
   });
 
-  type OverviewRoom = {
-    id: string;
-    name: string;
-    categoryName: string;
-    widthMm?: number | null;
-    lengthMm?: number | null;
-    ceilingHeightMm?: number | null;
-    hasDetails: boolean;
-  };
-
-  const overviewRooms = useMemo<OverviewRoom[]>(() => {
+  const overviewRooms = useMemo<PropertyOverviewRoom[]>(() => {
     if (propertyRooms.length > 0) {
       return propertyRooms.map((room) => ({
         id: room.id,
         name: room.name,
         categoryName: room.categoryName,
+        categorySlug: room.categorySlug,
         widthMm: room.widthMm,
         lengthMm: room.lengthMm,
         ceilingHeightMm: room.ceilingHeightMm,
@@ -366,26 +359,27 @@ export default function PropertyDetail() {
       }));
     }
     if (!property) return [];
-    const fromCounts: OverviewRoom[] = [];
-    const pushCount = (label: string, count: number) => {
+    const fromCounts: PropertyOverviewRoom[] = [];
+    const pushCount = (label: string, count: number, slug: string) => {
       for (let i = 1; i <= count; i++) {
         fromCounts.push({
           id: `layout-${label}-${i}`,
           name: `${label} ${i}`,
           categoryName: label,
+          categorySlug: slug,
           hasDetails: false,
         });
       }
     };
-    pushCount("Bedroom", property.bedrooms ?? 1);
-    pushCount("Bathroom", property.bathrooms ?? 1);
-    pushCount("Kitchen", property.kitchens ?? 1);
-    pushCount("Living room", property.livingRooms ?? 1);
+    pushCount("Bedroom", property.bedrooms ?? 1, "bedroom");
+    pushCount("Bathroom", property.bathrooms ?? 1, "bathroom");
+    pushCount("Kitchen", property.kitchens ?? 1, "kitchen");
+    pushCount("Living room", property.livingRooms ?? 1, "living-room");
     return fromCounts;
   }, [propertyRooms, property]);
 
   const overviewRoomSections = useMemo(() => {
-    const sections = new Map<string, OverviewRoom[]>();
+    const sections = new Map<string, PropertyOverviewRoom[]>();
     for (const room of overviewRooms) {
       const key = room.categoryName || "Other";
       const list = sections.get(key) || [];
@@ -396,7 +390,7 @@ export default function PropertyDetail() {
   }, [overviewRooms]);
 
   const formatRoomDimensions = (
-    room: Pick<OverviewRoom, "widthMm" | "lengthMm" | "ceilingHeightMm">,
+    room: Pick<PropertyOverviewRoom, "widthMm" | "lengthMm" | "ceilingHeightMm">,
   ) => {
     const formatSide = (mm: number | null | undefined) => {
       if (lengthUnit === "ft") {
@@ -409,7 +403,11 @@ export default function PropertyDetail() {
     const w = formatSide(room.widthMm);
     const l = formatSide(room.lengthMm);
     const area = formatFloorArea(room.widthMm, room.lengthMm, areaUnit);
-    if (w == null || l == null) return area;
+    // Area-only plans: show area on the dimensions line (no fabricated W×L)
+    if (looksLikeAreaOnlyDimensions(room.widthMm, room.lengthMm) && area) {
+      return area;
+    }
+    if (w == null || l == null) return null;
     const ceiling =
       lengthUnit === "ft"
         ? formatMillimetresAsFeetInches(room.ceilingHeightMm) || null
@@ -417,16 +415,16 @@ export default function PropertyDetail() {
             const v = fromMillimetres(room.ceilingHeightMm, lengthUnit);
             return v == null ? null : `${v} ${lengthUnitLabel}`;
           })();
-    const parts: string[] = [];
-    // Prefer m² / ft² when the plan only printed area (equal sides stored from √area)
-    if (looksLikeAreaOnlyDimensions(room.widthMm, room.lengthMm) && area) {
-      parts.push(area);
-    } else {
-      parts.push(`${w} × ${l}`);
-      if (area) parts.push(area);
-    }
+    const parts = [`${w} × ${l}`];
     if (ceiling) parts.push(`Ceiling ${ceiling}`);
     return parts.join(" · ");
+  };
+
+  const formatRoomAreaOnly = (
+    room: Pick<PropertyOverviewRoom, "widthMm" | "lengthMm">,
+  ) => {
+    if (looksLikeAreaOnlyDimensions(room.widthMm, room.lengthMm)) return null;
+    return formatFloorArea(room.widthMm, room.lengthMm, areaUnit);
   };
 
   const { data: inspections = [] } = useQuery<Inspection[]>({
@@ -579,23 +577,36 @@ export default function PropertyDetail() {
 
       {/* Property Header */}
       <div className="space-y-4">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className={cn("space-y-2 flex-1", textBreak)}>
-            <h1 className="text-xl md:text-2xl lg:text-3xl font-bold flex items-center gap-2 md:gap-3" data-testid="heading-property-name">
-              <Building2 className="h-5 w-5 md:h-6 md:w-6 lg:h-8 lg:w-8 text-primary shrink-0" />
-              <span className="truncate">{property.name}</span>
-            </h1>
-            <div className="flex items-center gap-2 text-xs md:text-sm text-muted-foreground">
-              <MapPin className="h-3 w-3 md:h-4 md:w-4 shrink-0" />
-              <span className="truncate" data-testid="text-property-address">{property.address}</span>
-            </div>
-            {property.blockName && (
-              <div className="flex items-center gap-2">
-                <Badge variant="outline" data-testid="badge-block">
-                  Block: {property.blockName}
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className={cn("min-w-0 flex-1 space-y-3", textBreak)}>
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h1
+                className="text-2xl font-bold tracking-tight text-foreground md:text-3xl lg:text-[2rem] lg:leading-tight"
+                data-testid="heading-property-name"
+              >
+                {property.name}
+              </h1>
+              {tenanciesEnabled && (
+                <Badge
+                  variant={occupancyLabel === "Occupied" ? "success" : "secondary"}
+                  className="px-2.5 py-0.5 text-xs font-semibold"
+                  data-testid="badge-occupancy-header"
+                >
+                  {occupancyLabel}
                 </Badge>
-              </div>
-            )}
+              )}
+              {property.blockName && (
+                <Badge variant="outline" data-testid="badge-block" className="font-medium">
+                  {property.blockName}
+                </Badge>
+              )}
+            </div>
+            <div className="flex items-start gap-2 text-sm text-muted-foreground md:text-[15px]">
+              <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-primary/80" />
+              <span className="min-w-0 break-words" data-testid="text-property-address">
+                {property.address}
+              </span>
+            </div>
             {canSeeReapitSource && reapitMapping && (
               <p className="text-xs text-muted-foreground" data-testid="text-reapit-source">
                 Source: Reapit
@@ -605,19 +616,21 @@ export default function PropertyDetail() {
               </p>
             )}
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
             <Link href={`/reports/property-history?propertyId=${property.id}`}>
-              <Button variant="outline" data-testid="button-property-history-report">
-                <History className="h-4 w-4 mr-2" />
-                Property History Report
+              <Button variant="outline" className="gap-2" data-testid="button-property-history-report">
+                <History className="h-4 w-4" />
+                <span className="hidden sm:inline">Property History</span>
+                <span className="sm:hidden">History</span>
               </Button>
             </Link>
             <Button
-              variant="outline"
+              variant="brand"
+              className="gap-2"
               onClick={() => setEditDialogOpen(true)}
               data-testid="button-edit-property"
             >
-              <Pencil className="h-4 w-4 mr-2" />
+              <Pencil className="h-4 w-4" />
               Edit Property
             </Button>
           </div>
@@ -642,7 +655,7 @@ export default function PropertyDetail() {
           <CollapsibleContent>
             <div className={formGrid2}>
               {/* Property Image with Upload — opens media picker directly */}
-              <Card className="overflow-hidden">
+              <Card className={cn(overviewCardClass, "overflow-hidden")}>
                 {property.imageUrl ? (
                   <div className="relative aspect-video">
                     <PreviewableImage
@@ -688,7 +701,7 @@ export default function PropertyDetail() {
               </Card>
 
               {/* Embedded Google Map */}
-              <Card className="overflow-hidden">
+              <Card className={cn(overviewCardClass, "overflow-hidden")}>
                 <MapPreview
                   address={property?.address}
                   title={property?.address ? `Map of ${property.address}` : undefined}
@@ -703,16 +716,18 @@ export default function PropertyDetail() {
       </div>
 
       {/* Stats Overview — counts come from the same lists as the tabs below */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {tenanciesEnabled && (
-          <Card>
+          <Card className={cn(overviewCardClass, "h-full")}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Occupancy</CardTitle>
-              <Users className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-sm font-medium text-muted-foreground">Occupancy</CardTitle>
+              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <Users className="h-4 w-4" />
+              </span>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{occupancyLabel}</div>
-              <p className="text-xs text-muted-foreground">
+              <div className="text-2xl font-bold tracking-tight">{occupancyLabel}</div>
+              <p className="mt-1 text-xs text-muted-foreground">
                 {tenantsLoading
                   ? "Loading…"
                   : hasOccupyingTenant
@@ -724,14 +739,16 @@ export default function PropertyDetail() {
         )}
 
         {complianceEnabled && (
-          <Card>
+          <Card className={cn(overviewCardClass, "h-full")}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Compliance</CardTitle>
-              <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-sm font-medium text-muted-foreground">Compliance</CardTitle>
+              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-700">
+                <CheckCircle2 className="h-4 w-4" />
+              </span>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{complianceRateFromDocs}%</div>
-              <p className="text-xs text-muted-foreground">
+              <div className="text-2xl font-bold tracking-tight">{complianceRateFromDocs}%</div>
+              <p className="mt-1 text-xs text-muted-foreground">
                 {compliance.length === 0
                   ? "No documents"
                   : `${compliance.length} document${compliance.length === 1 ? "" : "s"}`}
@@ -740,26 +757,30 @@ export default function PropertyDetail() {
           </Card>
         )}
 
-        <Card>
+        <Card className={cn(overviewCardClass, "h-full")}>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Inspections</CardTitle>
-            <ClipboardCheck className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium text-muted-foreground">Inspections</CardTitle>
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-500/10 text-sky-700">
+              <ClipboardCheck className="h-4 w-4" />
+            </span>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{inspectionCardCount}</div>
-            <p className="text-xs text-muted-foreground">{inspectionCardSubtitle}</p>
+            <div className="text-2xl font-bold tracking-tight">{inspectionCardCount}</div>
+            <p className="mt-1 text-xs text-muted-foreground">{inspectionCardSubtitle}</p>
           </CardContent>
         </Card>
 
         {maintenanceEnabled && (
-          <Card>
+          <Card className={cn(overviewCardClass, "h-full")}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Maintenance</CardTitle>
-              <Wrench className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-sm font-medium text-muted-foreground">Maintenance</CardTitle>
+              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/10 text-amber-700">
+                <Wrench className="h-4 w-4" />
+              </span>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{openMaintenanceCount}</div>
-              <p className="text-xs text-muted-foreground">
+              <div className="text-2xl font-bold tracking-tight">{openMaintenanceCount}</div>
+              <p className="mt-1 text-xs text-muted-foreground">
                 {maintenance.length === 0
                   ? "No requests"
                   : `Open requests${maintenance.length !== openMaintenanceCount ? ` · ${maintenance.length} total` : ""}`}
@@ -771,60 +792,142 @@ export default function PropertyDetail() {
 
       {/* Tabbed Content */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4 min-w-0">
-        <TabsList className={tabsListScroll}>
-          <TabsTrigger value="overview" data-testid="tab-overview" className="shrink-0 gap-1.5">
+        <TabsList
+          className={cn(
+            tabsListScroll,
+            "rounded-xl border border-border/70 bg-muted/40 p-1",
+          )}
+        >
+          <TabsTrigger
+            value="overview"
+            data-testid="tab-overview"
+            className={cn(
+              tabTriggerResponsive,
+              "data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm",
+            )}
+          >
             <LayoutDashboard className="h-4 w-4 shrink-0" />
-            <span>Overview</span>
+            <span className="tab-label">Overview</span>
           </TabsTrigger>
-          <TabsTrigger value="inspections" data-testid="tab-inspections" className="shrink-0 gap-1.5">
+          <TabsTrigger
+            value="inspections"
+            data-testid="tab-inspections"
+            className={cn(
+              tabTriggerResponsive,
+              "data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm",
+            )}
+          >
             <ClipboardCheck className="h-4 w-4 shrink-0" />
-            <span>Inspections</span>
+            <span className="tab-label">Inspections</span>
           </TabsTrigger>
           {tenanciesEnabled && (
-            <TabsTrigger value="tenants" data-testid="tab-tenants" className="shrink-0 gap-1.5">
+            <TabsTrigger
+              value="tenants"
+              data-testid="tab-tenants"
+              className={cn(
+                tabTriggerResponsive,
+                "data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm",
+              )}
+            >
               <Users className="h-4 w-4 shrink-0" />
-              <span>Tenants</span>
+              <span className="tab-label">Tenants</span>
             </TabsTrigger>
           )}
-          <TabsTrigger value="inventory" data-testid="tab-inventory" className="shrink-0 gap-1.5">
+          <TabsTrigger
+            value="inventory"
+            data-testid="tab-inventory"
+            className={cn(
+              tabTriggerResponsive,
+              "data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm",
+            )}
+          >
             <Package className="h-4 w-4 shrink-0" />
-            <span>Inventory</span>
+            <span className="tab-label">Inventory</span>
           </TabsTrigger>
-          <TabsTrigger value="inspection-schedule" data-testid="tab-inspection-schedule" className="shrink-0 gap-1.5">
+          <TabsTrigger
+            value="inspection-schedule"
+            data-testid="tab-inspection-schedule"
+            className={cn(
+              tabTriggerResponsive,
+              "data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm",
+            )}
+          >
             <ClipboardCheck className="h-4 w-4 shrink-0" />
-            <span>Inspection Schedule</span>
+            <span className="tab-label">Inspection Schedule</span>
           </TabsTrigger>
           {complianceEnabled && (
-            <TabsTrigger value="compliance-schedule" data-testid="tab-compliance-schedule" className="shrink-0 gap-1.5">
+            <TabsTrigger
+              value="compliance-schedule"
+              data-testid="tab-compliance-schedule"
+              className={cn(
+                tabTriggerResponsive,
+                "data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm",
+              )}
+            >
               <FileCheck className="h-4 w-4 shrink-0" />
-              <span>Compliance Documents</span>
+              <span className="tab-label">Compliance Documents</span>
             </TabsTrigger>
           )}
           {hmoComplianceEnabled && (
-            <TabsTrigger value="hmo" data-testid="tab-hmo" className="shrink-0 gap-1.5">
+            <TabsTrigger
+              value="hmo"
+              data-testid="tab-hmo"
+              className={cn(
+                tabTriggerResponsive,
+                "data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm",
+              )}
+            >
               <ShieldAlert className="h-4 w-4 shrink-0" />
-              <span>HMO</span>
+              <span className="tab-label">HMO</span>
             </TabsTrigger>
           )}
           {maintenanceEnabled && (
-          <TabsTrigger value="maintenance" data-testid="tab-maintenance" className="shrink-0 gap-1.5">
-            <Wrench className="h-4 w-4 shrink-0" />
-            <span>Maintenance</span>
-          </TabsTrigger>
+            <TabsTrigger
+              value="maintenance"
+              data-testid="tab-maintenance"
+              className={cn(
+                tabTriggerResponsive,
+                "data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm",
+              )}
+            >
+              <Wrench className="h-4 w-4 shrink-0" />
+              <span className="tab-label">Maintenance</span>
+            </TabsTrigger>
           )}
           {rentalsEnabled && (
             <>
-              <TabsTrigger value="deposit" data-testid="tab-deposit" className="shrink-0 gap-1.5">
+              <TabsTrigger
+                value="deposit"
+                data-testid="tab-deposit"
+                className={cn(
+                  tabTriggerResponsive,
+                  "data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm",
+                )}
+              >
                 <Wallet className="h-4 w-4 shrink-0" />
-                <span>Deposit</span>
+                <span className="tab-label">Deposit</span>
               </TabsTrigger>
-              <TabsTrigger value="rent-collection" data-testid="tab-rent-collection" className="shrink-0 gap-1.5">
+              <TabsTrigger
+                value="rent-collection"
+                data-testid="tab-rent-collection"
+                className={cn(
+                  tabTriggerResponsive,
+                  "data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm",
+                )}
+              >
                 <Banknote className="h-4 w-4 shrink-0" />
-                <span>Rent Collection</span>
+                <span className="tab-label">Rent Collection</span>
               </TabsTrigger>
-              <TabsTrigger value="expenses" data-testid="tab-expenses" className="shrink-0 gap-1.5">
+              <TabsTrigger
+                value="expenses"
+                data-testid="tab-expenses"
+                className={cn(
+                  tabTriggerResponsive,
+                  "data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm",
+                )}
+              >
                 <Receipt className="h-4 w-4 shrink-0" />
-                <span>Expenses</span>
+                <span className="tab-label">Expenses</span>
               </TabsTrigger>
             </>
           )}
@@ -832,157 +935,60 @@ export default function PropertyDetail() {
 
         {/* Overview Tab */}
         <TabsContent value="overview" className="space-y-6" data-testid="tab-content-overview">
-          <div className="grid gap-4 lg:grid-cols-3">
-            <Card className="lg:col-span-2">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Building2 className="h-4 w-4 text-primary" />
-                  Property details
-                </CardTitle>
-                <CardDescription>Core information for this property</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <dl className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-1 min-w-0">
-                    <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Name</dt>
-                    <dd className="text-sm font-medium break-words">{property.name}</dd>
-                  </div>
-                  <div className="space-y-1 min-w-0">
-                    <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Type</dt>
-                    <dd className="text-sm font-medium capitalize">
-                      {property.propertyType
-                        ? property.propertyType.replace(/-/g, " ")
-                        : "—"}
-                    </dd>
-                  </div>
-                  <div className="space-y-1 min-w-0 sm:col-span-2">
-                    <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Address</dt>
-                    <dd className="text-sm font-medium break-words flex items-start gap-2">
-                      <MapPin className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
-                      <span>{property.address}</span>
-                    </dd>
-                  </div>
-                  <div className="space-y-1 min-w-0">
-                    <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Block</dt>
-                    <dd className="text-sm font-medium">
-                      {property.blockName ? (
-                        <Link href={`/blocks/${property.blockId}`}>
-                          <Badge variant="outline" className="cursor-pointer hover:bg-muted">
-                            {property.blockName}
-                          </Badge>
-                        </Link>
-                      ) : (
-                        "Not assigned"
-                      )}
-                    </dd>
-                  </div>
-                  {tenanciesEnabled && (
-                    <div className="space-y-1 min-w-0">
-                      <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Occupancy</dt>
-                      <dd>
-                        <Badge variant={occupancyLabel === "Occupied" ? "success" : "secondary"}>
-                          {occupancyLabel}
-                        </Badge>
-                      </dd>
-                    </div>
-                  )}
-                  {canSeeReapitSource && reapitMapping && (
-                    <div className="space-y-1 min-w-0 sm:col-span-2">
-                      <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Source</dt>
-                      <dd className="text-sm text-muted-foreground">
-                        Reapit
-                        {reapitMapping.lastSyncedAt
-                          ? ` · last synced ${new Date(reapitMapping.lastSyncedAt).toLocaleString()}`
-                          : ""}
-                      </dd>
-                    </div>
-                  )}
-                </dl>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">Layout summary</CardTitle>
-                <CardDescription>Room counts on this property</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {[
-                  { label: "Bedrooms", value: property.bedrooms ?? 1, icon: BedDouble },
-                  { label: "Bathrooms", value: property.bathrooms ?? 1, icon: Bath },
-                  { label: "Kitchens", value: property.kitchens ?? 1, icon: CookingPot },
-                  { label: "Living rooms", value: property.livingRooms ?? 1, icon: Sofa },
-                ].map((item) => (
-                  <div
-                    key={item.label}
-                    className="flex items-center justify-between rounded-lg border px-3 py-2.5"
-                  >
-                    <div className="flex items-center gap-2 text-sm">
-                      <item.icon className="h-4 w-4 text-muted-foreground" />
-                      <span>{item.label}</span>
-                    </div>
-                    <span className="text-sm font-semibold tabular-nums">{item.value}</span>
-                  </div>
-                ))}
-                {propertyRooms.length > 0 && (
-                  <p className="text-xs text-muted-foreground pt-1">
-                    {propertyRooms.length} detailed room{propertyRooms.length === 1 ? "" : "s"} configured below
-                  </p>
-                )}
-              </CardContent>
-            </Card>
+          <div className="grid items-stretch gap-4 lg:grid-cols-3">
+            <PropertyOverviewFacts
+              className="lg:col-span-2"
+              propertyType={property.propertyType}
+              address={property.address}
+              blockId={property.blockId}
+              blockName={property.blockName}
+              showOccupancy={tenanciesEnabled}
+              occupancyLabel={occupancyLabel}
+              reapitSourceLabel={
+                canSeeReapitSource && reapitMapping
+                  ? `Reapit${
+                      reapitMapping.lastSyncedAt
+                        ? ` · last synced ${new Date(reapitMapping.lastSyncedAt).toLocaleString()}`
+                        : ""
+                    }`
+                  : null
+              }
+            />
+            <PropertyLayoutSummary
+              bedrooms={property.bedrooms}
+              bathrooms={property.bathrooms}
+              kitchens={property.kitchens}
+              livingRooms={property.livingRooms}
+              detailedRoomCount={propertyRooms.length}
+            />
           </div>
 
           {(property.floorPlanUrl || property.notes) && (
-            <div className="grid gap-4 lg:grid-cols-2">
+            <div
+              className={cn(
+                "grid gap-4",
+                property.floorPlanUrl && property.notes
+                  ? "lg:grid-cols-2"
+                  : "grid-cols-1",
+              )}
+            >
               {property.floorPlanUrl && (
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <FileText className="h-4 w-4 text-primary" />
-                      Floor plan
-                    </CardTitle>
-                    <CardDescription>
-                      {property.floorPlanFileName || "Uploaded floor plan"}
-                      {property.floorPlanAnalysisStatus === "complete" ? " · Analysed" : ""}
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    {(property.floorPlanMimeType || "").includes("pdf") ||
-                    (property.floorPlanFileName || "").toLowerCase().endsWith(".pdf") ? (
-                      <div className="rounded-lg border bg-muted/30 flex flex-col items-center justify-center py-10 gap-2">
-                        <FileText className="h-10 w-10 text-muted-foreground" />
-                        <span className="text-sm text-muted-foreground truncate max-w-full px-4">
-                          {property.floorPlanFileName || "PDF floor plan"}
-                        </span>
-                        <a
-                          href={property.floorPlanUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-sm text-primary hover:underline"
-                        >
-                          Open PDF
-                        </a>
-                      </div>
-                    ) : (
-                      <PreviewableImage
-                        src={property.floorPlanUrl}
-                        alt="Floor plan"
-                        title="Floor plan"
-                        className="w-full max-h-64 object-contain rounded-lg border bg-muted/30"
-                      />
-                    )}
-                  </CardContent>
-                </Card>
+                <PropertyFloorPlanPanel
+                  floorPlanUrl={property.floorPlanUrl}
+                  fileName={property.floorPlanFileName}
+                  mimeType={property.floorPlanMimeType}
+                  analysisStatus={property.floorPlanAnalysisStatus}
+                  className={!property.notes ? "w-full" : undefined}
+                />
               )}
               {property.notes && (
-                <Card>
+                <Card className={overviewCardClass}>
                   <CardHeader className="pb-3">
                     <CardTitle className="text-base">Notes</CardTitle>
                     <CardDescription>Additional property notes</CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <p className="text-sm text-muted-foreground whitespace-pre-wrap break-words">
+                    <p className="whitespace-pre-wrap break-words text-sm text-muted-foreground">
                       {property.notes}
                     </p>
                   </CardContent>
@@ -991,57 +997,13 @@ export default function PropertyDetail() {
             </div>
           )}
 
-          <Card data-testid="card-property-rooms">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Rooms &amp; areas</CardTitle>
-              <CardDescription>
-                {propertyRooms.length > 0
-                  ? `${overviewRooms.length} room${overviewRooms.length === 1 ? "" : "s"} across ${overviewRoomSections.length} categor${overviewRoomSections.length === 1 ? "y" : "ies"}`
-                  : "Rooms from layout counts — open Edit Property to set categories and dimensions"}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-5">
-              {overviewRoomSections.length === 0 ? (
-                <div className="rounded-lg border border-dashed px-4 py-10 text-center">
-                  <BedDouble className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-                  <p className="text-sm text-muted-foreground">
-                    No rooms configured for this property yet.
-                  </p>
-                </div>
-              ) : (
-                overviewRoomSections.map(([categoryName, rooms]) => (
-                  <section key={categoryName} className="space-y-2">
-                    <h3 className="text-sm font-medium text-muted-foreground">
-                      {categoryName}
-                      <span className="font-normal tabular-nums"> · {rooms.length}</span>
-                    </h3>
-                    <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                      {rooms.map((room) => {
-                        const dims = formatRoomDimensions(room);
-                        return (
-                          <li
-                            key={room.id}
-                            className="rounded-xl border bg-card px-4 py-3 text-sm min-w-0 shadow-sm"
-                          >
-                            <div className="font-medium truncate">{room.name}</div>
-                            {dims ? (
-                              <div className="text-xs text-muted-foreground mt-2 tabular-nums">
-                                {dims}
-                              </div>
-                            ) : (
-                              <div className="text-xs text-muted-foreground/70 mt-2">
-                                {room.hasDetails ? "No dimensions" : "Dimensions not set"}
-                              </div>
-                            )}
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </section>
-                ))
-              )}
-            </CardContent>
-          </Card>
+          <PropertyRoomsAreas
+            sections={overviewRoomSections}
+            totalRooms={overviewRooms.length}
+            hasDetailedRooms={propertyRooms.length > 0}
+            formatDimensions={formatRoomDimensions}
+            formatArea={formatRoomAreaOnly}
+          />
         </TabsContent>
 
         {/* Inspections Tab */}
