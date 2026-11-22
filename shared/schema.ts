@@ -1462,6 +1462,16 @@ export const maintenanceQuotes = pgTable(
     preparedByUserId: varchar("prepared_by_user_id").notNull(),
     submittedAt: timestamp("submitted_at"),
     submittedByUserId: varchar("submitted_by_user_id"),
+    ownerDecidedAt: timestamp("owner_decided_at"),
+    ownerDecidedByUserId: varchar("owner_decided_by_user_id"),
+    ownerDecision: varchar("owner_decision"),
+    ownerDecisionReason: text("owner_decision_reason"),
+    customerDecidedAt: timestamp("customer_decided_at"),
+    customerDecision: varchar("customer_decision"),
+    customerDecisionReason: text("customer_decision_reason"),
+    sentAt: timestamp("sent_at"),
+    convertedAt: timestamp("converted_at"),
+    expiresAt: timestamp("expires_at"),
     parentQuoteId: varchar("parent_quote_id"),
     supersededByQuoteId: varchar("superseded_by_quote_id"),
     variationOfQuoteId: varchar("variation_of_quote_id"),
@@ -1471,6 +1481,7 @@ export const maintenanceQuotes = pgTable(
   (table) => [
     index("maintenance_quotes_org_idx").on(table.organizationId),
     index("maintenance_quotes_work_order_idx").on(table.workOrderId),
+    index("maintenance_quotes_org_status_idx").on(table.organizationId, table.status),
     uniqueIndex("maintenance_quotes_org_number_version_uidx").on(
       table.organizationId,
       table.quoteNumber,
@@ -1495,6 +1506,7 @@ export const maintenanceQuoteLines = pgTable(
     sortOrder: integer("sort_order").notNull().default(0),
     name: varchar("name").notNull().default(""),
     description: text("description"),
+    sku: varchar("sku"),
     category: varchar("category").notNull().default("labour"),
     unit: varchar("unit").notNull().default("hour"),
     quantity: numeric("quantity").notNull().default("1"),
@@ -1517,6 +1529,149 @@ export const insertMaintenanceQuoteLineSchema = createInsertSchema(maintenanceQu
 });
 export type MaintenanceQuoteLine = typeof maintenanceQuoteLines.$inferSelect;
 export type InsertMaintenanceQuoteLine = z.infer<typeof insertMaintenanceQuoteLineSchema>;
+
+export const maintenanceQuoteShareTokens = pgTable(
+  "maintenance_quote_share_tokens",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    quoteId: varchar("quote_id").notNull(),
+    organizationId: varchar("organization_id").notNull(),
+    tokenHash: varchar("token_hash").notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+    revokedAt: timestamp("revoked_at"),
+    viewedAt: timestamp("viewed_at"),
+    createdByUserId: varchar("created_by_user_id").notNull(),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [
+    index("maintenance_quote_share_tokens_quote_idx").on(table.quoteId),
+    uniqueIndex("maintenance_quote_share_tokens_hash_uidx").on(table.tokenHash),
+  ],
+);
+
+export type MaintenanceQuoteShareToken = typeof maintenanceQuoteShareTokens.$inferSelect;
+
+export const workOrderEvents = pgTable(
+  "work_order_events",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    organizationId: varchar("organization_id").notNull(),
+    workOrderId: varchar("work_order_id").notNull(),
+    eventType: varchar("event_type").notNull(),
+    actorUserId: varchar("actor_user_id"),
+    payloadJson: jsonb("payload_json"),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [index("work_order_events_wo_idx").on(table.workOrderId)],
+);
+
+export type WorkOrderEvent = typeof workOrderEvents.$inferSelect;
+
+export const maintenanceInvoices = pgTable(
+  "maintenance_invoices",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    organizationId: varchar("organization_id").notNull(),
+    workOrderId: varchar("work_order_id").notNull(),
+    quoteId: varchar("quote_id"),
+    status: varchar("status").notNull().default("draft"),
+    invoiceNumber: integer("invoice_number").notNull(),
+    invoiceReference: varchar("invoice_reference").notNull(),
+    currency: currencyEnum("currency").notNull().default("GBP"),
+    recipientContactId: varchar("recipient_contact_id"),
+    recipientName: varchar("recipient_name"),
+    recipientEmail: varchar("recipient_email"),
+    recipientPhone: varchar("recipient_phone"),
+    recipientAddress: text("recipient_address"),
+    notes: text("notes"),
+    dueAt: timestamp("due_at"),
+    subtotalMinor: integer("subtotal_minor").notNull().default(0),
+    taxMinor: integer("tax_minor").notNull().default(0),
+    totalMinor: integer("total_minor").notNull().default(0),
+    paidMinor: integer("paid_minor").notNull().default(0),
+    paymentStatus: varchar("payment_status").notNull().default("unpaid"),
+    sentAt: timestamp("sent_at"),
+    voidedAt: timestamp("voided_at"),
+    voidReason: text("void_reason"),
+    preparedByUserId: varchar("prepared_by_user_id").notNull(),
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow(),
+  },
+  (table) => [
+    index("maintenance_invoices_org_idx").on(table.organizationId),
+    index("maintenance_invoices_work_order_idx").on(table.workOrderId),
+    uniqueIndex("maintenance_invoices_org_number_uidx").on(
+      table.organizationId,
+      table.invoiceNumber,
+    ),
+  ],
+);
+
+export type MaintenanceInvoice = typeof maintenanceInvoices.$inferSelect;
+
+export const maintenanceInvoiceLines = pgTable(
+  "maintenance_invoice_lines",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    invoiceId: varchar("invoice_id").notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+    name: varchar("name").notNull().default(""),
+    description: text("description"),
+    sku: varchar("sku"),
+    category: varchar("category").notNull().default("labour"),
+    unit: varchar("unit").notNull().default("hour"),
+    quantity: numeric("quantity").notNull().default("1"),
+    unitPriceMinor: integer("unit_price_minor").notNull().default(0),
+    vatRate: varchar("vat_rate").notNull().default("standard_20"),
+    lineNetMinor: integer("line_net_minor").notNull().default(0),
+    lineTaxMinor: integer("line_tax_minor").notNull().default(0),
+    lineTotalMinor: integer("line_total_minor").notNull().default(0),
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow(),
+  },
+  (table) => [index("maintenance_invoice_lines_invoice_idx").on(table.invoiceId)],
+);
+
+export type MaintenanceInvoiceLine = typeof maintenanceInvoiceLines.$inferSelect;
+
+export const maintenanceInvoiceShareTokens = pgTable(
+  "maintenance_invoice_share_tokens",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    invoiceId: varchar("invoice_id").notNull(),
+    organizationId: varchar("organization_id").notNull(),
+    tokenHash: varchar("token_hash").notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+    revokedAt: timestamp("revoked_at"),
+    viewedAt: timestamp("viewed_at"),
+    createdByUserId: varchar("created_by_user_id").notNull(),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("maintenance_invoice_share_tokens_hash_uidx").on(table.tokenHash),
+  ],
+);
+
+export type MaintenanceInvoiceShareToken = typeof maintenanceInvoiceShareTokens.$inferSelect;
+
+export const maintenanceInvoicePayments = pgTable(
+  "maintenance_invoice_payments",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    invoiceId: varchar("invoice_id").notNull(),
+    organizationId: varchar("organization_id").notNull(),
+    amountMinor: integer("amount_minor").notNull(),
+    paidAt: timestamp("paid_at").notNull(),
+    method: varchar("method").notNull(),
+    reference: varchar("reference"),
+    notes: text("notes"),
+    recordedByUserId: varchar("recorded_by_user_id").notNull(),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [index("maintenance_invoice_payments_invoice_idx").on(table.invoiceId)],
+);
+
+export type MaintenanceInvoicePayment = typeof maintenanceInvoicePayments.$inferSelect;
 
 // Tenant Maintenance Chat Conversations (AI Chatbot for preventative maintenance)
 export const tenantMaintenanceChats = pgTable("tenant_maintenance_chats", {
@@ -1778,6 +1933,10 @@ export const workOrders = pgTable("work_orders", {
     signedAt?: string;
   }>(),
   customerSignedAt: timestamp("customer_signed_at"),
+  /** OD-06: existing rows not_required; new inserts quote_required. */
+  authorisationStatus: varchar("authorisation_status").notNull().default("not_required"),
+  approvedQuoteId: varchar("approved_quote_id"),
+  authorisedTotalMinor: integer("authorised_total_minor"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

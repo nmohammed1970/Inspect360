@@ -23,7 +23,16 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
   MAINTENANCE_QUOTE_STATUS_LABELS,
   isQuoteEditable,
+  isQuoteRevisable,
 } from "@shared/maintenanceQuoteConstants";
+import { useAuth } from "@/hooks/useAuth";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import type {
   MaintenancePriceBookCategory,
   MaintenancePriceBookUnit,
@@ -62,6 +71,7 @@ type QuoteDetail = {
     id: string;
     name: string;
     description: string | null;
+    sku: string | null;
     category: string;
     unit: string;
     quantity: number;
@@ -85,11 +95,14 @@ type QuoteDetail = {
 
 function statusBadgeClass(status: string): string {
   if (status === "draft") return "bg-slate-100 text-slate-800 border-slate-200";
-  if (status === "pending_owner_approval") {
+  if (status === "pending_owner_approval" || status === "sent") {
     return "bg-amber-100 text-amber-900 border-amber-200";
   }
-  if (status === "approved" || status === "customer_accepted") {
+  if (status === "owner_approved" || status === "accepted" || status === "converted") {
     return "bg-emerald-100 text-emerald-900 border-emerald-200";
+  }
+  if (status === "owner_rejected" || status === "declined") {
+    return "bg-red-100 text-red-900 border-red-200";
   }
   return "bg-muted text-foreground";
 }
@@ -99,10 +112,19 @@ function statusLabel(status: string): string {
 }
 
 function approvalStepIndex(status: string): number {
-  if (status === "draft") return 0;
-  if (status === "pending_owner_approval" || status === "owner_changes_requested") return 1;
-  if (status === "approved" || status === "sent") return 3;
-  return 2;
+  if (status === "draft" || status === "owner_changes_requested") return 0;
+  if (status === "pending_owner_approval") return 1;
+  if (status === "owner_approved") return 2;
+  if (
+    status === "sent" ||
+    status === "accepted" ||
+    status === "converted" ||
+    status === "declined" ||
+    status === "customer_changes_requested"
+  ) {
+    return 3;
+  }
+  return 1;
 }
 
 function linesFromServer(quote: QuoteDetail): EditableQuoteLine[] {
@@ -112,6 +134,7 @@ function linesFromServer(quote: QuoteDetail): EditableQuoteLine[] {
     localId: line.id,
     name: line.name || "",
     description: line.description || "",
+    sku: line.sku || "",
     category: line.category as MaintenancePriceBookCategory,
     unit: line.unit as MaintenancePriceBookUnit,
     quantity: Number(line.quantity) || 0,
@@ -128,6 +151,16 @@ export default function WorkOrderQuotation() {
   const quoteId = params.quoteId;
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const { user } = useAuth();
+  const isOwner = user?.role === "owner";
+  const [decisionOpen, setDecisionOpen] = useState<"reject" | "request_changes" | null>(null);
+  const [decisionReason, setDecisionReason] = useState("");
+
+  const invalidateQuote = () => {
+    queryClient.invalidateQueries({
+      queryKey: ["/api/work-orders", workOrderId, "quotes", quoteId],
+    });
+  };
 
   const { data: quote, isLoading, error } = useQuery<QuoteDetail>({
     queryKey: ["/api/work-orders", workOrderId, "quotes", quoteId],
@@ -183,6 +216,7 @@ export default function WorkOrderQuotation() {
           lines: lines.map((line) => ({
             name: line.name,
             description: line.description || null,
+            sku: line.sku || null,
             category: line.category,
             unit: line.unit,
             quantity: line.quantity,
@@ -231,6 +265,7 @@ export default function WorkOrderQuotation() {
           lines: lines.map((line) => ({
             name: line.name,
             description: line.description || null,
+            sku: line.sku || null,
             category: line.category,
             unit: line.unit,
             quantity: line.quantity,
@@ -265,6 +300,85 @@ export default function WorkOrderQuotation() {
     onError: (e: Error) => {
       toast({ title: "Submit failed", description: e.message, variant: "destructive" });
     },
+  });
+
+  const ownerDecisionMutation = useMutation({
+    mutationFn: async (payload: {
+      decision: "approve" | "reject" | "request_changes";
+      reason?: string;
+    }) => {
+      const res = await apiRequest(
+        "POST",
+        `/api/work-orders/${workOrderId}/quotes/${quoteId}/owner-decision`,
+        payload,
+      );
+      return res.json();
+    },
+    onSuccess: () => {
+      setDecisionOpen(null);
+      setDecisionReason("");
+      setHydratedId(null);
+      invalidateQuote();
+      toast({ title: "Decision recorded" });
+    },
+    onError: (e: Error) =>
+      toast({ title: "Decision failed", description: e.message, variant: "destructive" }),
+  });
+
+  const sendMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("PATCH", `/api/work-orders/${workOrderId}/quotes/${quoteId}`, {
+        recipientName: recipientName || null,
+        recipientEmail: recipientEmail || null,
+      });
+      const res = await apiRequest(
+        "POST",
+        `/api/work-orders/${workOrderId}/quotes/${quoteId}/send`,
+      );
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setHydratedId(null);
+      invalidateQuote();
+      toast({
+        title: "Sent to customer",
+        description: data.publicLink ? "Secure link emailed to recipient." : undefined,
+      });
+    },
+    onError: (e: Error) =>
+      toast({ title: "Send failed", description: e.message, variant: "destructive" }),
+  });
+
+  const reviseMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest(
+        "POST",
+        `/api/work-orders/${workOrderId}/quotes/${quoteId}/revise`,
+      );
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({ title: "Revision draft created" });
+      setLocation(`/work-orders/${workOrderId}/quotes/${data.id}`);
+    },
+    onError: (e: Error) =>
+      toast({ title: "Revise failed", description: e.message, variant: "destructive" }),
+  });
+
+  const convertMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest(
+        "POST",
+        `/api/work-orders/${workOrderId}/quotes/${quoteId}/convert-to-invoice`,
+      );
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({ title: "Invoice draft created" });
+      setLocation(`/work-orders/${workOrderId}/invoices/${data.id}`);
+    },
+    onError: (e: Error) =>
+      toast({ title: "Convert failed", description: e.message, variant: "destructive" }),
   });
 
   const breadcrumbProperty = quote?.context?.propertyName || quote?.context?.blockName || "Property";
@@ -342,27 +456,84 @@ export default function WorkOrderQuotation() {
         description={subtitle}
         actions={
           <>
-            <Button
-              variant="outline"
-              disabled={!editable || saveMutation.isPending || submitMutation.isPending}
-              onClick={() => saveMutation.mutate()}
-              data-testid="button-save-quote-draft"
-            >
-              {saveMutation.isPending ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : null}
-              Save draft
-            </Button>
-            <Button
-              disabled={!editable || submitMutation.isPending || saveMutation.isPending}
-              onClick={() => submitMutation.mutate()}
-              data-testid="button-submit-quote"
-            >
-              {submitMutation.isPending ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : null}
-              Submit for approval
-            </Button>
+            {editable ? (
+              <>
+                <Button
+                  variant="outline"
+                  disabled={saveMutation.isPending || submitMutation.isPending}
+                  onClick={() => saveMutation.mutate()}
+                  data-testid="button-save-quote-draft"
+                >
+                  {saveMutation.isPending ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : null}
+                  Save draft
+                </Button>
+                <Button
+                  disabled={submitMutation.isPending || saveMutation.isPending}
+                  onClick={() => submitMutation.mutate()}
+                  data-testid="button-submit-quote"
+                >
+                  {submitMutation.isPending ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : null}
+                  Submit for approval
+                </Button>
+              </>
+            ) : null}
+            {isOwner && quote.status === "pending_owner_approval" ? (
+              <>
+                <Button
+                  variant="outline"
+                  onClick={() => setDecisionOpen("request_changes")}
+                  data-testid="button-quote-request-changes"
+                >
+                  Request changes
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => setDecisionOpen("reject")}
+                  data-testid="button-quote-reject"
+                >
+                  Reject
+                </Button>
+                <Button
+                  disabled={ownerDecisionMutation.isPending}
+                  onClick={() => ownerDecisionMutation.mutate({ decision: "approve" })}
+                  data-testid="button-quote-approve"
+                >
+                  Approve quotation
+                </Button>
+              </>
+            ) : null}
+            {isOwner && (quote.status === "owner_approved" || quote.status === "sent") ? (
+              <Button
+                disabled={sendMutation.isPending}
+                onClick={() => sendMutation.mutate()}
+                data-testid="button-quote-send"
+              >
+                {quote.status === "sent" ? "Resend to customer" : "Send to customer"}
+              </Button>
+            ) : null}
+            {isQuoteRevisable(quote.status) ? (
+              <Button
+                variant="outline"
+                disabled={reviseMutation.isPending}
+                onClick={() => reviseMutation.mutate()}
+                data-testid="button-quote-revise"
+              >
+                Create revision
+              </Button>
+            ) : null}
+            {isOwner && quote.status === "accepted" ? (
+              <Button
+                disabled={convertMutation.isPending}
+                onClick={() => convertMutation.mutate()}
+                data-testid="button-quote-convert"
+              >
+                Convert to invoice
+              </Button>
+            ) : null}
           </>
         }
       />
@@ -448,7 +619,13 @@ export default function WorkOrderQuotation() {
                 <Label htmlFor="recipient-name">Recipient</Label>
                 <Input
                   id="recipient-name"
-                  disabled={!editable}
+                  disabled={
+                    !(
+                      editable ||
+                      quote.status === "owner_approved" ||
+                      quote.status === "sent"
+                    )
+                  }
                   value={recipientName}
                   onChange={(e) => setRecipientName(e.target.value)}
                   placeholder="Customer / landlord name"
@@ -459,10 +636,16 @@ export default function WorkOrderQuotation() {
                 <Input
                   id="recipient-email"
                   type="email"
-                  disabled={!editable}
+                  disabled={
+                    !(
+                      editable ||
+                      quote.status === "owner_approved" ||
+                      quote.status === "sent"
+                    )
+                  }
                   value={recipientEmail}
                   onChange={(e) => setRecipientEmail(e.target.value)}
-                  placeholder="Optional until send"
+                  placeholder="Required before send"
                 />
               </div>
             </CardContent>
@@ -569,8 +752,8 @@ export default function WorkOrderQuotation() {
                 </div>
               </dl>
               <p className="rounded-lg bg-primary/5 border border-primary/15 px-3 py-2 text-xs text-muted-foreground">
-                Owner approve / request changes lands in a later phase. Staff use{" "}
-                <span className="font-medium text-foreground">Submit for approval</span> here.
+                Owner approval and customer acceptance are separate. Sending creates a secure
+                customer link; convert is available only after the customer accepts.
               </p>
             </CardContent>
           </Card>
@@ -605,6 +788,47 @@ export default function WorkOrderQuotation() {
           </Card>
         </div>
       </div>
+
+      <Dialog
+        open={!!decisionOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDecisionOpen(null);
+            setDecisionReason("");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {decisionOpen === "reject" ? "Reject quotation" : "Request changes"}
+            </DialogTitle>
+          </DialogHeader>
+          <Textarea
+            value={decisionReason}
+            onChange={(e) => setDecisionReason(e.target.value)}
+            placeholder="Reason (required)"
+            rows={4}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDecisionOpen(null)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={!decisionReason.trim() || ownerDecisionMutation.isPending}
+              onClick={() => {
+                if (!decisionOpen) return;
+                ownerDecisionMutation.mutate({
+                  decision: decisionOpen,
+                  reason: decisionReason.trim(),
+                });
+              }}
+            >
+              Confirm
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

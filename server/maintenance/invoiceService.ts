@@ -1,0 +1,126 @@
+import { eq } from "drizzle-orm";
+import { db } from "../db";
+import {
+  maintenanceInvoiceLines,
+  maintenanceInvoices,
+  maintenanceQuoteLines,
+  maintenanceQuotes,
+  type MaintenanceQuote,
+} from "@shared/schema";
+import {
+  formatInvoiceReference,
+  assertQuoteTransition,
+} from "@shared/maintenanceQuoteConstants";
+import { appendWorkOrderEvent, allocateDocumentNumber } from "./quoteLifecycle";
+
+export class InvoiceServiceError extends Error {
+  statusCode: number;
+  constructor(message: string, statusCode = 400) {
+    super(message);
+    this.statusCode = statusCode;
+  }
+}
+
+export async function convertQuoteToInvoice(input: {
+  quote: MaintenanceQuote;
+  actorUserId: string;
+}) {
+  const { quote, actorUserId } = input;
+  if (quote.status !== "accepted") {
+    throw new InvoiceServiceError(
+      "Only customer-accepted quotes can be converted to an invoice",
+      409,
+    );
+  }
+  assertQuoteTransition(quote.status, "converted", "owner");
+
+  const lines = await db
+    .select()
+    .from(maintenanceQuoteLines)
+    .where(eq(maintenanceQuoteLines.quoteId, quote.id));
+
+  const year = new Date().getFullYear();
+  const { number: invoiceNumber } = await allocateDocumentNumber(
+    quote.organizationId,
+    "invoice",
+  );
+  const invoiceReference = formatInvoiceReference(year, invoiceNumber);
+
+  const result = await db.transaction(async (tx) => {
+    const [invoice] = await tx
+      .insert(maintenanceInvoices)
+      .values({
+        organizationId: quote.organizationId,
+        workOrderId: quote.workOrderId,
+        quoteId: quote.id,
+        status: "draft",
+        invoiceNumber,
+        invoiceReference,
+        currency: quote.currency,
+        recipientContactId: quote.recipientContactId,
+        recipientName: quote.recipientName,
+        recipientEmail: quote.recipientEmail,
+        recipientPhone: quote.recipientPhone,
+        recipientAddress: quote.recipientAddress,
+        subtotalMinor: quote.subtotalMinor,
+        taxMinor: quote.taxMinor,
+        totalMinor: quote.totalMinor,
+        paidMinor: 0,
+        paymentStatus: "unpaid",
+        preparedByUserId: actorUserId,
+      })
+      .returning();
+
+    if (lines.length > 0) {
+      await tx.insert(maintenanceInvoiceLines).values(
+        lines.map((line, index) => ({
+          invoiceId: invoice.id,
+          sortOrder: index,
+          name: line.name,
+          description: line.description,
+          sku: line.sku,
+          category: line.category,
+          unit: line.unit,
+          quantity: String(line.quantity),
+          unitPriceMinor: line.unitPriceMinor,
+          vatRate: line.vatRate,
+          lineNetMinor: line.lineNetMinor,
+          lineTaxMinor: line.lineTaxMinor,
+          lineTotalMinor: line.lineTotalMinor,
+        })),
+      );
+    }
+
+    await tx
+      .update(maintenanceQuotes)
+      .set({
+        status: "converted",
+        convertedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(maintenanceQuotes.id, quote.id));
+
+    return invoice;
+  });
+
+  await appendWorkOrderEvent({
+    organizationId: quote.organizationId,
+    workOrderId: quote.workOrderId,
+    eventType: "quote_converted_to_invoice",
+    actorUserId,
+    payload: { quoteId: quote.id, invoiceId: result.id },
+  });
+
+  const invoiceLines = await db
+    .select()
+    .from(maintenanceInvoiceLines)
+    .where(eq(maintenanceInvoiceLines.invoiceId, result.id));
+
+  return {
+    ...result,
+    lines: invoiceLines.map((l) => ({
+      ...l,
+      quantity: l.quantity == null ? 0 : Number(l.quantity),
+    })),
+  };
+}

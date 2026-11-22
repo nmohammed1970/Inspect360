@@ -17836,6 +17836,17 @@ ${optionalNotes || "No details provided."}`;
         return res.status(403).json({ error: "Access denied" });
       }
 
+      // OD-06: new WOs with quote_required cannot start/complete until customer-accepted quote authorises them
+      if (
+        (status === "in_progress" || status === "completed") &&
+        (workOrder as any).authorisationStatus === "quote_required"
+      ) {
+        return res.status(409).json({
+          error: "A customer-accepted quotation is required before this work order can proceed",
+          code: "QUOTE_AUTHORISATION_REQUIRED",
+        });
+      }
+
       if (status === "completed") {
         const { assertWorkOrderReadyToComplete } = await import("./workOrderCompletionGate");
         const gate = await assertWorkOrderReadyToComplete(storage, workOrder);
@@ -18022,6 +18033,26 @@ ${optionalNotes || "No details provided."}`;
       if (!wo || wo.organizationId !== user.organizationId) {
         return res.status(404).json({ error: "Work order not found" });
       }
+
+      const { maintenanceQuotes, maintenanceInvoices } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const [quoteHit] = await db
+        .select({ id: maintenanceQuotes.id })
+        .from(maintenanceQuotes)
+        .where(eq(maintenanceQuotes.workOrderId, wo.id))
+        .limit(1);
+      const [invoiceHit] = await db
+        .select({ id: maintenanceInvoices.id })
+        .from(maintenanceInvoices)
+        .where(eq(maintenanceInvoices.workOrderId, wo.id))
+        .limit(1);
+      if (quoteHit || invoiceHit) {
+        return res.status(409).json({
+          error: "Cannot delete a work order that has quotations or invoices",
+          code: "FINANCE_DOCS_EXIST",
+        });
+      }
+
       await storage.deleteWorkOrder(req.params.id);
       res.json({ success: true });
     } catch (error) {
@@ -18074,6 +18105,16 @@ ${optionalNotes || "No details provided."}`;
         }
       }
 
+      if (req.body.status === "completed" || req.body.status === "in_progress") {
+        const freshAuth = await storage.getWorkOrder(req.params.id);
+        if (freshAuth && (freshAuth as any).authorisationStatus === "quote_required") {
+          return res.status(409).json({
+            error: "A customer-accepted quotation is required before this work order can proceed",
+            code: "QUOTE_AUTHORISATION_REQUIRED",
+          });
+        }
+      }
+
       if (req.body.status === "completed") {
         const fresh = await storage.getWorkOrder(req.params.id);
         if (!fresh) return res.status(404).json({ error: "Work order not found" });
@@ -18086,6 +18127,16 @@ ${optionalNotes || "No details provided."}`;
             progress: gate.progress,
           });
         }
+      }
+
+      if (
+        req.body.costEstimate !== undefined &&
+        (wo as any).approvedQuoteId
+      ) {
+        return res.status(409).json({
+          error: "Cost estimate is locked to the authorised quotation total",
+          code: "COST_ESTIMATE_LOCKED",
+        });
       }
 
       const { updateWorkOrderFields } = await import("./workOrderCertificateService");
@@ -21323,6 +21374,12 @@ ${optionalNotes || "No details provided."}`;
   registerAdminInspectionTemplateRoutes(app, isAdminAuthenticated);
   const { registerMaintenanceQuoteRoutes } = await import("./maintenance/quoteRoutes");
   registerMaintenanceQuoteRoutes(app);
+  const { registerPublicMaintenanceQuoteRoutes } = await import("./maintenance/publicQuoteRoutes");
+  registerPublicMaintenanceQuoteRoutes(app);
+  const { registerMaintenanceInvoiceRoutes } = await import("./maintenance/invoiceRoutes");
+  registerMaintenanceInvoiceRoutes(app);
+  const { registerMaintenanceFinanceRoutes } = await import("./maintenance/financeRoutes");
+  registerMaintenanceFinanceRoutes(app);
 
   // Admin Login
   app.post("/api/admin/login", async (req, res) => {

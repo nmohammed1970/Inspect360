@@ -134,6 +134,12 @@ export function AppSidebar() {
       roles: ["owner"],
     },
     {
+      title: "Quotes & Invoicing",
+      url: "/maintenance/finance",
+      icon: FileText,
+      roles: ["owner", "clerk", "contractor"],
+    },
+    {
       title: "My Work Orders",
       url: "/maintenance?tab=work-orders",
       icon: Clipboard,
@@ -181,7 +187,7 @@ export function AppSidebar() {
       !maintenanceEnabled &&
       (item.url === "/maintenance" ||
         item.url === "/analytics" ||
-        item.url.startsWith("/maintenance?"))
+        item.url.startsWith("/maintenance"))
     ) {
       return false;
     }

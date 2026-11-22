@@ -2585,7 +2585,14 @@ export class DatabaseStorage implements IStorage {
 
   // Work Order operations
   async createWorkOrder(workOrderData: InsertWorkOrder): Promise<WorkOrder> {
-    const [workOrder] = await db.insert(workOrders).values(workOrderData).returning();
+    // OD-06: newly created WOs require a customer-accepted quote unless caller overrides.
+    const [workOrder] = await db
+      .insert(workOrders)
+      .values({
+        ...workOrderData,
+        authorisationStatus: workOrderData.authorisationStatus ?? "quote_required",
+      })
+      .returning();
     return workOrder;
   }
 
@@ -2607,6 +2614,9 @@ export class DatabaseStorage implements IStorage {
       completionChecklistSnapshotJson: workOrders.completionChecklistSnapshotJson,
       customerSignatureJson: workOrders.customerSignatureJson,
       customerSignedAt: workOrders.customerSignedAt,
+      authorisationStatus: workOrders.authorisationStatus,
+      approvedQuoteId: workOrders.approvedQuoteId,
+      authorisedTotalMinor: workOrders.authorisedTotalMinor,
       createdAt: workOrders.createdAt,
       updatedAt: workOrders.updatedAt,
       maintenanceRequest: {

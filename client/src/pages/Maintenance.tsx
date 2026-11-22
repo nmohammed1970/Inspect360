@@ -1965,6 +1965,16 @@ export default function Maintenance() {
                               <Badge className={cn(workOrderStatusColors[workOrder.status], "capitalize")}>
                                 {workOrder.status.replace("_", " ")}
                               </Badge>
+                              {(workOrder as any).authorisationStatus === "quote_required" ? (
+                                <Badge variant="outline" className="bg-amber-50 text-amber-900 border-amber-200">
+                                  Quote required
+                                </Badge>
+                              ) : null}
+                              {(workOrder as any).authorisationStatus === "authorised" ? (
+                                <Badge variant="outline" className="bg-emerald-50 text-emerald-900 border-emerald-200">
+                                  Authorised
+                                </Badge>
+                              ) : null}
                             </div>
                           </div>
                         </CardHeader>

@@ -1,8 +1,9 @@
-import type { Express, Request, Response, NextFunction } from "express";
+import type { Express, Response, NextFunction } from "express";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
-import { isAuthenticated, requireCompanyModule } from "../auth";
+import { isAuthenticated, requireCompanyModule, requireRole } from "../auth";
 import { db } from "../db";
 import { storage } from "../storage";
+import { sendEmail } from "../resend";
 import {
   buildWorkOrderIdentity,
   canAccessWorkOrder,
@@ -22,10 +23,18 @@ import {
 import {
   formatQuoteReference,
   isQuoteEditable,
+  isQuoteRevisable,
+  ownerDecisionSchema,
   quoteHeaderPatchSchema,
   quoteLinesReplaceSchema,
 } from "@shared/maintenanceQuoteConstants";
 import { MAINTENANCE_PRICE_BOOK_CURRENCIES } from "@shared/maintenancePriceBookConstants";
+import {
+  appendWorkOrderEvent,
+  createQuoteShareToken,
+  publicAppBaseUrl,
+  transitionOrThrow,
+} from "./quoteLifecycle";
 
 function orgId(req: any): string {
   return req.user.organizationId as string;
@@ -426,7 +435,10 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
         if (!quote) {
           return res.status(404).json({ message: "Quote not found" });
         }
-        if (!isQuoteEditable(quote.status)) {
+        const recipientOnlyStatuses = ["owner_approved", "sent"];
+        const fullEdit = isQuoteEditable(quote.status);
+        const recipientOnly = recipientOnlyStatuses.includes(quote.status);
+        if (!fullEdit && !recipientOnly) {
           return res.status(409).json({ message: "Quote is not editable in this status" });
         }
 
@@ -454,15 +466,17 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
         if (data.recipientAddress !== undefined) {
           patch.recipientAddress = data.recipientAddress;
         }
-        if (data.scopeDescription !== undefined) {
-          patch.scopeDescription = data.scopeDescription;
-        }
-        if (data.engineerNotes !== undefined) patch.engineerNotes = data.engineerNotes;
-        if (data.validUntil !== undefined) {
-          patch.validUntil =
-            data.validUntil == null || data.validUntil === ""
-              ? null
-              : new Date(data.validUntil);
+        if (fullEdit) {
+          if (data.scopeDescription !== undefined) {
+            patch.scopeDescription = data.scopeDescription;
+          }
+          if (data.engineerNotes !== undefined) patch.engineerNotes = data.engineerNotes;
+          if (data.validUntil !== undefined) {
+            patch.validUntil =
+              data.validUntil == null || data.validUntil === ""
+                ? null
+                : new Date(data.validUntil);
+          }
         }
 
         const [updated] = await db
@@ -522,6 +536,7 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
             sortOrder: index,
             name: line.name.trim(),
             description: line.description ?? null,
+            sku: line.sku ?? null,
             category: line.category,
             unit: line.unit,
             quantity: String(line.quantity),
@@ -609,6 +624,12 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
           return res.status(400).json({ message: "Add at least one named line before submitting" });
         }
 
+        transitionOrThrow(
+          quote.status,
+          "pending_owner_approval",
+          req.user.role === "owner" ? "owner" : "staff",
+        );
+
         const [updated] = await db
           .update(maintenanceQuotes)
           .set({
@@ -620,14 +641,499 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
           .where(eq(maintenanceQuotes.id, quote.id))
           .returning();
 
-        console.info(
-          `[quotes] submitted quote=${quote.id} wo=${req.params.workOrderId} by=${req.user.id}`,
-        );
+        await appendWorkOrderEvent({
+          organizationId,
+          workOrderId: quote.workOrderId,
+          eventType: "quote_submitted",
+          actorUserId: req.user.id,
+          payload: { quoteId: quote.id },
+        });
 
         res.json(serializeQuote(updated, lines));
       } catch (error) {
         console.error("[quotes] submit failed:", error);
         res.status(500).json({ message: "Failed to submit quote" });
+      }
+    },
+  );
+
+  app.post(
+    "/api/work-orders/:workOrderId/quotes/:quoteId/owner-decision",
+    ...quoteGuards,
+    requireRole("owner"),
+    async (req: any, res: Response) => {
+      try {
+        const organizationId = orgId(req);
+        const access = await assertWoAccess(req.user, req.params.workOrderId);
+        if ("error" in access) {
+          return res.status(access.error).json({ message: access.message });
+        }
+
+        const quote = await getQuoteForWo(
+          organizationId,
+          req.params.workOrderId,
+          req.params.quoteId,
+        );
+        if (!quote) return res.status(404).json({ message: "Quote not found" });
+        if (quote.status !== "pending_owner_approval") {
+          return res.status(409).json({ message: "Quote is not awaiting owner approval" });
+        }
+
+        const parsed = ownerDecisionSchema.safeParse(req.body);
+        if (!parsed.success) {
+          return res.status(400).json({ message: "Invalid decision", errors: parsed.error.flatten() });
+        }
+
+        const { decision, reason } = parsed.data;
+        if (
+          (decision === "reject" || decision === "request_changes") &&
+          !(reason || "").trim()
+        ) {
+          return res.status(400).json({ message: "Reason is required for reject / request changes" });
+        }
+
+        const statusMap = {
+          approve: "owner_approved",
+          reject: "owner_rejected",
+          request_changes: "owner_changes_requested",
+        } as const;
+        const nextStatus = statusMap[decision];
+        transitionOrThrow(quote.status, nextStatus, "owner");
+
+        const [updated] = await db
+          .update(maintenanceQuotes)
+          .set({
+            status: nextStatus,
+            ownerDecision: decision,
+            ownerDecisionReason: reason?.trim() || null,
+            ownerDecidedAt: new Date(),
+            ownerDecidedByUserId: req.user.id,
+            updatedAt: new Date(),
+          })
+          .where(eq(maintenanceQuotes.id, quote.id))
+          .returning();
+
+        await appendWorkOrderEvent({
+          organizationId,
+          workOrderId: quote.workOrderId,
+          eventType: "quote_owner_decision",
+          actorUserId: req.user.id,
+          payload: { quoteId: quote.id, decision, nextStatus },
+        });
+
+        // Best-effort notify preparer
+        try {
+          const preparer = await storage.getUser(quote.preparedByUserId);
+          if (preparer?.email) {
+            await sendEmail({
+              to: preparer.email,
+              subject: `Quote ${quote.quoteReference} — ${decision.replace("_", " ")}`,
+              html: `<p>Your quotation <strong>${quote.quoteReference}</strong> was marked <strong>${nextStatus}</strong>.</p>
+                ${reason ? `<p>Reason: ${reason}</p>` : ""}`,
+            });
+          }
+        } catch (emailErr) {
+          console.warn("[quotes] owner-decision email failed:", emailErr);
+        }
+
+        const lines = await loadLines(quote.id);
+        res.json(serializeQuote(updated, lines));
+      } catch (error: any) {
+        console.error("[quotes] owner-decision failed:", error);
+        res.status(500).json({ message: error?.message || "Failed to record owner decision" });
+      }
+    },
+  );
+
+  app.post(
+    "/api/work-orders/:workOrderId/quotes/:quoteId/send",
+    ...quoteGuards,
+    requireRole("owner"),
+    async (req: any, res: Response) => {
+      try {
+        const organizationId = orgId(req);
+        const access = await assertWoAccess(req.user, req.params.workOrderId);
+        if ("error" in access) {
+          return res.status(access.error).json({ message: access.message });
+        }
+
+        const quote = await getQuoteForWo(
+          organizationId,
+          req.params.workOrderId,
+          req.params.quoteId,
+        );
+        if (!quote) return res.status(404).json({ message: "Quote not found" });
+
+        const isResend = quote.status === "sent";
+        if (quote.status !== "owner_approved" && !isResend) {
+          return res.status(409).json({
+            message: "Quote must be owner-approved before sending to the customer",
+          });
+        }
+        if (!isResend) {
+          transitionOrThrow(quote.status, "sent", "owner");
+        }
+
+        if (!(quote.recipientName || "").trim() || !(quote.recipientEmail || "").trim()) {
+          return res.status(400).json({
+            message: "Recipient name and email are required before sending",
+          });
+        }
+
+        const { rawToken, expiresAt } = await createQuoteShareToken({
+          quoteId: quote.id,
+          organizationId,
+          createdByUserId: req.user.id,
+        });
+
+        const [updated] = await db
+          .update(maintenanceQuotes)
+          .set({
+            status: "sent",
+            sentAt: new Date(),
+            expiresAt,
+            updatedAt: new Date(),
+          })
+          .where(eq(maintenanceQuotes.id, quote.id))
+          .returning();
+
+        const base = publicAppBaseUrl(req);
+        const link = `${base}/public/quotes/${rawToken}`;
+
+        await appendWorkOrderEvent({
+          organizationId,
+          workOrderId: quote.workOrderId,
+          eventType: isResend ? "quote_resent" : "quote_sent",
+          actorUserId: req.user.id,
+          payload: { quoteId: quote.id, expiresAt: expiresAt.toISOString() },
+        });
+
+        try {
+          await sendEmail({
+            to: quote.recipientEmail!,
+            subject: `Quotation ${quote.quoteReference} for your review`,
+            html: `<p>Hello ${quote.recipientName},</p>
+              <p>Please review quotation <strong>${quote.quoteReference}</strong>.</p>
+              <p><a href="${link}">View quotation and respond</a></p>
+              <p>This link expires on ${expiresAt.toUTCString()}.</p>`,
+          });
+        } catch (emailErr) {
+          console.warn("[quotes] send email failed:", emailErr);
+        }
+
+        const lines = await loadLines(quote.id);
+        res.json({ ...serializeQuote(updated, lines), publicLink: link });
+      } catch (error: any) {
+        console.error("[quotes] send failed:", error);
+        res.status(500).json({ message: error?.message || "Failed to send quote" });
+      }
+    },
+  );
+
+  app.post(
+    "/api/work-orders/:workOrderId/quotes/:quoteId/resend",
+    ...quoteGuards,
+    requireRole("owner"),
+    async (req: any, res: Response) => {
+      // Alias of send (handles status === sent).
+      try {
+        const organizationId = orgId(req);
+        const access = await assertWoAccess(req.user, req.params.workOrderId);
+        if ("error" in access) {
+          return res.status(access.error).json({ message: access.message });
+        }
+        const quote = await getQuoteForWo(
+          organizationId,
+          req.params.workOrderId,
+          req.params.quoteId,
+        );
+        if (!quote) return res.status(404).json({ message: "Quote not found" });
+        if (quote.status !== "sent" && quote.status !== "owner_approved") {
+          return res.status(409).json({ message: "Quote cannot be resent in this status" });
+        }
+        if (!(quote.recipientName || "").trim() || !(quote.recipientEmail || "").trim()) {
+          return res.status(400).json({ message: "Recipient name and email are required" });
+        }
+        const { rawToken, expiresAt } = await createQuoteShareToken({
+          quoteId: quote.id,
+          organizationId,
+          createdByUserId: req.user.id,
+        });
+        const [updated] = await db
+          .update(maintenanceQuotes)
+          .set({ status: "sent", sentAt: new Date(), expiresAt, updatedAt: new Date() })
+          .where(eq(maintenanceQuotes.id, quote.id))
+          .returning();
+        const link = `${publicAppBaseUrl(req)}/public/quotes/${rawToken}`;
+        await appendWorkOrderEvent({
+          organizationId,
+          workOrderId: quote.workOrderId,
+          eventType: "quote_resent",
+          actorUserId: req.user.id,
+          payload: { quoteId: quote.id },
+        });
+        try {
+          await sendEmail({
+            to: quote.recipientEmail!,
+            subject: `Quotation ${quote.quoteReference} (updated link)`,
+            html: `<p>Hello ${quote.recipientName},</p><p><a href="${link}">View quotation and respond</a></p>`,
+          });
+        } catch (emailErr) {
+          console.warn("[quotes] resend email failed:", emailErr);
+        }
+        const lines = await loadLines(quote.id);
+        res.json({ ...serializeQuote(updated, lines), publicLink: link });
+      } catch (error: any) {
+        console.error("[quotes] resend failed:", error);
+        res.status(500).json({ message: error?.message || "Failed to resend quote" });
+      }
+    },
+  );
+
+  app.post(
+    "/api/work-orders/:workOrderId/quotes/:quoteId/revise",
+    ...quoteGuards,
+    async (req: any, res: Response) => {
+      try {
+        const organizationId = orgId(req);
+        const access = await assertWoAccess(req.user, req.params.workOrderId);
+        if ("error" in access) {
+          return res.status(access.error).json({ message: access.message });
+        }
+
+        const quote = await getQuoteForWo(
+          organizationId,
+          req.params.workOrderId,
+          req.params.quoteId,
+        );
+        if (!quote) return res.status(404).json({ message: "Quote not found" });
+        if (!isQuoteRevisable(quote.status)) {
+          return res.status(409).json({ message: "Quote cannot be revised in this status" });
+        }
+
+        transitionOrThrow(quote.status, "superseded", "staff");
+
+        const lines = await loadLines(quote.id);
+        const nextVersion = quote.versionNumber + 1;
+
+        const draft = await db.transaction(async (tx) => {
+          const [created] = await tx
+            .insert(maintenanceQuotes)
+            .values({
+              organizationId,
+              workOrderId: quote.workOrderId,
+              status: "draft",
+              quoteNumber: quote.quoteNumber,
+              quoteReference: quote.quoteReference,
+              versionNumber: nextVersion,
+              quoteType: quote.quoteType === "variation" ? "variation" : "revision",
+              currency: quote.currency,
+              recipientContactId: quote.recipientContactId,
+              recipientName: quote.recipientName,
+              recipientEmail: quote.recipientEmail,
+              recipientPhone: quote.recipientPhone,
+              recipientAddress: quote.recipientAddress,
+              scopeDescription: quote.scopeDescription,
+              engineerNotes: quote.engineerNotes,
+              validUntil: quote.validUntil,
+              subtotalMinor: quote.subtotalMinor,
+              taxMinor: quote.taxMinor,
+              totalMinor: quote.totalMinor,
+              preparedByUserId: req.user.id,
+              parentQuoteId: quote.id,
+              variationOfQuoteId: quote.variationOfQuoteId,
+            })
+            .returning();
+
+          if (lines.length > 0) {
+            await tx.insert(maintenanceQuoteLines).values(
+              lines.map((line, index) => ({
+                quoteId: created.id,
+                sortOrder: index,
+                name: line.name,
+                description: line.description,
+                sku: line.sku,
+                category: line.category,
+                unit: line.unit,
+                quantity: String(line.quantity),
+                unitPriceMinor: line.unitPriceMinor,
+                vatRate: line.vatRate,
+                lineNetMinor: line.lineNetMinor,
+                lineTaxMinor: line.lineTaxMinor,
+                lineTotalMinor: line.lineTotalMinor,
+                priceBookItemId: line.priceBookItemId,
+              })),
+            );
+          }
+
+          await tx
+            .update(maintenanceQuotes)
+            .set({
+              status: "superseded",
+              supersededByQuoteId: created.id,
+              updatedAt: new Date(),
+            })
+            .where(eq(maintenanceQuotes.id, quote.id));
+
+          return created;
+        });
+
+        await appendWorkOrderEvent({
+          organizationId,
+          workOrderId: quote.workOrderId,
+          eventType: "quote_revised",
+          actorUserId: req.user.id,
+          payload: { fromQuoteId: quote.id, toQuoteId: draft.id },
+        });
+
+        const newLines = await loadLines(draft.id);
+        res.status(201).json(serializeQuote(draft, newLines));
+      } catch (error: any) {
+        console.error("[quotes] revise failed:", error);
+        res.status(500).json({ message: error?.message || "Failed to revise quote" });
+      }
+    },
+  );
+
+  app.post(
+    "/api/work-orders/:workOrderId/quotes/:quoteId/variation",
+    ...quoteGuards,
+    async (req: any, res: Response) => {
+      try {
+        const organizationId = orgId(req);
+        const access = await assertWoAccess(req.user, req.params.workOrderId);
+        if ("error" in access) {
+          return res.status(access.error).json({ message: access.message });
+        }
+
+        const quote = await getQuoteForWo(
+          organizationId,
+          req.params.workOrderId,
+          req.params.quoteId,
+        );
+        if (!quote) return res.status(404).json({ message: "Quote not found" });
+        if (quote.status !== "accepted" && quote.status !== "converted") {
+          return res.status(409).json({
+            message: "Variations can only be created from accepted or converted quotes",
+          });
+        }
+
+        const year = new Date().getFullYear();
+        const { quoteNumber, quoteReference } = await allocateQuoteNumber(organizationId, year);
+        const lines = await loadLines(quote.id);
+
+        const [created] = await db
+          .insert(maintenanceQuotes)
+          .values({
+            organizationId,
+            workOrderId: quote.workOrderId,
+            status: "draft",
+            quoteNumber,
+            quoteReference,
+            versionNumber: 1,
+            quoteType: "variation",
+            currency: quote.currency,
+            recipientContactId: quote.recipientContactId,
+            recipientName: quote.recipientName,
+            recipientEmail: quote.recipientEmail,
+            recipientPhone: quote.recipientPhone,
+            recipientAddress: quote.recipientAddress,
+            scopeDescription: quote.scopeDescription,
+            preparedByUserId: req.user.id,
+            variationOfQuoteId: quote.id,
+            parentQuoteId: quote.id,
+            subtotalMinor: 0,
+            taxMinor: 0,
+            totalMinor: 0,
+          })
+          .returning();
+
+        if (lines.length > 0) {
+          const blankish = lines.map((line, index) => ({
+            quoteId: created.id,
+            sortOrder: index,
+            name: line.name,
+            description: line.description,
+            sku: line.sku,
+            category: line.category,
+            unit: line.unit,
+            quantity: String(line.quantity),
+            unitPriceMinor: line.unitPriceMinor,
+            vatRate: line.vatRate,
+            lineNetMinor: line.lineNetMinor,
+            lineTaxMinor: line.lineTaxMinor,
+            lineTotalMinor: line.lineTotalMinor,
+            priceBookItemId: line.priceBookItemId,
+          }));
+          await db.insert(maintenanceQuoteLines).values(blankish);
+          const totals = computeQuoteTotals(
+            blankish.map((l) => ({
+              lineNetMinor: l.lineNetMinor,
+              lineTaxMinor: l.lineTaxMinor,
+              lineTotalMinor: l.lineTotalMinor,
+            })),
+          );
+          await db
+            .update(maintenanceQuotes)
+            .set({
+              subtotalMinor: totals.subtotalMinor,
+              taxMinor: totals.taxMinor,
+              totalMinor: totals.totalMinor,
+            })
+            .where(eq(maintenanceQuotes.id, created.id));
+        }
+
+        await appendWorkOrderEvent({
+          organizationId,
+          workOrderId: quote.workOrderId,
+          eventType: "quote_variation_created",
+          actorUserId: req.user.id,
+          payload: { fromQuoteId: quote.id, toQuoteId: created.id },
+        });
+
+        const newLines = await loadLines(created.id);
+        const [fresh] = await db
+          .select()
+          .from(maintenanceQuotes)
+          .where(eq(maintenanceQuotes.id, created.id))
+          .limit(1);
+        res.status(201).json(serializeQuote(fresh, newLines));
+      } catch (error: any) {
+        console.error("[quotes] variation failed:", error);
+        res.status(500).json({ message: error?.message || "Failed to create variation" });
+      }
+    },
+  );
+
+  app.post(
+    "/api/work-orders/:workOrderId/quotes/:quoteId/convert-to-invoice",
+    ...quoteGuards,
+    requireRole("owner"),
+    async (req: any, res: Response) => {
+      try {
+        const { convertQuoteToInvoice } = await import("./invoiceService");
+        const organizationId = orgId(req);
+        const access = await assertWoAccess(req.user, req.params.workOrderId);
+        if ("error" in access) {
+          return res.status(access.error).json({ message: access.message });
+        }
+
+        const quote = await getQuoteForWo(
+          organizationId,
+          req.params.workOrderId,
+          req.params.quoteId,
+        );
+        if (!quote) return res.status(404).json({ message: "Quote not found" });
+
+        const result = await convertQuoteToInvoice({
+          quote,
+          actorUserId: req.user.id,
+        });
+        res.status(201).json(result);
+      } catch (error: any) {
+        console.error("[quotes] convert failed:", error);
+        const status = error?.statusCode || 500;
+        res.status(status).json({ message: error?.message || "Failed to convert quote" });
       }
     },
   );
