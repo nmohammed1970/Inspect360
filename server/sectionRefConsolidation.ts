@@ -240,6 +240,16 @@ export async function consolidateInspectionSectionRefAliases(
       .where(eq(inspectionGalleryAssignments.id, row.id));
   }
 
+  // After alias remap, restore any assignment URLs missing from entry.photos.
+  try {
+    const { healInspectionEntryPhotosFromAssignments } = await import(
+      "./inspectionGalleryService"
+    );
+    await healInspectionEntryPhotosFromAssignments(inspection.id);
+  } catch (photoHealErr) {
+    console.warn("[sectionRef] gallery photo heal skipped:", photoHealErr);
+  }
+
   return removed;
 }
 

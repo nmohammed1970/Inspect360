@@ -166,6 +166,33 @@ export async function refreshLicenceVersionExtraction(input: {
       ),
     )
     .returning();
+
+  if (row?.licenceId) {
+    const extraction = input.extraction;
+    await db
+      .update(hmoLicences)
+      .set({
+        licenceNumber: extraction?.licence_number?.value ?? null,
+        authorityName: extraction?.issuing_authority?.value ?? null,
+        holderName: extraction?.holder_name?.value ?? null,
+        managerName: extraction?.manager_name?.value ?? null,
+        issueDate: parseDate(extraction?.issue_date?.value ?? null),
+        expiryDate: parseDate(extraction?.expiry_date?.value ?? null),
+        maxPersons:
+          typeof extraction?.maximum_individuals?.value === "number"
+            ? extraction.maximum_individuals.value
+            : null,
+        updatedAt: new Date(),
+        updatedBy: input.userId ?? null,
+      })
+      .where(
+        and(
+          eq(hmoLicences.id, row.licenceId),
+          eq(hmoLicences.organizationId, input.organizationId),
+        ),
+      );
+  }
+
   return row;
 }
 
@@ -549,8 +576,13 @@ export async function getOverview(organizationId: string, propertyId: string) {
         : null;
 
   const now = Date.now();
-  const activeFindings = findings.filter((f) => {
+  const latestAssessment = assessments[0] || null;
+  const currentFindings = latestAssessment
+    ? findings.filter((f) => f.assessmentId === latestAssessment.id)
+    : findings;
+  const activeFindings = currentFindings.filter((f) => {
     const meta = (f.actualJson || {}) as Record<string, unknown>;
+    if (meta.resolution === "force_closed" || meta.resolution === "recheck_passed") return false;
     if (meta.dismissedAt) return false;
     if (meta.snoozedUntil && new Date(String(meta.snoozedUntil)).getTime() > now) return false;
     return (
@@ -915,6 +947,18 @@ export async function getOverview(organizationId: string, propertyId: string) {
     licences,
     recentFindings: findings.slice(0, 50),
     assessments,
+    complianceAssessment:
+      latestAssessment?.runReason === "compliance_assessment"
+        ? {
+            id: latestAssessment.id,
+            overallStatus: latestAssessment.overallStatus,
+            completedAt: latestAssessment.completedAt,
+          }
+        : null,
+    complianceAlerts:
+      latestAssessment?.runReason === "compliance_assessment"
+        ? findings.filter((f) => f.assessmentId === latestAssessment.id)
+        : [],
     activeTenantCount: liveActiveTenants,
     occupancy: latestOccupancy
       ? { ...latestOccupancy, personCount: occupantsNow }
@@ -1648,62 +1692,133 @@ export async function listDashboardMetrics(organizationId: string) {
     if (!licenceByProperty.has(l.propertyId)) licenceByProperty.set(l.propertyId, l);
   }
 
+  // Open maintenance alerts per property (same source as property HMO "Maintenance alerts")
+  const openMaintenanceByProperty = new Map<
+    string,
+    Array<{ title: string; priority: string; createdAt: Date | null }>
+  >();
+  try {
+    const openMrs = await db
+      .select({
+        propertyId: maintenanceRequests.propertyId,
+        title: maintenanceRequests.title,
+        priority: maintenanceRequests.priority,
+        createdAt: maintenanceRequests.createdAt,
+      })
+      .from(maintenanceRequests)
+      .where(
+        and(
+          eq(maintenanceRequests.organizationId, organizationId),
+          inArray(maintenanceRequests.status, ["open", "in_progress"]),
+        ),
+      );
+    for (const m of openMrs) {
+      if (!m.propertyId) continue;
+      const list = openMaintenanceByProperty.get(m.propertyId) || [];
+      list.push({
+        title: m.title,
+        priority: m.priority || "medium",
+        createdAt: m.createdAt || null,
+      });
+      openMaintenanceByProperty.set(m.propertyId, list);
+    }
+  } catch {
+    /* leave empty — findings column falls back to none open */
+  }
+
+  const stripHmoCheckPrefix = (title: string) =>
+    String(title || "")
+      .replace(/^HMO:\s*[A-Z]{2,12}-?\d*\s*[—\-–:]\s*/i, "")
+      .trim();
+
   const enrichedProfiles = [];
   for (const p of profiles.slice(0, 200)) {
     const lic = licenceByProperty.get(p.propertyId);
     const property = await appStorage.getProperty(p.propertyId);
-    const findings = await listFindings(organizationId, p.propertyId);
-    const alertFindings = findings.filter((f) => {
-      const meta = (f.actualJson || {}) as Record<string, unknown>;
-      if (meta.dismissedAt) return false;
-      if (meta.snoozedUntil && new Date(String(meta.snoozedUntil)).getTime() > Date.now()) return false;
-      return (
-        f.status === "EVIDENCE_MISSING" ||
-        f.status === "REQUIRES_HUMAN_REVIEW" ||
-        f.status === "CONFIRMED_NON_COMPLIANT" ||
-        f.status === "POTENTIAL_RISK"
-      );
-    });
-    const [occ] = await db
-      .select()
-      .from(hmoOccupancySnapshots)
-      .where(
-        and(
-          eq(hmoOccupancySnapshots.organizationId, organizationId),
-          eq(hmoOccupancySnapshots.propertyId, p.propertyId),
-        ),
-      )
-      .orderBy(desc(hmoOccupancySnapshots.asOf))
-      .limit(1);
+    const openMaintenance = (openMaintenanceByProperty.get(p.propertyId) || [])
+      .slice()
+      .sort((a, b) => {
+        const rank = (priority: string) => {
+          const v = String(priority || "").toLowerCase();
+          if (v === "urgent" || v === "critical") return 0;
+          if (v === "high") return 1;
+          if (v === "medium") return 2;
+          return 3;
+        };
+        const byPriority = rank(a.priority) - rank(b.priority);
+        if (byPriority !== 0) return byPriority;
+        const at = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const bt = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return bt - at;
+      });
 
-    const nextActionFinding = alertFindings[0];
+    let urgentCount = 0;
+    let mediumCount = 0;
+    for (const m of openMaintenance) {
+      const sev = String(m.priority || "").toLowerCase();
+      // Match property HMO panel: high is treated as urgent visually
+      if (sev === "urgent" || sev === "critical" || sev === "high") urgentCount += 1;
+      else if (sev === "medium") mediumCount += 1;
+    }
+    const topAlert = openMaintenance[0] || null;
+
+    let liveActiveTenants: number | null = null;
+    try {
+      const getAssignments = (appStorage as any).getTenantAssignmentsByProperty;
+      if (typeof getAssignments === "function") {
+        const rows = await getAssignments.call(appStorage, p.propertyId, organizationId);
+        if (Array.isArray(rows)) {
+          const nowMs = Date.now();
+          liveActiveTenants = rows.filter((r: any) => {
+            const assignmentActive = r.assignment?.isActive !== false;
+            const end = r.assignment?.leaseEndDate || null;
+            const notEnded = !end || new Date(end).getTime() > nowMs;
+            return assignmentActive && notEnded;
+          }).length;
+        }
+      }
+    } catch {
+      liveActiveTenants = null;
+    }
+
+    // Prefer live active tenants (same as property HMO tab). Fall back to the
+    // latest occupancy snapshot only when tenant assignments are unavailable.
+    let occupantsNow: number | null = liveActiveTenants;
+    if (occupantsNow == null) {
+      const [occ] = await db
+        .select()
+        .from(hmoOccupancySnapshots)
+        .where(
+          and(
+            eq(hmoOccupancySnapshots.organizationId, organizationId),
+            eq(hmoOccupancySnapshots.propertyId, p.propertyId),
+          ),
+        )
+        .orderBy(desc(hmoOccupancySnapshots.asOf))
+        .limit(1);
+      occupantsNow =
+        occ?.personCount != null && Number.isFinite(Number(occ.personCount))
+          ? Number(occ.personCount)
+          : null;
+    }
+
     const licenceEvidenceStatus = (p as any).licenceEvidenceStatus || "UNKNOWN";
     const hmoClassification = (property as any)?.hmoClassification || null;
     const occupancyMismatch =
       lic?.maxPersons != null &&
-      occ?.personCount != null &&
-      Number(occ.personCount) > Number(lic.maxPersons);
+      occupantsNow != null &&
+      Number(occupantsNow) > Number(lic.maxPersons);
     const licenceEvidenceMissing =
       licenceEvidenceStatus === "REQUIRED_MISSING" ||
       licenceEvidenceStatus === "UNKNOWN" ||
       ((hmoClassification === "HMO" || hmoClassification === "UNSURE") &&
         licenceEvidenceStatus !== "ISSUED" &&
         licenceEvidenceStatus !== "NOT_REQUIRED");
-    const missingSafetyDoc = alertFindings.some((f) =>
-      /^(SAF-|LIC-05)/i.test(String(f.checkId || "")) && f.status === "EVIDENCE_MISSING",
-    );
-    const occupancyAlert = alertFindings.some((f) => /^OCC-/i.test(String(f.checkId || "")));
-    const topFinding = nextActionFinding;
-    const ruleSourceLabel = (() => {
-      const check = String(topFinding?.checkId || "");
-      const rv = String(topFinding?.ruleVersionId || "");
-      if (/^(AMEN-|COND-|LOC-|PLAN-|MGMT-)/i.test(check)) return "Company process (stub)";
-      if (/^LIC-/i.test(check) || /condition/i.test(String(topFinding?.explanation || ""))) {
-        return "Licence condition";
-      }
-      if (rv && !/^england/i.test(rv)) return "Council / local overlay";
-      return "National baseline";
-    })();
+    const missingSafetyDoc = false;
+    const topPriority = String(topAlert?.priority || "").toLowerCase();
+    const nextActionFromAlert = topAlert?.title
+      ? stripHmoCheckPrefix(topAlert.title) || topAlert.title
+      : null;
 
     enrichedProfiles.push({
       propertyId: p.propertyId,
@@ -1719,16 +1834,33 @@ export async function listDashboardMetrics(organizationId: string) {
       licenceEvidenceStatus,
       hmoClassification,
       maxPersons: lic?.maxPersons ?? null,
-      occupantsNow: occ?.personCount ?? null,
-      occupancyMismatch: Boolean(occupancyMismatch || occupancyAlert),
+      occupantsNow,
+      occupancyMismatch: Boolean(occupancyMismatch),
       licenceEvidenceMissing,
       missingSafetyDoc,
-      alertCount: alertFindings.length,
-      alertSeverity: topFinding?.severity || null,
-      alertProblem: topFinding?.explanation || null,
-      ruleSourceLabel,
-      nextAction: nextActionFinding?.suggestedActionCode || nextActionFinding?.explanation || null,
+      alertCount: openMaintenance.length,
+      alertSeverity:
+        topPriority === "urgent" || topPriority === "critical" || topPriority === "high"
+          ? "CRITICAL"
+          : topPriority === "medium"
+            ? "MEDIUM"
+            : topAlert
+              ? "LOW"
+              : null,
+      alertProblem: nextActionFromAlert,
+      ruleSourceLabel: topAlert ? "Maintenance alert" : null,
+      nextAction: nextActionFromAlert,
       managerName: lic?.managerName || null,
+      holderName: lic?.holderName || null,
+      urgentCount,
+      highCount: 0,
+      mediumCount,
+      openFindingCount: openMaintenance.length,
+      nextHmoInspectionDate: null as string | null,
+      lastHmoInspectionDate: null as string | null,
+      hmoInspectionOverdue: false,
+      hmoInspectionDueSoon: false,
+      hmoInspectionMissed: false,
     });
   }
 
@@ -1767,6 +1899,7 @@ export async function listDashboardMetrics(organizationId: string) {
         id: inspections.id,
         status: inspections.status,
         scheduledDate: inspections.scheduledDate,
+        completedDate: inspections.completedDate,
         propertyId: inspections.propertyId,
       })
       .from(inspections)
@@ -1788,20 +1921,46 @@ export async function listDashboardMetrics(organizationId: string) {
       else if (t <= in7) hmoInspectionDueSoon += 1;
     }
     for (const p of enrichedProfiles) {
-      (p as any).hmoInspectionMissed = hmoInsp.some(
-        (i) =>
-          i.propertyId === p.propertyId &&
-          i.scheduledDate &&
-          i.status !== "completed" &&
-          i.status !== "reviewed" &&
-          new Date(i.scheduledDate).getTime() < nowMs,
-      );
-      (p as any).hmoInspectionDueSoon = hmoInsp.some((i) => {
-        if (i.propertyId !== p.propertyId || !i.scheduledDate) return false;
-        if (i.status === "completed" || i.status === "reviewed") return false;
-        const t = new Date(i.scheduledDate).getTime();
-        return t >= nowMs && t <= in7;
-      });
+      const forProp = hmoInsp.filter((i) => i.propertyId === p.propertyId);
+      const openUpcoming = forProp
+        .filter(
+          (i) =>
+            i.scheduledDate &&
+            i.status !== "completed" &&
+            i.status !== "reviewed",
+        )
+        .sort(
+          (a, b) =>
+            new Date(a.scheduledDate!).getTime() - new Date(b.scheduledDate!).getTime(),
+        );
+      const completed = forProp
+        .filter((i) => i.status === "completed" || i.status === "reviewed")
+        .sort((a, b) => {
+          const at = new Date(a.completedDate || a.scheduledDate || 0).getTime();
+          const bt = new Date(b.completedDate || b.scheduledDate || 0).getTime();
+          return bt - at;
+        });
+
+      const nextOpen = openUpcoming[0] || null;
+      const lastDone = completed[0] || null;
+      const nextMs = nextOpen?.scheduledDate
+        ? new Date(nextOpen.scheduledDate).getTime()
+        : NaN;
+      const overdue = Number.isFinite(nextMs) && nextMs < nowMs;
+
+      p.hmoInspectionMissed = overdue;
+      p.hmoInspectionOverdue = overdue;
+      p.hmoInspectionDueSoon =
+        Number.isFinite(nextMs) && nextMs >= nowMs && nextMs <= in7;
+      p.nextHmoInspectionDate = nextOpen?.scheduledDate
+        ? new Date(nextOpen.scheduledDate).toISOString()
+        : null;
+      const lastRaw = lastDone?.completedDate || lastDone?.scheduledDate || null;
+      p.lastHmoInspectionDate = lastRaw
+        ? new Date(lastRaw).toISOString()
+        : p.lastAssessedAt
+          ? new Date(p.lastAssessedAt).toISOString()
+          : null;
     }
   } catch {
     hmoInspectionDueSoon = 0;
@@ -2292,4 +2451,73 @@ export async function upsertRegulatorySource(input: {
     })
     .returning();
   return row;
+}
+
+export async function getLatestAssessment(organizationId: string, propertyId: string) {
+  const [row] = await db
+    .select()
+    .from(hmoAssessments)
+    .where(
+      and(
+        eq(hmoAssessments.organizationId, organizationId),
+        eq(hmoAssessments.propertyId, propertyId),
+      ),
+    )
+    .orderBy(desc(hmoAssessments.createdAt))
+    .limit(1);
+  return row;
+}
+
+export async function updateFindingRecord(
+  organizationId: string,
+  findingId: string,
+  updates: Partial<{
+    status: string;
+    actualJson: Record<string, unknown>;
+    requiredJson: Record<string, unknown>;
+    explanation: string;
+  }>,
+) {
+  const [row] = await db
+    .update(hmoFindings)
+    .set({ ...updates, updatedAt: new Date() })
+    .where(
+      and(eq(hmoFindings.id, findingId), eq(hmoFindings.organizationId, organizationId)),
+    )
+    .returning();
+  return row;
+}
+
+export async function setProfileComplianceStatus(input: {
+  organizationId: string;
+  propertyId: string;
+  assessmentId?: string | null;
+  overallStatus: string;
+  userId?: string | null;
+}) {
+  await db
+    .update(hmoPropertyProfiles)
+    .set({
+      overallStatus: input.overallStatus,
+      profileStatus: input.overallStatus,
+      updatedAt: new Date(),
+      updatedBy: input.userId ?? null,
+    })
+    .where(
+      and(
+        eq(hmoPropertyProfiles.organizationId, input.organizationId),
+        eq(hmoPropertyProfiles.propertyId, input.propertyId),
+      ),
+    );
+  if (input.assessmentId) {
+    await db
+      .update(hmoAssessments)
+      .set({ overallStatus: input.overallStatus, updatedAt: new Date() })
+      .where(
+        and(
+          eq(hmoAssessments.id, input.assessmentId),
+          eq(hmoAssessments.organizationId, input.organizationId),
+        ),
+      );
+  }
 }

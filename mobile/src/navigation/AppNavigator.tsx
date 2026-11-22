@@ -10,6 +10,7 @@ import {
   Home,
   FileCheck,
   Users,
+  User,
   Clipboard,
 } from 'lucide-react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -187,16 +188,20 @@ function MainTabNavigator() {
   const theme = useTheme();
   const themeColors = theme && theme.colors ? theme.colors : colors;
   const isDark = !!theme?.isDark;
-  const { maintenanceEnabled } = useCompanyModules();
+  const { maintenanceEnabled, isReady } = useCompanyModules();
   const { user } = useAuth();
   // Inspectors (clerk) must not see work orders in the inspector portal.
   const showWorkOrdersTab = maintenanceEnabled && user?.role !== 'clerk';
   const barColor = themeColors.card.DEFAULT;
   const insetColor = isDark ? '#000000' : '#E8E8E8';
   const bottomInset = Math.max(insets.bottom, moderateScale(8, 0.3));
+  // Remount when module flags resolve — conditional Tab.Screen mounts after first
+  // paint often leave the tab bar stuck on Inspections + Assets only.
+  const tabsKey = `main-tabs-r${isReady ? 1 : 0}-m${maintenanceEnabled ? 1 : 0}-w${showWorkOrdersTab ? 1 : 0}`;
 
   return (
     <MainTabs.Navigator
+      key={tabsKey}
       id="MainTabs"
       screenOptions={{
         headerShown: false,
@@ -233,29 +238,29 @@ function MainTabNavigator() {
           ),
         }}
       />
-      {maintenanceEnabled && (
-      <MainTabs.Screen
-        name="Maintenance"
-        component={MaintenanceNavigator}
-        options={{
-          tabBarIcon: ({ color, size }) => (
-            <Wrench size={moderateScale(size || 24, 0.2)} color={color} />
-          ),
-        }}
-      />
-      )}
-      {showWorkOrdersTab && (
-      <MainTabs.Screen
-        name="WorkOrders"
-        component={WorkOrdersNavigator}
-        options={{
-          title: 'Work Orders',
-          tabBarIcon: ({ color, size }) => (
-            <Clipboard size={moderateScale(size || 24, 0.2)} color={color} />
-          ),
-        }}
-      />
-      )}
+      {maintenanceEnabled ? (
+        <MainTabs.Screen
+          name="Maintenance"
+          component={MaintenanceNavigator}
+          options={{
+            tabBarIcon: ({ color, size }) => (
+              <Wrench size={moderateScale(size || 24, 0.2)} color={color} />
+            ),
+          }}
+        />
+      ) : null}
+      {showWorkOrdersTab ? (
+        <MainTabs.Screen
+          name="WorkOrders"
+          component={WorkOrdersNavigator}
+          options={{
+            title: 'Work Orders',
+            tabBarIcon: ({ color, size }) => (
+              <Clipboard size={moderateScale(size || 24, 0.2)} color={color} />
+            ),
+          }}
+        />
+      ) : null}
       <MainTabs.Screen
         name="Assets"
         component={AssetsNavigator}

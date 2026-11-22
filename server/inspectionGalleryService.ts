@@ -25,8 +25,10 @@ import {
   isSectionGalleryFieldKey,
   listPhotoDestinations,
   listRepeatableInstances,
+  mergePhotoUrlLists,
   normalizeObjectUrl,
   resolveGalleryAssignmentLabel,
+  resolveInstanceRefFamily,
   resolveSectionInstanceLabel,
   sectionActsAsRepeatableForInstanceRef,
   sectionShouldExpandAsInstances,
@@ -706,6 +708,192 @@ async function removePhotoFromEntry(
   } as any);
 }
 
+/** Assignment objectUrls for one field (excludes section-pool keys). */
+async function assignmentObjectUrlsForField(
+  inspectionId: string,
+  sectionRef: string,
+  fieldKey: string,
+): Promise<string[]> {
+  if (isSectionGalleryFieldKey(fieldKey)) return [];
+
+  // Kitchen/room instances often split across UUID / "Kitchen 1" / "Kitchen Overview 1".
+  // Include every alias ref in the family so a stale save cannot drop assigned photos.
+  let refs = [sectionRef];
+  try {
+    const inspection = await storage.getInspection(inspectionId);
+    if (inspection) {
+      const counts = await loadRepeatableCounts(inspectionId, inspection);
+      const family = resolveInstanceRefFamily(
+        inspection.templateSnapshotJson as any,
+        sectionRef,
+        counts,
+      );
+      if (family?.allRefs?.length) refs = family.allRefs;
+    }
+  } catch {
+    /* exact sectionRef only */
+  }
+
+  const rows = await db
+    .select({ objectUrl: inspectionGalleryImages.objectUrl })
+    .from(inspectionGalleryAssignments)
+    .innerJoin(
+      inspectionGalleryImages,
+      eq(inspectionGalleryImages.id, inspectionGalleryAssignments.galleryImageId),
+    )
+    .where(
+      and(
+        eq(inspectionGalleryAssignments.inspectionId, inspectionId),
+        inArray(inspectionGalleryAssignments.sectionRef, refs),
+        eq(inspectionGalleryAssignments.fieldKey, fieldKey),
+        isNull(inspectionGalleryImages.deletedAt),
+      ),
+    );
+  return rows.map((r) => r.objectUrl).filter(Boolean);
+}
+
+/**
+ * Merge client/entry photos with gallery assignment URLs for one field.
+ * Assignments win for growth: a stale capture save cannot drop assigned photos.
+ */
+export async function mergeEntryPhotosWithAssignments(
+  inspectionId: string,
+  sectionRef: string,
+  fieldKey: string,
+  clientPhotos: string[] | null | undefined,
+): Promise<string[] | null> {
+  if (isSectionGalleryFieldKey(fieldKey)) {
+    return Array.isArray(clientPhotos) && clientPhotos.length ? clientPhotos : null;
+  }
+  const assigned = await assignmentObjectUrlsForField(inspectionId, sectionRef, fieldKey);
+  const merged = mergePhotoUrlLists(clientPhotos, assigned);
+  return merged.length ? merged : null;
+}
+
+/**
+ * Heal all field entries so entry.photos includes every gallery assignment URL.
+ * Fixes capture UI showing fewer photos than Section Gallery for the same point.
+ * Returns how many entries were updated.
+ */
+export async function healInspectionEntryPhotosFromAssignments(
+  inspectionId: string,
+): Promise<number> {
+  const id = String(inspectionId || "").trim();
+  if (!id) return 0;
+
+  const rows = await db
+    .select({
+      sectionRef: inspectionGalleryAssignments.sectionRef,
+      fieldKey: inspectionGalleryAssignments.fieldKey,
+      objectUrl: inspectionGalleryImages.objectUrl,
+    })
+    .from(inspectionGalleryAssignments)
+    .innerJoin(
+      inspectionGalleryImages,
+      eq(inspectionGalleryImages.id, inspectionGalleryAssignments.galleryImageId),
+    )
+    .where(
+      and(
+        eq(inspectionGalleryAssignments.inspectionId, id),
+        isNull(inspectionGalleryImages.deletedAt),
+      ),
+    );
+
+  let structure: any = null;
+  let counts: Record<string, number> = {};
+  try {
+    const inspection = await storage.getInspection(id);
+    if (inspection) {
+      structure = inspection.templateSnapshotJson;
+      counts = await loadRepeatableCounts(id, inspection);
+    }
+  } catch {
+    /* family resolve falls back to exact refs */
+  }
+
+  // Bucket by canonical instance family + fieldKey so Kitchen UUID / "Kitchen 1" /
+  // "Kitchen Overview 1" assignments heal onto every related entry row.
+  type DestBucket = {
+    primary: string;
+    fieldKey: string;
+    refs: Set<string>;
+    urls: string[];
+  };
+  const byDest = new Map<string, DestBucket>();
+  for (const row of rows) {
+    if (isSectionGalleryFieldKey(row.fieldKey)) continue;
+    const objectUrl = row.objectUrl?.trim();
+    if (!objectUrl) continue;
+    const family = resolveInstanceRefFamily(structure, row.sectionRef, counts);
+    const primary = family?.primary || row.sectionRef;
+    const allRefs = family?.allRefs?.length ? family.allRefs : [row.sectionRef];
+    const key = `${primary}\0${row.fieldKey}`;
+    let bucket = byDest.get(key);
+    if (!bucket) {
+      bucket = {
+        primary,
+        fieldKey: row.fieldKey,
+        refs: new Set(allRefs),
+        urls: [],
+      };
+      byDest.set(key, bucket);
+    } else {
+      for (const r of allRefs) bucket.refs.add(r);
+    }
+    bucket.urls.push(objectUrl);
+  }
+
+  if (!byDest.size) return 0;
+
+  let updated = 0;
+  for (const bucket of byDest.values()) {
+    const refs = Array.from(bucket.refs);
+    const existingRows = await db
+      .select()
+      .from(inspectionEntries)
+      .where(
+        and(
+          eq(inspectionEntries.inspectionId, id),
+          inArray(inspectionEntries.sectionRef, refs),
+          eq(inspectionEntries.fieldKey, bucket.fieldKey),
+        ),
+      );
+
+    const merged = mergePhotoUrlLists(
+      ...existingRows.map((e) => (Array.isArray(e.photos) ? e.photos : [])),
+      bucket.urls,
+    );
+    if (!merged.length) continue;
+
+    if (existingRows.length) {
+      for (const entry of existingRows) {
+        const current = Array.isArray(entry.photos) ? entry.photos : [];
+        if (JSON.stringify(current) === JSON.stringify(merged)) continue;
+        const currentKeys = new Set(
+          current.map((p) => normalizeObjectUrl(p) || p).filter(Boolean),
+        );
+        const missing = merged.some(
+          (p) => !currentKeys.has(normalizeObjectUrl(p) || p),
+        );
+        if (!missing && merged.length === current.length) continue;
+        await storage.updateInspectionEntry(entry.id, { photos: merged } as any);
+        updated += 1;
+      }
+    } else {
+      await storage.createInspectionEntry({
+        inspectionId: id,
+        sectionRef: bucket.primary,
+        fieldKey: bucket.fieldKey,
+        fieldType: "photo_array",
+        photos: merged,
+        valueJson: null,
+      } as any);
+      updated += 1;
+    }
+  }
+  return updated;
+}
+
 /**
  * One photo → one field. When assigning (or re-assigning), strip this URL from
  * any other entry so orphan "on field but Gallery Unassigned" rows cannot linger
@@ -853,6 +1041,10 @@ export async function assignGalleryImages(
   if (!dest) throw httpError("Invalid assignment destination for this inspection template", 400);
 
   await assignImagesInternal(inspection, user, imageIds, dest);
+  // Belt-and-suspenders: ensure entry.photos matches assignments after batch assign.
+  if (!isSectionGalleryFieldKey(dest.fieldKey)) {
+    await healInspectionEntryPhotosFromAssignments(inspectionId);
+  }
   return listGallery(inspectionId, user);
 }
 
@@ -893,6 +1085,60 @@ export async function unassignGalleryImages(
       item.fieldKey,
       image.objectUrl,
     );
+  }
+
+  return listGallery(inspectionId, user);
+}
+
+/**
+ * Unassign by object URL (field delete path). Finds gallery rows for the URLs
+ * and clears matching assignments + entry.photos for that destination.
+ */
+export async function unassignGalleryObjectUrls(
+  inspectionId: string,
+  user: User,
+  items: Array<{ objectUrl: string; sectionRef: string; fieldKey: string }>,
+): Promise<GalleryImageDto[]> {
+  const { inspection } = await assertInspectionGalleryAccess(inspectionId, user, "write");
+  if (!items?.length) throw httpError("No unassign items provided", 400);
+
+  for (const item of items) {
+    const sectionRef = String(item.sectionRef || "").trim();
+    const fieldKey = String(item.fieldKey || "").trim();
+    const target = normalizeObjectUrl(item.objectUrl) || String(item.objectUrl || "").trim();
+    if (!sectionRef || !fieldKey || !target) continue;
+
+    const images = await db
+      .select()
+      .from(inspectionGalleryImages)
+      .where(
+        and(
+          eq(inspectionGalleryImages.inspectionId, inspection.id),
+          isNull(inspectionGalleryImages.deletedAt),
+        ),
+      );
+
+    const image = images.find((img) => {
+      const n = normalizeObjectUrl(img.objectUrl) || img.objectUrl;
+      return n === target || img.objectUrl === item.objectUrl;
+    });
+    if (!image) {
+      // Still strip from entry even if gallery row is missing
+      await removePhotoFromEntry(inspection.id, sectionRef, fieldKey, target);
+      continue;
+    }
+
+    await db
+      .delete(inspectionGalleryAssignments)
+      .where(
+        and(
+          eq(inspectionGalleryAssignments.galleryImageId, image.id),
+          eq(inspectionGalleryAssignments.sectionRef, sectionRef),
+          eq(inspectionGalleryAssignments.fieldKey, fieldKey),
+        ),
+      );
+
+    await removePhotoFromEntry(inspection.id, sectionRef, fieldKey, image.objectUrl);
   }
 
   return listGallery(inspectionId, user);

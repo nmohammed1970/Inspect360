@@ -40,6 +40,7 @@ import {
 import { COMPLETION_CHECKLIST_INSPECTION_UI_VISIBLE } from '../../../../shared/completionChecklist';
 import { ErrorBoundary } from '../../components/ui/ErrorBoundary';
 import { formatSignerDisplayName } from '../../../../shared/signature';
+import { resolveInspectionTenantNames } from '../../../../shared/inspectionTenantNames';
 import { PHOTO_WARN_THRESHOLD, creditsConsumed } from '../../../../shared/billingUnits';
 import {
   applyPropertyCountsToTemplateSnapshot,
@@ -2843,31 +2844,10 @@ export default function InspectionCaptureScreen() {
                                       : block
                                         ? [block.address, block.city, block.state, block.postalCode].filter(Boolean).join(', ')
                                         : '',
-                                    tenantNames: Array.isArray(tenants) && tenants.length > 0
-                                      ? (() => {
-                                          const tenantNames = tenants
-                                            .map((t: any) => {
-                                              return t.tenantName || t.name || t.tenant?.name || t.tenant?.fullName || 
-                                                     (t.firstName && t.lastName ? `${t.firstName} ${t.lastName}` : 
-                                                     t.firstName || t.lastName || "");
-                                            })
-                                            .filter(Boolean);
-                                          
-                                          if (tenantNames.length > 0) {
-                                            return tenantNames.join(", ");
-                                          }
-                                          
-                                          const hasAnyTenant = tenants.some((t: any) => 
-                                            t.tenantName || t.name || t.tenant || t.firstName || t.lastName
-                                          );
-                                          
-                                          if (hasAnyTenant) {
-                                            return "Tenant assigned";
-                                          }
-                                          
-                                          return "";
-                                        })()
-                                      : '',
+                                    tenantNames: resolveInspectionTenantNames(
+                                      tenants,
+                                      (effectiveInspection as any)?.tenantId,
+                                    ),
                                     inspectionDate: new Date(effectiveInspection?.scheduledDate || (effectiveInspection as any)?.startedAt || new Date().toISOString()).toISOString().split('T')[0],
                                     bedroomCount: propertyLayoutCounts.bedroomCount,
                                     bathroomCount: propertyLayoutCounts.bathroomCount,
@@ -2959,21 +2939,11 @@ export default function InspectionCaptureScreen() {
                     }
 
                     try {
-                      const getTenantNames = () => {
-                        if (!Array.isArray(tenants) || tenants.length === 0) return '';
-                                    const tenantNames = tenants
-                                      .map((t: any) => {
-                                        return t.tenantName || t.name || t.tenant?.name || t.tenant?.fullName || 
-                                               (t.firstName && t.lastName ? `${t.firstName} ${t.lastName}` : 
-                                   t.firstName || t.lastName || '');
-                                      })
-                                      .filter(Boolean);
-                        if (tenantNames.length > 0) return tenantNames.join(', ');
-                                    const hasAnyTenant = tenants.some((t: any) => 
-                                      t.tenantName || t.name || t.tenant || t.firstName || t.lastName
-                                    );
-                        return hasAnyTenant ? 'Tenant assigned' : '';
-                      };
+                      const getTenantNames = () =>
+                        resolveInspectionTenantNames(
+                          tenants,
+                          (effectiveInspection as any)?.tenantId,
+                        );
 
                       const navigateToMaintenance = (
                         fieldLabel: string,

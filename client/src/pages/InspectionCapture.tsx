@@ -41,6 +41,7 @@ import { QuickUpdateAssetSheet } from "@/components/QuickUpdateAssetSheet";
 import { QuickAddMaintenanceSheet } from "@/components/QuickAddMaintenanceSheet";
 import { formatSignerDisplayName, isTenantSignatureField } from "@shared/signature";
 import { isGeneralInformationSection } from "@shared/defaultGeneralInformationSection";
+import { resolveInspectionTenantNames } from "@shared/inspectionTenantNames";
 import {
   applyPropertyCountsToTemplateSnapshot,
   findBathroomCountField,
@@ -61,6 +62,7 @@ import {
 import {
   listRepeatableInstances,
   matchesSectionScope,
+  mergePhotoUrlLists,
   sectionShouldExpandAsInstances,
 } from "@shared/inspectionGallery";
 import { useCompanyModules } from "@/hooks/useCompanyModules";
@@ -638,6 +640,20 @@ export default function InspectionCapture() {
             next[key] = { ...local, id: serverEntry.id };
             changed = true;
           }
+          // Gallery assign can grow entry.photos while a field save is in-flight.
+          // Always absorb a longer server photo list so capture stays in sync.
+          if (local) {
+            const localPhotos = Array.isArray(local.photos) ? local.photos : [];
+            const serverPhotos = Array.isArray(serverEntry.photos) ? serverEntry.photos : [];
+            if (serverPhotos.length > localPhotos.length) {
+              next[key] = {
+                ...local,
+                id: serverEntry.id || local.id,
+                photos: serverPhotos,
+              };
+              changed = true;
+            }
+          }
           continue;
         }
         const oldEntry = prev[key];
@@ -763,8 +779,8 @@ export default function InspectionCapture() {
           [_clientKey]: {
             ...local,
             id: saved?.id || local.id,
-            // Keep whatever the user last edited locally for this seq
-            photos: local.photos,
+            // Prefer union of local + server (server merge may restore gallery-assigned URLs).
+            photos: mergePhotoUrlLists(local.photos, saved?.photos),
             valueJson: local.valueJson,
             note: local.note,
           },
@@ -1944,27 +1960,8 @@ export default function InspectionCapture() {
       return "";
     };
 
-    const getTenantNames = () => {
-      if (tenants && tenants.length > 0) {
-        const tenantNames = tenants
-          .map((t: any) => {
-            return (
-              t.tenantName ||
-              t.name ||
-              t.tenant?.name ||
-              t.tenant?.fullName ||
-              (t.firstName && t.lastName ? `${t.firstName} ${t.lastName}` : t.firstName || t.lastName || "")
-            );
-          })
-          .filter(Boolean);
-        if (tenantNames.length > 0) return tenantNames.join(", ");
-        const hasAnyTenant = tenants.some(
-          (t: any) => t.tenantName || t.name || t.tenant || t.firstName || t.lastName,
-        );
-        if (hasAnyTenant) return "Tenant assigned";
-      }
-      return "";
-    };
+    const getTenantNames = () =>
+      resolveInspectionTenantNames(tenants, (inspection as any)?.tenantId);
 
     const autoContext = {
       inspectorName: resolvedInspectorName,
@@ -3319,30 +3316,8 @@ export default function InspectionCapture() {
                         return "";
                       };
 
-                      const getTenantNames = () => {
-                        if (tenants && tenants.length > 0) {
-                          const tenantNames = tenants
-                            .map((t: any) => {
-                              return t.tenantName || t.name || t.tenant?.name || t.tenant?.fullName ||
-                                     t.firstName && t.lastName ? `${t.firstName} ${t.lastName}` :
-                                     t.firstName || t.lastName || "";
-                            })
-                            .filter(Boolean);
-
-                          if (tenantNames.length > 0) {
-                            return tenantNames.join(", ");
-                          }
-
-                          const hasAnyTenant = tenants.some((t: any) =>
-                            t.tenantName || t.name || t.tenant || t.firstName || t.lastName
-                          );
-
-                          if (hasAnyTenant) {
-                            return "Tenant assigned";
-                          }
-                        }
-                        return "";
-                      };
+                      const getTenantNames = () =>
+                        resolveInspectionTenantNames(tenants, (inspection as any)?.tenantId);
 
                       const autoContext = {
                         inspectorName: resolvedInspectorName,
@@ -3459,30 +3434,8 @@ export default function InspectionCapture() {
                   return "";
                 };
 
-                const getTenantNames = () => {
-                  if (tenants && tenants.length > 0) {
-                    const tenantNames = tenants
-                      .map((t: any) => {
-                        return t.tenantName || t.name || t.tenant?.name || t.tenant?.fullName ||
-                               t.firstName && t.lastName ? `${t.firstName} ${t.lastName}` :
-                               t.firstName || t.lastName || "";
-                      })
-                      .filter(Boolean);
-
-                    if (tenantNames.length > 0) {
-                      return tenantNames.join(", ");
-                    }
-
-                    const hasAnyTenant = tenants.some((t: any) =>
-                      t.tenantName || t.name || t.tenant || t.firstName || t.lastName
-                    );
-
-                    if (hasAnyTenant) {
-                      return "Tenant assigned";
-                    }
-                  }
-                  return "";
-                };
+                const getTenantNames = () =>
+                  resolveInspectionTenantNames(tenants, (inspection as any)?.tenantId);
 
                 const autoContext = {
                   inspectorName: resolvedInspectorName,

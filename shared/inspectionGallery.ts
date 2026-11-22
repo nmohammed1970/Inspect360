@@ -312,6 +312,32 @@ export function normalizeObjectUrl(raw: string | null | undefined): string | nul
   return fileUrl.split("?")[0];
 }
 
+/**
+ * Deduped union of photo URL lists (normalized /objects/ keys).
+ * Preserves first-seen order; caps at GALLERY_FIELD_PHOTO_MAX.
+ * Used to heal entry.photos from gallery assignments after stale field saves.
+ */
+export function mergePhotoUrlLists(
+  ...lists: Array<string[] | null | undefined>
+): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const list of lists) {
+    if (!Array.isArray(list)) continue;
+    for (const raw of list) {
+      if (typeof raw !== "string") continue;
+      const trimmed = raw.trim();
+      if (!trimmed) continue;
+      const key = normalizeObjectUrl(trimmed) || trimmed;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(trimmed);
+      if (out.length >= GALLERY_FIELD_PHOTO_MAX) return out;
+    }
+  }
+  return out;
+}
+
 function fieldKeyOf(field: GalleryTemplateField): string | null {
   const key = (field.id || field.key || "").trim();
   return key || null;
