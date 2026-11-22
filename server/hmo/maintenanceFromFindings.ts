@@ -85,10 +85,9 @@ export async function createOrReuseMaintenanceForFinding(input: {
     return { created: false, maintenanceRequest: existing as any, skippedReason: "already_open" };
   }
 
-  const title = `HMO: ${input.finding.checkId} — ${String(input.finding.explanation || "Finding").slice(0, 120)}`;
+  const title = String(input.finding.explanation || "HMO compliance finding").slice(0, 160);
   const description = [
     input.finding.explanation || "HMO compliance finding",
-    `Check: ${input.finding.checkId}`,
     `Status: ${input.finding.status}`,
     `Severity: ${input.finding.severity}`,
     input.finding.suggestedActionCode

@@ -146,9 +146,9 @@ function downloadCsv(rows: PortfolioProfile[], asOf: number) {
     "Verified permitted people",
     "Inspection last",
     "Inspection next",
-    "Urgent findings",
-    "High findings",
-    "Medium findings",
+    "Urgent alerts",
+    "High alerts",
+    "Medium alerts",
     "Priority",
     "Next action",
   ];
@@ -397,7 +397,7 @@ export default function HmoDashboard() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-xs md:text-sm font-medium text-muted-foreground">
-                      Urgent findings
+                      Urgent alerts
                     </p>
                     <p
                       className="text-xl md:text-2xl font-bold text-destructive"
@@ -554,7 +554,7 @@ export default function HmoDashboard() {
                           "Licence",
                           "Occupancy",
                           "HMO inspection",
-                          "Findings",
+                          "Alerts",
                           "Next action",
                           "",
                         ].map((h) => (
@@ -691,7 +691,7 @@ export default function HmoDashboard() {
 
       {/* Portfolio report */}
       <Dialog open={reportOpen} onOpenChange={setReportOpen}>
-        <DialogContent className="max-w-4xl">
+        <DialogContent className="w-[calc(100vw-2rem)] max-w-5xl max-h-[min(90vh,calc(100dvh-1.5rem))] sm:max-w-5xl lg:max-w-6xl">
           <DialogHeader>
             <DialogTitle>HMO portfolio report</DialogTitle>
             <DialogDescription>
@@ -699,14 +699,14 @@ export default function HmoDashboard() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/40 p-3">
-            <label className="flex items-center gap-2 text-sm font-medium">
+          <div className="flex flex-col gap-2 rounded-lg border bg-muted/40 p-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
+            <label className="flex min-w-0 flex-col gap-1.5 text-sm font-medium sm:flex-row sm:items-center sm:gap-2">
               Portfolio scope
               <Select
                 value={reportScope}
                 onValueChange={(v) => setReportScope(v as "visible" | "all")}
               >
-                <SelectTrigger className="h-9 w-[220px]">
+                <SelectTrigger className="h-9 w-full sm:w-[240px]">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -715,18 +715,20 @@ export default function HmoDashboard() {
                 </SelectContent>
               </Select>
             </label>
-            <span className="text-xs text-muted-foreground">
+            <span className="text-xs text-muted-foreground sm:ml-auto">
               As at {data?.asOf ? new Date(data.asOf).toLocaleString() : "—"}
             </span>
           </div>
 
-          <div className="rounded-lg border p-5">
-            <div className="mb-4 flex items-start justify-between gap-3 border-b-2 border-primary pb-3">
-              <div>
-                <p className="text-xs font-semibold text-muted-foreground">
+          <div className="min-w-0 rounded-lg border border-[#d7e7e4] bg-gradient-to-b from-[#f7fcfb] to-white p-3 sm:p-5">
+            <div className="mb-4 flex items-start justify-between gap-3 border-b-2 border-[#00a99b] pb-3">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold tracking-wide text-[#00a99b]">
                   INSPECT360 · HMO PORTFOLIO
                 </p>
-                <h3 className="text-xl font-bold">HMO management report</h3>
+                <h3 className="text-lg font-bold text-slate-900 sm:text-xl">
+                  HMO management report
+                </h3>
                 <p className="mt-1 text-sm text-muted-foreground">
                   {reportScope === "all" ? "Entire portfolio" : "Filtered portfolio selection"} ·{" "}
                   {reportRows.length} properties
@@ -736,36 +738,43 @@ export default function HmoDashboard() {
 
             <div className="mb-4 grid grid-cols-2 gap-2 md:grid-cols-4">
               {[
-                { n: reportRows.length, l: "HMOs in scope" },
+                {
+                  n: reportRows.length,
+                  l: "HMOs in scope",
+                  tone: "text-[#00877a] bg-[#e8f8f3] border-[#b7e5dc]",
+                },
                 {
                   n: reportRows.filter((p) => isAction(p, asOf)).length,
                   l: "Requiring action",
+                  tone: "text-[#a56b16] bg-[#fff2de] border-[#f0d7a8]",
                 },
                 {
                   n: reportRows.filter((p) => isUrgent(p)).length,
-                  l: "Urgent findings",
+                  l: "Urgent alerts",
+                  tone: "text-[#b93b4a] bg-[#fff0f1] border-[#f3c4ca]",
                 },
                 {
                   n: reportRows.filter((p) => hasUpcoming(p, windowDays, asOf)).length,
                   l: `Upcoming (${windowDays}d)`,
+                  tone: "text-[#856613] bg-[#fff8e8] border-[#efe0b0]",
                 },
               ].map((s) => (
-                <div key={s.l} className="rounded-md bg-muted/50 p-2.5">
-                  <strong className="block text-2xl">{s.n}</strong>
-                  <small className="text-xs text-muted-foreground">{s.l}</small>
+                <div key={s.l} className={cn("rounded-md border p-2.5", s.tone)}>
+                  <strong className="block text-xl sm:text-2xl">{s.n}</strong>
+                  <small className="text-xs opacity-80">{s.l}</small>
                 </div>
               ))}
             </div>
 
-            <div className="max-h-[320px] overflow-auto">
-              <table className="w-full min-w-[640px] border-collapse text-left text-sm">
+            <div className="max-h-[min(40vh,360px)] overflow-auto -mx-1 px-1 sm:mx-0 sm:px-0">
+              <table className="w-full min-w-[560px] border-collapse text-left text-sm">
                 <thead>
-                  <tr>
-                    {["Property", "Authority", "Licence", "Inspection", "Findings", "Priority"].map(
+                  <tr className="bg-[#f3faf8]">
+                    {["Property", "Authority", "Licence", "Inspection", "Alerts", "Priority"].map(
                       (h) => (
                         <th
                           key={h}
-                          className="border-b px-2 py-2 text-xs font-medium text-muted-foreground"
+                          className="border-b border-[#d7e7e4] px-2 py-2 text-xs font-semibold text-[#5b6b75]"
                         >
                           {h}
                         </th>
@@ -774,37 +783,65 @@ export default function HmoDashboard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {reportRows.map((p) => (
-                    <tr key={p.propertyId}>
-                      <td className="border-b border-[#eef2f5] px-1.5 py-2">
-                        {displayAddress(p)}
-                      </td>
-                      <td className="border-b border-[#eef2f5] px-1.5 py-2">
-                        {displayCouncil(p) || "—"}
-                      </td>
-                      <td className="border-b border-[#eef2f5] px-1.5 py-2">
-                        {p.expiryDate
-                          ? fmtShort(p.expiryDate)
-                          : p.licenceEvidenceMissing
-                            ? "Not on file"
-                            : "—"}
-                      </td>
-                      <td className="border-b border-[#eef2f5] px-1.5 py-2">
-                        {inspectionOverdue(p)
-                          ? "Overdue"
-                          : p.lastHmoInspectionDate || p.lastAssessedAt
-                            ? fmtShort(p.lastHmoInspectionDate || p.lastAssessedAt)
-                            : "Not assessed"}
-                      </td>
-                      <td className="border-b border-[#eef2f5] px-1.5 py-2">
-                        {p.openFindingCount ?? p.alertCount ?? 0} (
-                        {p.urgentCount ?? 0} urgent)
-                      </td>
-                      <td className="border-b border-[#eef2f5] px-1.5 py-2">
-                        {priorityStatus(p, windowDays, asOf).text}
-                      </td>
-                    </tr>
-                  ))}
+                  {reportRows.map((p) => {
+                    const status = priorityStatus(p, windowDays, asOf);
+                    const openCount = p.openFindingCount ?? p.alertCount ?? 0;
+                    const urgent = p.urgentCount ?? 0;
+                    const licenceMissing = !p.expiryDate && p.licenceEvidenceMissing;
+                    const inspOverdue = inspectionOverdue(p);
+                    const inspMissing = !p.lastHmoInspectionDate && !p.lastAssessedAt;
+                    return (
+                      <tr key={p.propertyId} className="hover:bg-[#f7fcfb]">
+                        <td className="border-b border-[#eef2f5] px-1.5 py-2 font-medium text-slate-900">
+                          {displayAddress(p)}
+                        </td>
+                        <td className="border-b border-[#eef2f5] px-1.5 py-2 text-slate-700">
+                          {displayCouncil(p) || "—"}
+                        </td>
+                        <td className="border-b border-[#eef2f5] px-1.5 py-2">
+                          {p.expiryDate ? (
+                            <span className="text-slate-800">{fmtShort(p.expiryDate)}</span>
+                          ) : licenceMissing ? (
+                            <StatusPill cls="verify">Not on file</StatusPill>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                        <td className="border-b border-[#eef2f5] px-1.5 py-2">
+                          {inspOverdue ? (
+                            <StatusPill cls="action">Overdue</StatusPill>
+                          ) : inspMissing ? (
+                            <StatusPill cls="verify">Not assessed</StatusPill>
+                          ) : (
+                            <span className="text-slate-800">
+                              {fmtShort(p.lastHmoInspectionDate || p.lastAssessedAt)}
+                            </span>
+                          )}
+                        </td>
+                        <td className="border-b border-[#eef2f5] px-1.5 py-2">
+                          <span
+                            className={cn(
+                              "font-semibold",
+                              openCount > 0 ? "text-[#b93b4a]" : "text-muted-foreground",
+                            )}
+                          >
+                            {openCount}
+                          </span>
+                          <span
+                            className={cn(
+                              "ml-1 text-xs",
+                              urgent > 0 ? "font-medium text-[#b93b4a]" : "text-muted-foreground",
+                            )}
+                          >
+                            ({urgent} urgent)
+                          </span>
+                        </td>
+                        <td className="border-b border-[#eef2f5] px-1.5 py-2">
+                          <StatusPill cls={status.cls}>{status.text}</StatusPill>
+                        </td>
+                      </tr>
+                    );
+                  })}
                   {reportRows.length === 0 && (
                     <tr>
                       <td colSpan={6} className="px-1.5 py-6 text-center text-[#8799a6]">
@@ -817,10 +854,10 @@ export default function HmoDashboard() {
             </div>
           </div>
 
-          <DialogFooter className="gap-2 sm:gap-2">
+          <DialogFooter className="flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <Button
               variant="outline"
-              className="gap-1.5"
+              className="w-full gap-1.5 sm:w-auto"
               onClick={() => downloadCsv(reportRows, asOf)}
               disabled={reportRows.length === 0}
             >
@@ -828,7 +865,7 @@ export default function HmoDashboard() {
               Export CSV
             </Button>
             <Button
-              className="bg-[#00a99b] text-white hover:bg-[#008d84]"
+              className="w-full bg-[#00a99b] text-white hover:bg-[#008d84] sm:w-auto"
               onClick={() => window.print()}
             >
               Print / Save as PDF
