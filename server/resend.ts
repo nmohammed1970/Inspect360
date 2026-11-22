@@ -697,11 +697,13 @@ export async function sendEmail({
   subject,
   html,
   text,
+  attachments,
 }: {
   to: string;
   subject: string;
   html?: string;
   text?: string;
+  attachments?: Array<{ filename: string; content: Buffer }>;
 }) {
   try {
     const { client, fromEmail } = await getUncachableResendClient();
@@ -717,6 +719,12 @@ export async function sendEmail({
     }
     if (text) {
       emailOptions.text = text;
+    }
+    if (attachments?.length) {
+      emailOptions.attachments = attachments.map((a) => ({
+        filename: a.filename,
+        content: a.content.toString("base64"),
+      }));
     }
     
     const response = await client.emails.send(emailOptions);

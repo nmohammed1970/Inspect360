@@ -1,8 +1,11 @@
+import { useState } from "react";
 import { useParams } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Download, Loader2 } from "lucide-react";
 import { formatMoneyMinor } from "@/components/maintenance-quotes/quoteMoney";
+import { downloadPdfFromUrl } from "@/components/maintenance-quotes/downloadPdf";
 
 type PublicInvoicePayload = {
   invoiceReference: string;
@@ -27,6 +30,8 @@ type PublicInvoicePayload = {
 export default function PublicInvoice() {
   const params = useParams<{ token: string }>();
   const token = params.token;
+  const [pdfDownloading, setPdfDownloading] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
 
   const { data, isLoading, error } = useQuery<PublicInvoicePayload>({
     queryKey: ["/api/public/maintenance-invoices", token],
@@ -60,18 +65,47 @@ export default function PublicInvoice() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-primary/5 to-background p-4 md:p-8">
       <div className="mx-auto max-w-2xl space-y-4">
-        <div>
-          <p className="text-sm text-muted-foreground">Invoice</p>
-          <h1 className="text-2xl font-heading font-bold">{data.invoiceReference}</h1>
-          {data.recipientName ? (
-            <p className="text-sm text-muted-foreground mt-1">Bill to {data.recipientName}</p>
-          ) : null}
-          <p className="text-sm mt-1 capitalize">
-            Payment: {data.paymentStatus.replace(/_/g, " ")} · Paid{" "}
-            {formatMoneyMinor(data.paidMinor, data.currency)} of{" "}
-            {formatMoneyMinor(data.totalMinor, data.currency)}
-          </p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-sm text-muted-foreground">Invoice</p>
+            <h1 className="text-2xl font-heading font-bold">{data.invoiceReference}</h1>
+            {data.recipientName ? (
+              <p className="text-sm text-muted-foreground mt-1">Bill to {data.recipientName}</p>
+            ) : null}
+            <p className="text-sm mt-1 capitalize">
+              Payment: {data.paymentStatus.replace(/_/g, " ")} · Paid{" "}
+              {formatMoneyMinor(data.paidMinor, data.currency)} of{" "}
+              {formatMoneyMinor(data.totalMinor, data.currency)}
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            disabled={pdfDownloading}
+            onClick={async () => {
+              try {
+                setPdfError(null);
+                setPdfDownloading(true);
+                await downloadPdfFromUrl(
+                  `/api/public/maintenance-invoices/${token}/pdf`,
+                  `${data.invoiceReference}.pdf`,
+                  { credentials: "omit" },
+                );
+              } catch (e) {
+                setPdfError(e instanceof Error ? e.message : "Download failed");
+              } finally {
+                setPdfDownloading(false);
+              }
+            }}
+          >
+            {pdfDownloading ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4 mr-2" />
+            )}
+            Download PDF
+          </Button>
         </div>
+        {pdfError ? <p className="text-sm text-destructive">{pdfError}</p> : null}
 
         <Card>
           <CardHeader className="pb-2">

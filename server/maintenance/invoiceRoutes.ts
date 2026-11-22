@@ -339,22 +339,52 @@ export function registerMaintenanceInvoiceRoutes(app: Express) {
           payload: { invoiceId: invoice.id },
         });
 
+        const lines = await loadLines(invoice.id);
+        let emailSent = false;
+        let emailError: string | null = null;
         try {
+          const { buildInvoicePdfBuffer } = await import("./buildDocumentPdf");
+          const pdf = await buildInvoicePdfBuffer({ invoice: updated, lines });
           await sendEmail({
             to: invoice.recipientEmail!,
             subject: `Invoice ${invoice.invoiceReference}`,
             html: `<p>Hello ${invoice.recipientName || ""},</p>
-              <p>Please view invoice <strong>${invoice.invoiceReference}</strong>.</p>
-              <p><a href="${link}">View invoice</a></p>`,
+              <p>Please find invoice <strong>${invoice.invoiceReference}</strong> attached as a PDF.</p>
+              <p>You can also <a href="${link}">view the invoice online</a>.</p>`,
+            attachments: [{ filename: pdf.filename, content: pdf.buffer }],
           });
-        } catch (emailErr) {
+          emailSent = true;
+        } catch (emailErr: any) {
+          emailError = emailErr?.message || "Email failed";
           console.warn("[invoices] send email failed:", emailErr);
         }
 
-        res.json({ ...updated, publicLink: link });
+        res.json({ ...updated, publicLink: link, emailSent, emailError });
       } catch (error) {
         console.error("[invoices] send failed:", error);
         res.status(500).json({ message: "Failed to send invoice" });
+      }
+    },
+  );
+
+  app.get(
+    "/api/work-orders/:workOrderId/invoices/:invoiceId/pdf",
+    ...guards,
+    async (req: any, res: Response) => {
+      try {
+        const access = await assertWoAccess(req.user, req.params.workOrderId);
+        if ("error" in access) return res.status(access.error).json({ message: access.message });
+        const invoice = await getInvoice(orgId(req), req.params.workOrderId, req.params.invoiceId);
+        if (!invoice) return res.status(404).json({ message: "Invoice not found" });
+        const lines = await loadLines(invoice.id);
+        const { buildInvoicePdfBuffer } = await import("./buildDocumentPdf");
+        const pdf = await buildInvoicePdfBuffer({ invoice, lines });
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader("Content-Disposition", `attachment; filename="${pdf.filename}"`);
+        res.send(pdf.buffer);
+      } catch (error) {
+        console.error("[invoices] pdf failed:", error);
+        res.status(500).json({ message: "Failed to generate invoice PDF" });
       }
     },
   );
@@ -530,6 +560,37 @@ export function registerMaintenanceInvoiceRoutes(app: Express) {
     } catch (error) {
       console.error("[public-invoice] get failed:", error);
       res.status(500).json({ message: "Failed to load invoice" });
+    }
+  });
+
+  app.get("/api/public/maintenance-invoices/:token/pdf", async (req, res: Response) => {
+    try {
+      const tokenHash = hashToken(req.params.token);
+      const [tokenRow] = await db
+        .select()
+        .from(maintenanceInvoiceShareTokens)
+        .where(eq(maintenanceInvoiceShareTokens.tokenHash, tokenHash))
+        .limit(1);
+      if (!tokenRow || tokenRow.revokedAt || tokenRow.expiresAt.getTime() < Date.now()) {
+        return res.status(404).json({ message: "Link is invalid or expired" });
+      }
+      const [invoice] = await db
+        .select()
+        .from(maintenanceInvoices)
+        .where(eq(maintenanceInvoices.id, tokenRow.invoiceId))
+        .limit(1);
+      if (!invoice || invoice.status === "void") {
+        return res.status(404).json({ message: "Invoice not found" });
+      }
+      const lines = await loadLines(invoice.id);
+      const { buildInvoicePdfBuffer } = await import("./buildDocumentPdf");
+      const pdf = await buildInvoicePdfBuffer({ invoice, lines });
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="${pdf.filename}"`);
+      res.send(pdf.buffer);
+    } catch (error) {
+      console.error("[public-invoice] pdf failed:", error);
+      res.status(500).json({ message: "Failed to generate invoice PDF" });
     }
   });
 }

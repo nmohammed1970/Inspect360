@@ -808,21 +808,46 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
           payload: { quoteId: quote.id, expiresAt: expiresAt.toISOString() },
         });
 
+        const lines = await loadLines(quote.id);
+        const ctx = await loadWoContext(quote.workOrderId, organizationId);
+        let emailSent = false;
+        let emailError: string | null = null;
         try {
+          const { buildQuotePdfBuffer } = await import("./buildDocumentPdf");
+          const pdf = await buildQuotePdfBuffer({
+            quote: updated,
+            lines,
+            issueTitle: ctx?.issueTitle,
+            locationLabel: ctx?.locationLabel,
+          });
           await sendEmail({
             to: quote.recipientEmail!,
             subject: `Quotation ${quote.quoteReference} for your review`,
             html: `<p>Hello ${quote.recipientName},</p>
               <p>Please review quotation <strong>${quote.quoteReference}</strong>.</p>
-              <p><a href="${link}">View quotation and respond</a></p>
+              <p>A PDF copy is attached. You can also <a href="${link}">view and respond online</a>.</p>
               <p>This link expires on ${expiresAt.toUTCString()}.</p>`,
+            attachments: [{ filename: pdf.filename, content: pdf.buffer }],
           });
-        } catch (emailErr) {
+          emailSent = true;
+        } catch (emailErr: any) {
+          emailError = emailErr?.message || "Email failed";
           console.warn("[quotes] send email failed:", emailErr);
+          await appendWorkOrderEvent({
+            organizationId,
+            workOrderId: quote.workOrderId,
+            eventType: "quote_send_email_failed",
+            actorUserId: req.user.id,
+            payload: { quoteId: quote.id, error: emailError },
+          });
         }
 
-        const lines = await loadLines(quote.id);
-        res.json({ ...serializeQuote(updated, lines), publicLink: link });
+        res.json({
+          ...serializeQuote(updated, lines),
+          publicLink: link,
+          emailSent,
+          emailError,
+        });
       } catch (error: any) {
         console.error("[quotes] send failed:", error);
         res.status(500).json({ message: error?.message || "Failed to send quote" });
@@ -872,20 +897,77 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
           actorUserId: req.user.id,
           payload: { quoteId: quote.id },
         });
+        const lines = await loadLines(quote.id);
+        const ctx = await loadWoContext(quote.workOrderId, organizationId);
+        let emailSent = false;
+        let emailError: string | null = null;
         try {
+          const { buildQuotePdfBuffer } = await import("./buildDocumentPdf");
+          const pdf = await buildQuotePdfBuffer({
+            quote: updated,
+            lines,
+            issueTitle: ctx?.issueTitle,
+            locationLabel: ctx?.locationLabel,
+          });
           await sendEmail({
             to: quote.recipientEmail!,
             subject: `Quotation ${quote.quoteReference} (updated link)`,
-            html: `<p>Hello ${quote.recipientName},</p><p><a href="${link}">View quotation and respond</a></p>`,
+            html: `<p>Hello ${quote.recipientName},</p>
+              <p>A PDF copy is attached. You can also <a href="${link}">view and respond online</a>.</p>`,
+            attachments: [{ filename: pdf.filename, content: pdf.buffer }],
           });
-        } catch (emailErr) {
+          emailSent = true;
+        } catch (emailErr: any) {
+          emailError = emailErr?.message || "Email failed";
           console.warn("[quotes] resend email failed:", emailErr);
         }
-        const lines = await loadLines(quote.id);
-        res.json({ ...serializeQuote(updated, lines), publicLink: link });
+        res.json({
+          ...serializeQuote(updated, lines),
+          publicLink: link,
+          emailSent,
+          emailError,
+        });
       } catch (error: any) {
         console.error("[quotes] resend failed:", error);
         res.status(500).json({ message: error?.message || "Failed to resend quote" });
+      }
+    },
+  );
+
+  app.get(
+    "/api/work-orders/:workOrderId/quotes/:quoteId/pdf",
+    ...quoteGuards,
+    async (req: any, res: Response) => {
+      try {
+        const organizationId = orgId(req);
+        const access = await assertWoAccess(req.user, req.params.workOrderId);
+        if ("error" in access) {
+          return res.status(access.error).json({ message: access.message });
+        }
+        const quote = await getQuoteForWo(
+          organizationId,
+          req.params.workOrderId,
+          req.params.quoteId,
+        );
+        if (!quote) return res.status(404).json({ message: "Quote not found" });
+        const lines = await loadLines(quote.id);
+        const ctx = await loadWoContext(quote.workOrderId, organizationId);
+        const { buildQuotePdfBuffer } = await import("./buildDocumentPdf");
+        const pdf = await buildQuotePdfBuffer({
+          quote,
+          lines,
+          issueTitle: ctx?.issueTitle,
+          locationLabel: ctx?.locationLabel,
+        });
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="${pdf.filename}"`,
+        );
+        res.send(pdf.buffer);
+      } catch (error) {
+        console.error("[quotes] pdf failed:", error);
+        res.status(500).json({ message: "Failed to generate quote PDF" });
       }
     },
   );

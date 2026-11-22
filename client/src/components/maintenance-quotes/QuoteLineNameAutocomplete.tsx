@@ -4,6 +4,10 @@ import { useQuery } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import type { MaintenancePriceBookItem } from "@shared/schema";
+import {
+  MAINTENANCE_PRICE_BOOK_CATEGORY_LABELS,
+  type MaintenancePriceBookCategory,
+} from "@shared/maintenancePriceBookConstants";
 import { formatMoneyMinor } from "./quoteMoney";
 
 export type PriceBookPick = {
@@ -138,43 +142,49 @@ export const QuoteLineNameAutocomplete = ({
             <ul
               id={listId}
               role="listbox"
-              className="fixed z-[200] max-h-64 overflow-auto rounded-md border bg-popover p-1 text-sm shadow-lg"
+              className="fixed z-[200] max-h-64 overflow-auto rounded-md border border-border bg-background p-1 text-sm text-foreground shadow-lg"
               style={{
                 top: menuPos.top,
                 left: menuPos.left,
                 width: menuPos.width,
               }}
             >
-              {suggestions.slice(0, 12).map((item) => (
-                <li key={item.id}>
-                  <button
-                    type="button"
-                    className="flex w-full flex-col items-start gap-0.5 rounded-sm px-2.5 py-2 text-left hover:bg-accent"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => {
-                      onPick({
-                        id: item.id,
-                        name: item.name,
-                        description: item.description,
-                        sku: item.sku,
-                        unit: item.unit,
-                        category: item.category,
-                        vatRate: item.vatRate,
-                        unitPriceMinor: item.defaultUnitPriceMinor,
-                      });
-                      setOpen(false);
-                    }}
-                  >
-                    <span className="font-medium">{item.name}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {item.category}
-                      {item.sku ? ` · ${item.sku}` : ""}
-                      {" · "}
-                      {formatMoneyMinor(item.defaultUnitPriceMinor, item.currency)}
-                    </span>
-                  </button>
-                </li>
-              ))}
+              {suggestions.slice(0, 12).map((item) => {
+                const categoryLabel =
+                  MAINTENANCE_PRICE_BOOK_CATEGORY_LABELS[
+                    item.category as MaintenancePriceBookCategory
+                  ] || item.category;
+                return (
+                  <li key={item.id}>
+                    <button
+                      type="button"
+                      className="flex w-full flex-col items-start gap-0.5 rounded-sm px-2.5 py-2 text-left text-foreground hover:bg-muted"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        onPick({
+                          id: item.id,
+                          name: item.name,
+                          description: item.description,
+                          sku: item.sku,
+                          unit: item.unit,
+                          category: item.category,
+                          vatRate: item.vatRate,
+                          unitPriceMinor: item.defaultUnitPriceMinor,
+                        });
+                        setOpen(false);
+                      }}
+                    >
+                      <span className="font-medium text-foreground">{item.name}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {categoryLabel}
+                        {item.sku ? ` · ${item.sku}` : ""}
+                        {" · "}
+                        {formatMoneyMinor(item.defaultUnitPriceMinor, item.currency)}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
             </ul>,
             document.body,
           )

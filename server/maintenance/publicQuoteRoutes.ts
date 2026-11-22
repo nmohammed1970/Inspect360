@@ -85,6 +85,24 @@ export function registerPublicMaintenanceQuoteRoutes(app: Express) {
     }
   });
 
+  app.get("/api/public/maintenance-quotes/:token/pdf", async (req, res: Response) => {
+    try {
+      const loaded = await loadPublicQuote(req.params.token);
+      if (!loaded) {
+        return res.status(404).json({ message: "Link is invalid or expired" });
+      }
+      const { quote, lines } = loaded;
+      const { buildQuotePdfBuffer } = await import("./buildDocumentPdf");
+      const pdf = await buildQuotePdfBuffer({ quote, lines });
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="${pdf.filename}"`);
+      res.send(pdf.buffer);
+    } catch (error) {
+      console.error("[public-quote] pdf failed:", error);
+      res.status(500).json({ message: "Failed to generate quotation PDF" });
+    }
+  });
+
   async function decide(
     req: any,
     res: Response,

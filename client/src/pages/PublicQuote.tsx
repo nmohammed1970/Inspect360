@@ -4,8 +4,9 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2 } from "lucide-react";
+import { Download, Loader2 } from "lucide-react";
 import { formatMoneyMinor } from "@/components/maintenance-quotes/quoteMoney";
+import { downloadPdfFromUrl } from "@/components/maintenance-quotes/downloadPdf";
 
 type PublicQuotePayload = {
   quoteReference: string;
@@ -33,6 +34,8 @@ export default function PublicQuote() {
   const token = params.token;
   const [reason, setReason] = useState("");
   const [done, setDone] = useState<string | null>(null);
+  const [pdfDownloading, setPdfDownloading] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
 
   const { data, isLoading, error } = useQuery<PublicQuotePayload>({
     queryKey: ["/api/public/maintenance-quotes", token],
@@ -101,18 +104,47 @@ export default function PublicQuote() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-primary/5 to-background p-4 md:p-8">
       <div className="mx-auto max-w-2xl space-y-4">
-        <div>
-          <p className="text-sm text-muted-foreground">Quotation</p>
-          <h1 className="text-2xl font-heading font-bold">
-            {data.quoteReference}
-            <span className="text-base font-normal text-muted-foreground ml-2">
-              v{data.versionNumber}
-            </span>
-          </h1>
-          {data.recipientName ? (
-            <p className="text-sm text-muted-foreground mt-1">For {data.recipientName}</p>
-          ) : null}
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-sm text-muted-foreground">Quotation</p>
+            <h1 className="text-2xl font-heading font-bold">
+              {data.quoteReference}
+              <span className="text-base font-normal text-muted-foreground ml-2">
+                v{data.versionNumber}
+              </span>
+            </h1>
+            {data.recipientName ? (
+              <p className="text-sm text-muted-foreground mt-1">For {data.recipientName}</p>
+            ) : null}
+          </div>
+          <Button
+            variant="outline"
+            disabled={pdfDownloading}
+            onClick={async () => {
+              try {
+                setPdfError(null);
+                setPdfDownloading(true);
+                await downloadPdfFromUrl(
+                  `/api/public/maintenance-quotes/${token}/pdf`,
+                  `${data.quoteReference}.pdf`,
+                  { credentials: "omit" },
+                );
+              } catch (e) {
+                setPdfError(e instanceof Error ? e.message : "Download failed");
+              } finally {
+                setPdfDownloading(false);
+              }
+            }}
+          >
+            {pdfDownloading ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4 mr-2" />
+            )}
+            Download PDF
+          </Button>
         </div>
+        {pdfError ? <p className="text-sm text-destructive">{pdfError}</p> : null}
 
         {data.scopeDescription ? (
           <Card>

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation, useParams } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { FileText, Loader2 } from "lucide-react";
+import { Download, FileText, Loader2 } from "lucide-react";
+import { downloadPdfFromUrl } from "@/components/maintenance-quotes/downloadPdf";
 import { PageHeader } from "@/components/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -104,6 +105,8 @@ export default function WorkOrderInvoice() {
     "bank_transfer",
   );
   const [payRef, setPayRef] = useState("");
+  const [pdfDownloading, setPdfDownloading] = useState(false);
+  const [lastPublicLink, setLastPublicLink] = useState<string | null>(null);
 
   useEffect(() => {
     if (!invoice || hydrated === invoice.id) return;
@@ -175,16 +178,43 @@ export default function WorkOrderInvoice() {
       );
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       setHydrated(null);
+      setLastPublicLink(data.publicLink || null);
       queryClient.invalidateQueries({
         queryKey: ["/api/work-orders", workOrderId, "invoices", invoiceId],
       });
-      toast({ title: "Invoice sent" });
+      if (data.emailSent === false) {
+        toast({
+          title: "Link created — email failed",
+          description: data.emailError || "Share the public link manually.",
+          variant: "destructive",
+        });
+      } else {
+        toast({ title: "Invoice sent", description: "Email includes PDF and view link." });
+      }
     },
     onError: (e: Error) =>
       toast({ title: "Send failed", description: e.message, variant: "destructive" }),
   });
+
+  const downloadPdf = async () => {
+    try {
+      setPdfDownloading(true);
+      await downloadPdfFromUrl(
+        `/api/work-orders/${workOrderId}/invoices/${invoiceId}/pdf`,
+        `${invoice?.invoiceReference || "invoice"}.pdf`,
+      );
+    } catch (e) {
+      toast({
+        title: "PDF download failed",
+        description: e instanceof Error ? e.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setPdfDownloading(false);
+    }
+  };
 
   const paymentMutation = useMutation({
     mutationFn: async () => {
@@ -263,6 +293,19 @@ export default function WorkOrderInvoice() {
         description={`Total ${formatMoneyMinor(invoice.totalMinor, invoice.currency)} · Paid ${formatMoneyMinor(invoice.paidMinor, invoice.currency)}`}
         actions={
           <>
+            <Button
+              variant="outline"
+              disabled={pdfDownloading}
+              onClick={() => void downloadPdf()}
+              data-testid="button-download-invoice-pdf"
+            >
+              {pdfDownloading ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="mr-2 h-4 w-4" />
+              )}
+              Download PDF
+            </Button>
             {editable ? (
               <Button
                 variant="outline"
@@ -290,6 +333,13 @@ export default function WorkOrderInvoice() {
           </>
         }
       />
+
+      {lastPublicLink ? (
+        <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm">
+          <p className="font-medium mb-1">Customer invoice link</p>
+          <Input readOnly value={lastPublicLink} className="font-mono text-xs" />
+        </div>
+      ) : null}
 
       <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
         <div className="space-y-4">

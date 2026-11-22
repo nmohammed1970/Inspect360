@@ -166,10 +166,10 @@ export const QuoteLinesEditor = ({
             >
               <div className="mb-3 flex items-center justify-between gap-2">
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Line item {index + 1}
+                  Line Item {index + 1}
                   {line.priceBookItemId ? (
                     <span className="ml-2 font-normal normal-case tracking-normal text-muted-foreground/80">
-                      · from price book
+                      · From Price Book
                     </span>
                   ) : null}
                 </p>
@@ -365,7 +365,7 @@ export const QuoteLinesEditor = ({
           data-testid="button-add-quote-line"
         >
           <Plus className="mr-1.5 h-4 w-4" />
-          Add line item
+          Add Line Item
         </Button>
         <div className="ml-auto min-w-[12rem] space-y-1.5 text-sm tabular-nums">
           <div className="flex justify-between gap-8 text-muted-foreground">
@@ -377,7 +377,7 @@ export const QuoteLinesEditor = ({
             <span>{formatMoneyMinor(totals.taxMinor, currency)}</span>
           </div>
           <div className="flex justify-between gap-8 border-t pt-1.5 text-base font-semibold">
-            <span>Total proposed</span>
+            <span>Total Proposed</span>
             <span data-testid="text-quote-total">
               {formatMoneyMinor(totals.totalMinor, currency)}
             </span>

@@ -4,12 +4,15 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
   CheckCircle2,
+  Copy,
+  Download,
   FileText,
   Loader2,
   MapPin,
   User as UserIcon,
   Wrench,
 } from "lucide-react";
+import { downloadPdfFromUrl } from "@/components/maintenance-quotes/downloadPdf";
 import { PageHeader } from "@/components/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -155,6 +158,9 @@ export default function WorkOrderQuotation() {
   const isOwner = user?.role === "owner";
   const [decisionOpen, setDecisionOpen] = useState<"reject" | "request_changes" | null>(null);
   const [decisionReason, setDecisionReason] = useState("");
+  const [lastPublicLink, setLastPublicLink] = useState<string | null>(null);
+  const [lastEmailSent, setLastEmailSent] = useState<boolean | null>(null);
+  const [pdfDownloading, setPdfDownloading] = useState(false);
 
   const invalidateQuote = () => {
     queryClient.invalidateQueries({
@@ -242,7 +248,7 @@ export default function WorkOrderQuotation() {
             : data,
       );
       setHydratedId(null);
-      toast({ title: "Draft saved" });
+      toast({ title: "Draft Saved" });
     },
     onError: (e: Error) => {
       toast({ title: "Save failed", description: e.message, variant: "destructive" });
@@ -340,14 +346,42 @@ export default function WorkOrderQuotation() {
     onSuccess: (data) => {
       setHydratedId(null);
       invalidateQuote();
-      toast({
-        title: "Sent to customer",
-        description: data.publicLink ? "Secure link emailed to recipient." : undefined,
-      });
+      setLastPublicLink(data.publicLink || null);
+      setLastEmailSent(data.emailSent !== false);
+      if (data.emailSent === false) {
+        toast({
+          title: "Link created — email failed",
+          description: data.emailError || "Copy the public link below and share it manually.",
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Sent to customer",
+          description: "Email includes the PDF and a secure response link.",
+        });
+      }
     },
     onError: (e: Error) =>
       toast({ title: "Send failed", description: e.message, variant: "destructive" }),
   });
+
+  const downloadPdf = async () => {
+    try {
+      setPdfDownloading(true);
+      await downloadPdfFromUrl(
+        `/api/work-orders/${workOrderId}/quotes/${quoteId}/pdf`,
+        `${quote?.quoteReference || "quote"}.pdf`,
+      );
+    } catch (e) {
+      toast({
+        title: "PDF download failed",
+        description: e instanceof Error ? e.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setPdfDownloading(false);
+    }
+  };
 
   const reviseMutation = useMutation({
     mutationFn: async () => {
@@ -387,7 +421,6 @@ export default function WorkOrderQuotation() {
     const bits = [
       quote.context?.issueTitle,
       quote.context?.propertyAddress || quote.context?.locationLabel,
-      `Version ${quote.versionNumber}`,
     ].filter(Boolean);
     return bits.join(" · ");
   }, [quote]);
@@ -443,7 +476,7 @@ export default function WorkOrderQuotation() {
         }
         title={
           <span className="inline-flex flex-wrap items-center gap-2">
-            Repair quotation
+            Repair Quotation
             <Badge
               variant="outline"
               className={cn("text-sm font-medium", statusBadgeClass(quote.status))}
@@ -456,6 +489,19 @@ export default function WorkOrderQuotation() {
         description={subtitle}
         actions={
           <>
+            <Button
+              variant="outline"
+              disabled={pdfDownloading}
+              onClick={() => void downloadPdf()}
+              data-testid="button-download-quote-pdf"
+            >
+              {pdfDownloading ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="mr-2 h-4 w-4" />
+              )}
+              Download PDF
+            </Button>
             {editable ? (
               <>
                 <Button
@@ -467,7 +513,7 @@ export default function WorkOrderQuotation() {
                   {saveMutation.isPending ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   ) : null}
-                  Save draft
+                  Save Draft
                 </Button>
                 <Button
                   disabled={submitMutation.isPending || saveMutation.isPending}
@@ -477,7 +523,7 @@ export default function WorkOrderQuotation() {
                   {submitMutation.isPending ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   ) : null}
-                  Submit for approval
+                  Submit for Approval
                 </Button>
               </>
             ) : null}
@@ -488,7 +534,7 @@ export default function WorkOrderQuotation() {
                   onClick={() => setDecisionOpen("request_changes")}
                   data-testid="button-quote-request-changes"
                 >
-                  Request changes
+                  Request Changes
                 </Button>
                 <Button
                   variant="destructive"
@@ -502,7 +548,7 @@ export default function WorkOrderQuotation() {
                   onClick={() => ownerDecisionMutation.mutate({ decision: "approve" })}
                   data-testid="button-quote-approve"
                 >
-                  Approve quotation
+                  Approve Quotation
                 </Button>
               </>
             ) : null}
@@ -512,7 +558,7 @@ export default function WorkOrderQuotation() {
                 onClick={() => sendMutation.mutate()}
                 data-testid="button-quote-send"
               >
-                {quote.status === "sent" ? "Resend to customer" : "Send to customer"}
+                {quote.status === "sent" ? "Resend to Customer" : "Send to Customer"}
               </Button>
             ) : null}
             {isQuoteRevisable(quote.status) ? (
@@ -542,19 +588,19 @@ export default function WorkOrderQuotation() {
         <SummaryTile
           label="Quotation"
           title={statusLabel(quote.status)}
-          detail={`${quote.quoteReference} · v${quote.versionNumber}`}
+          detail={`${quote.quoteReference}`}
           icon={<FileText className="h-4 w-4 text-primary" />}
         />
         <SummaryTile
-          label="Property / block"
+          label="Property / Block"
           title={quote.context?.locationLabel || "—"}
           detail={quote.context?.propertyAddress || quote.context?.blockName || ""}
           icon={<MapPin className="h-4 w-4 text-primary" />}
         />
         <SummaryTile
-          label="Assigned engineer"
+          label="Assigned Engineer"
           title={quote.context?.assigneeName || "Unassigned"}
-          detail="Work order assignee"
+          detail="Work Order Assignee"
           icon={<UserIcon className="h-4 w-4 text-primary" />}
         />
         <SummaryTile
@@ -579,26 +625,58 @@ export default function WorkOrderQuotation() {
               <p className="text-sm text-amber-900/80">
                 {quote.status === "draft"
                   ? "Save your lines, then submit for approval so an owner can review."
-                  : "Owner can approve or request changes in a later phase. Editing is locked while pending."}
+                  : "Owner can approve or request changes. Editing is locked while pending."}
               </p>
             </div>
           </div>
         </div>
       )}
 
+      {lastPublicLink ? (
+        <div
+          className={cn(
+            "rounded-xl border px-4 py-3",
+            lastEmailSent === false
+              ? "border-destructive/40 bg-destructive/5"
+              : "border-primary/20 bg-primary/5",
+          )}
+        >
+          <p className="font-semibold text-sm mb-1">
+            {lastEmailSent === false
+              ? "Customer Link Ready (email was not delivered)"
+              : "Customer Link"}
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Input readOnly value={lastPublicLink} className="font-mono text-xs flex-1 min-w-[200px]" />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={async () => {
+                await navigator.clipboard.writeText(lastPublicLink);
+                toast({ title: "Link copied" });
+              }}
+            >
+              <Copy className="h-3.5 w-3.5 mr-1.5" />
+              Copy link
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="space-y-4 min-w-0">
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">Quotation details</CardTitle>
+              <CardTitle className="text-base">Quotation Details</CardTitle>
             </CardHeader>
             <CardContent className="grid gap-4 sm:grid-cols-3">
               <div className="space-y-1.5">
-                <Label>Quote number</Label>
+                <Label>Quote Number</Label>
                 <Input value={quote.quoteReference} readOnly className="bg-muted/40" />
               </div>
               <div className="space-y-1.5">
-                <Label>Prepared by</Label>
+                <Label>Prepared By</Label>
                 <Input
                   value={quote.preparedByName || "—"}
                   readOnly
@@ -606,7 +684,7 @@ export default function WorkOrderQuotation() {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="valid-until">Valid until</Label>
+                <Label htmlFor="valid-until">Valid Until</Label>
                 <Input
                   id="valid-until"
                   type="date"
@@ -632,7 +710,7 @@ export default function WorkOrderQuotation() {
                 />
               </div>
               <div className="space-y-1.5 sm:col-span-2">
-                <Label htmlFor="recipient-email">Recipient email</Label>
+                <Label htmlFor="recipient-email">Recipient Email</Label>
                 <Input
                   id="recipient-email"
                   type="email"
@@ -653,7 +731,7 @@ export default function WorkOrderQuotation() {
 
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">Scope of work</CardTitle>
+              <CardTitle className="text-base">Scope of Work</CardTitle>
             </CardHeader>
             <CardContent>
               <Textarea
@@ -669,7 +747,7 @@ export default function WorkOrderQuotation() {
 
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">Itemised quotation</CardTitle>
+              <CardTitle className="text-base">Itemised Quotation</CardTitle>
             </CardHeader>
             <CardContent>
               <QuoteLinesEditor
@@ -683,7 +761,7 @@ export default function WorkOrderQuotation() {
 
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">Engineer notes</CardTitle>
+              <CardTitle className="text-base">Engineer Notes</CardTitle>
             </CardHeader>
             <CardContent>
               <Textarea
@@ -702,9 +780,9 @@ export default function WorkOrderQuotation() {
           <Card>
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between gap-2">
-                <CardTitle className="text-base">Approval route</CardTitle>
+                <CardTitle className="text-base">Approval Route</CardTitle>
                 <Badge variant="secondary" className="text-xs">
-                  Manager approval required
+                  Manager Approval Required
                 </Badge>
               </div>
             </CardHeader>
@@ -762,7 +840,7 @@ export default function WorkOrderQuotation() {
             <CardHeader className="pb-2">
               <CardTitle className="text-base flex items-center gap-2">
                 <Wrench className="h-4 w-4 text-primary" />
-                Linked work order
+                Linked Work Order
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
@@ -801,7 +879,7 @@ export default function WorkOrderQuotation() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {decisionOpen === "reject" ? "Reject quotation" : "Request changes"}
+              {decisionOpen === "reject" ? "Reject Quotation" : "Request Changes"}
             </DialogTitle>
           </DialogHeader>
           <Textarea
