@@ -16,7 +16,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -49,7 +48,7 @@ import {
   Receipt,
   LayoutDashboard,
   ShieldAlert,
-  ChevronDown,
+  ImagePlus,
 } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { PropertyFormDialog } from "@/components/PropertyFormDialog";
@@ -68,9 +67,10 @@ import {
   formatMillimetresAsFeetInches,
   fromMillimetres,
   looksLikeAreaOnlyDimensions,
+  floorAreaFt2,
+  floorAreaM2,
 } from "@shared/propertyRooms";
 import { PropertyOverviewFacts } from "@/components/property/PropertyOverviewFacts";
-import { PropertyLayoutSummary } from "@/components/property/PropertyLayoutSummary";
 import { PropertyFloorPlanPanel } from "@/components/property/PropertyFloorPlanPanel";
 import {
   PropertyRoomsAreas,
@@ -222,7 +222,6 @@ export default function PropertyDetail() {
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [inventoryDialogOpen, setInventoryDialogOpen] = useState(false);
   const [selectedInventoryItem, setSelectedInventoryItem] = useState<AssetInventory | null>(null);
-  const [mediaMapOpen, setMediaMapOpen] = useState(true);
   const { toast } = useToast();
   const { user } = useAuth();
   const locale = useLocale();
@@ -402,10 +401,9 @@ export default function PropertyDetail() {
     };
     const w = formatSide(room.widthMm);
     const l = formatSide(room.lengthMm);
-    const area = formatFloorArea(room.widthMm, room.lengthMm, areaUnit);
-    // Area-only plans: show area on the dimensions line (no fabricated W×L)
-    if (looksLikeAreaOnlyDimensions(room.widthMm, room.lengthMm) && area) {
-      return area;
+    // Area-only plans: no fabricated W×L — area is shown as the hero metric
+    if (looksLikeAreaOnlyDimensions(room.widthMm, room.lengthMm)) {
+      return null;
     }
     if (w == null || l == null) return null;
     const ceiling =
@@ -422,10 +420,20 @@ export default function PropertyDetail() {
 
   const formatRoomAreaOnly = (
     room: Pick<PropertyOverviewRoom, "widthMm" | "lengthMm">,
-  ) => {
-    if (looksLikeAreaOnlyDimensions(room.widthMm, room.lengthMm)) return null;
-    return formatFloorArea(room.widthMm, room.lengthMm, areaUnit);
-  };
+  ) => formatFloorArea(room.widthMm, room.lengthMm, areaUnit);
+
+  const totalAreaLabel = useMemo(() => {
+    const values = overviewRooms
+      .map((r) =>
+        areaUnit === "ft2"
+          ? floorAreaFt2(r.widthMm, r.lengthMm)
+          : floorAreaM2(r.widthMm, r.lengthMm),
+      )
+      .filter((v): v is number => v != null && Number.isFinite(v));
+    if (!values.length) return null;
+    const total = Math.round(values.reduce((a, b) => a + b, 0) * 100) / 100;
+    return areaUnit === "ft2" ? `${total} ft²` : `${total} m²`;
+  }, [overviewRooms, areaUnit]);
 
   const { data: inspections = [] } = useQuery<Inspection[]>({
     queryKey: ["/api/properties", propertyId, "inspections"],
@@ -575,13 +583,59 @@ export default function PropertyDetail() {
         </Link>
       </div>
 
-      {/* Property Header */}
-      <div className="space-y-4">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className={cn("min-w-0 flex-1 space-y-3", textBreak)}>
-            <div className="flex flex-wrap items-center gap-2.5">
+      {/* Property Header — thumbnail + identity + actions */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 flex-1 gap-3 sm:gap-4">
+          <div className="group relative h-20 w-20 shrink-0 overflow-hidden rounded-xl border border-border bg-muted/40 sm:h-24 sm:w-24 [&>button]:absolute [&>button]:inset-0 [&>button]:h-full [&>button]:w-full">
+            {property.imageUrl ? (
+              <>
+                <PreviewableImage
+                  src={property.imageUrl}
+                  alt={property.name}
+                  title={property.name}
+                  className="h-full w-full object-cover"
+                  data-testid="img-property"
+                />
+                {/* pointer-events-none so the image stays clickable for lightbox preview */}
+                <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" />
+                <div className="absolute bottom-1.5 right-1.5 z-10 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                  <ObjectUploader
+                    maxNumberOfFiles={1}
+                    maxFileSize={10 * 1024 * 1024}
+                    buttonVariant="secondary"
+                    buttonClassName="pointer-events-auto h-7 w-7 rounded-full p-0 shadow-sm"
+                    onGetUploadParameters={getPropertyImageUploadParameters}
+                    onComplete={handlePropertyImageUploadComplete}
+                  >
+                    <Upload className="h-3.5 w-3.5" />
+                    <span className="sr-only">Change photo</span>
+                  </ObjectUploader>
+                </div>
+              </>
+            ) : (
+              <div
+                className="h-full w-full border border-dashed border-border [&>div]:h-full [&>div>button]:h-full [&>div>button]:w-full [&>div>button]:rounded-none"
+                data-testid="button-upload-property-image"
+              >
+                <ObjectUploader
+                  maxNumberOfFiles={1}
+                  maxFileSize={10 * 1024 * 1024}
+                  buttonVariant="ghost"
+                  buttonClassName="flex h-full w-full flex-col items-center justify-center gap-0.5 text-muted-foreground hover:bg-muted/60"
+                  onGetUploadParameters={getPropertyImageUploadParameters}
+                  onComplete={handlePropertyImageUploadComplete}
+                >
+                  <ImagePlus className="h-5 w-5 opacity-70" />
+                  <span className="text-[10px] font-medium">Add</span>
+                </ObjectUploader>
+              </div>
+            )}
+          </div>
+
+          <div className={cn("min-w-0 flex-1 space-y-1.5", textBreak)}>
+            <div className="flex flex-wrap items-center gap-2">
               <h1
-                className="text-2xl font-bold tracking-tight text-foreground md:text-3xl lg:text-[2rem] lg:leading-tight"
+                className="text-xl font-bold tracking-tight text-foreground sm:text-2xl md:text-[1.75rem] md:leading-tight"
                 data-testid="heading-property-name"
               >
                 {property.name}
@@ -589,7 +643,7 @@ export default function PropertyDetail() {
               {tenanciesEnabled && (
                 <Badge
                   variant={occupancyLabel === "Occupied" ? "success" : "secondary"}
-                  className="px-2.5 py-0.5 text-xs font-semibold"
+                  className="px-2 py-0.5 text-xs font-semibold"
                   data-testid="badge-occupancy-header"
                 >
                   {occupancyLabel}
@@ -601,8 +655,8 @@ export default function PropertyDetail() {
                 </Badge>
               )}
             </div>
-            <div className="flex items-start gap-2 text-sm text-muted-foreground md:text-[15px]">
-              <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-primary/80" />
+            <div className="flex items-start gap-1.5 text-sm text-muted-foreground">
+              <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary/80" />
               <span className="min-w-0 break-words" data-testid="text-property-address">
                 {property.address}
               </span>
@@ -616,334 +670,156 @@ export default function PropertyDetail() {
               </p>
             )}
           </div>
-          <div className="flex flex-wrap items-center gap-2 shrink-0">
-            <Link href={`/reports/property-history?propertyId=${property.id}`}>
-              <Button variant="outline" className="gap-2" data-testid="button-property-history-report">
-                <History className="h-4 w-4" />
-                <span className="hidden sm:inline">Property History</span>
-                <span className="sm:hidden">History</span>
-              </Button>
-            </Link>
-            <Button
-              variant="brand"
-              className="gap-2"
-              onClick={() => setEditDialogOpen(true)}
-              data-testid="button-edit-property"
-            >
-              <Pencil className="h-4 w-4" />
-              Edit Property
-            </Button>
-          </div>
         </div>
 
-        {/* Property Image and Map — collapsible; chevron row sits above content */}
-        <Collapsible open={mediaMapOpen} onOpenChange={setMediaMapOpen} className="min-w-0 space-y-2">
-          <div className="flex w-full items-center justify-end">
-            <CollapsibleTrigger asChild>
-              <button
-                type="button"
-                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
-                data-testid="button-toggle-property-media-map"
-                aria-expanded={mediaMapOpen}
-                aria-label={mediaMapOpen ? "Collapse photo and map" : "Expand photo and map"}
-              >
-                <ChevronDown className="h-5 w-5" />
-              </button>
-            </CollapsibleTrigger>
-          </div>
-
-          <CollapsibleContent>
-            <div className={formGrid2}>
-              {/* Property Image with Upload — opens media picker directly */}
-              <Card className={cn(overviewCardClass, "overflow-hidden")}>
-                {property.imageUrl ? (
-                  <div className="relative aspect-video">
-                    <PreviewableImage
-                      src={property.imageUrl}
-                      alt={property.name}
-                      title={property.name}
-                      className="w-full h-full object-cover"
-                      data-testid="img-property"
-                    />
-                    <div className="absolute bottom-2 right-2 z-10">
-                      <ObjectUploader
-                        maxNumberOfFiles={1}
-                        maxFileSize={10 * 1024 * 1024}
-                        buttonVariant="secondary"
-                        buttonClassName="h-9 px-3"
-                        onGetUploadParameters={getPropertyImageUploadParameters}
-                        onComplete={handlePropertyImageUploadComplete}
-                      >
-                        <Upload className="h-4 w-4 mr-2" />
-                        Change Photo
-                      </ObjectUploader>
-                    </div>
-                  </div>
-                ) : (
-                  <div
-                    className="aspect-video bg-muted [&>div]:h-full [&>div>button]:h-full [&>div>button]:w-full [&>div>button]:rounded-none"
-                    data-testid="button-upload-property-image"
-                  >
-                    <ObjectUploader
-                      maxNumberOfFiles={1}
-                      maxFileSize={10 * 1024 * 1024}
-                      buttonVariant="ghost"
-                      buttonClassName="flex h-full w-full flex-col items-center justify-center gap-1 text-muted-foreground hover:bg-muted/80"
-                      onGetUploadParameters={getPropertyImageUploadParameters}
-                      onComplete={handlePropertyImageUploadComplete}
-                    >
-                      <Upload className="h-16 w-16 opacity-50" />
-                      <span className="text-sm font-medium">Upload Property Photo</span>
-                      <span className="text-xs font-normal">Click to add an image</span>
-                    </ObjectUploader>
-                  </div>
-                )}
-              </Card>
-
-              {/* Embedded Google Map */}
-              <Card className={cn(overviewCardClass, "overflow-hidden")}>
-                <MapPreview
-                  address={property?.address}
-                  title={property?.address ? `Map of ${property.address}` : undefined}
-                  testId="map-embed"
-                  externalLinkTestId="link-map-external"
-                />
-              </Card>
-            </div>
-          </CollapsibleContent>
-        </Collapsible>
-
+        <div className="flex flex-wrap items-center gap-2 shrink-0 sm:pt-1">
+          <Link href={`/reports/property-history?propertyId=${property.id}`}>
+            <Button variant="outline" className="gap-2" data-testid="button-property-history-report">
+              <History className="h-4 w-4" />
+              History
+            </Button>
+          </Link>
+          <Button
+            variant="brand"
+            className="gap-2"
+            onClick={() => setEditDialogOpen(true)}
+            data-testid="button-edit-property"
+          >
+            <Pencil className="h-4 w-4" />
+            Edit
+          </Button>
+        </div>
       </div>
 
-      {/* Stats Overview — counts come from the same lists as the tabs below */}
+      {/* Stats — left icon chips, theme colors only */}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {tenanciesEnabled && (
           <Card className={cn(overviewCardClass, "h-full")}>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Occupancy</CardTitle>
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <CardContent className="flex items-center gap-3 p-4">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
                 <Users className="h-4 w-4" />
               </span>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold tracking-tight">{occupancyLabel}</div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {tenantsLoading
-                  ? "Loading…"
-                  : hasOccupyingTenant
-                    ? `${activeTenantCount} active tenant${activeTenantCount === 1 ? "" : "s"}`
-                    : "No active tenants"}
-              </p>
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-muted-foreground">Occupancy</p>
+                <p className="truncate text-lg font-bold tracking-tight">{occupancyLabel}</p>
+              </div>
             </CardContent>
           </Card>
         )}
 
         {complianceEnabled && (
           <Card className={cn(overviewCardClass, "h-full")}>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Compliance</CardTitle>
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-700">
+            <CardContent className="flex items-center gap-3 p-4">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
                 <CheckCircle2 className="h-4 w-4" />
               </span>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold tracking-tight">{complianceRateFromDocs}%</div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {compliance.length === 0
-                  ? "No documents"
-                  : `${compliance.length} document${compliance.length === 1 ? "" : "s"}`}
-              </p>
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-muted-foreground">Compliance</p>
+                <p className="text-lg font-bold tracking-tight">{complianceRateFromDocs}%</p>
+              </div>
             </CardContent>
           </Card>
         )}
 
         <Card className={cn(overviewCardClass, "h-full")}>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Inspections</CardTitle>
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-500/10 text-sky-700">
+          <CardContent className="flex items-center gap-3 p-4">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
               <ClipboardCheck className="h-4 w-4" />
             </span>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold tracking-tight">{inspectionCardCount}</div>
-            <p className="mt-1 text-xs text-muted-foreground">{inspectionCardSubtitle}</p>
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-muted-foreground">Inspections</p>
+              <p className="text-lg font-bold tracking-tight">{inspectionCardCount}</p>
+            </div>
           </CardContent>
         </Card>
 
         {maintenanceEnabled && (
           <Card className={cn(overviewCardClass, "h-full")}>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Maintenance</CardTitle>
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/10 text-amber-700">
+            <CardContent className="flex items-center gap-3 p-4">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
                 <Wrench className="h-4 w-4" />
               </span>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold tracking-tight">{openMaintenanceCount}</div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {maintenance.length === 0
-                  ? "No requests"
-                  : `Open requests${maintenance.length !== openMaintenanceCount ? ` · ${maintenance.length} total` : ""}`}
-              </p>
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-muted-foreground">Maintenance</p>
+                <p className="text-lg font-bold tracking-tight">{openMaintenanceCount}</p>
+              </div>
             </CardContent>
           </Card>
         )}
       </div>
 
       {/* Tabbed Content */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4 min-w-0">
+      <Tabs
+        value={activeTab}
+        onValueChange={(next) => {
+          setActiveTab(next);
+          // Overview is much taller than other tabs; leaving a deep scrollTop
+          // makes shorter tabs look empty and the main scrollbar disappear.
+          requestAnimationFrame(() => {
+            const main = document.querySelector("main");
+            if (main instanceof HTMLElement) {
+              main.scrollTo({ top: 0, behavior: "auto" });
+            } else {
+              window.scrollTo({ top: 0, behavior: "auto" });
+            }
+          });
+        }}
+        className="space-y-4 min-w-0"
+      >
         <TabsList
+          id="property-detail-tabs"
           className={cn(
             tabsListScroll,
-            "rounded-xl border border-border/70 bg-muted/40 p-1",
+            "h-auto max-w-full gap-0 rounded-none border-0 border-b border-border bg-transparent p-0",
+            "overflow-x-auto overscroll-x-contain",
           )}
         >
-          <TabsTrigger
-            value="overview"
-            data-testid="tab-overview"
-            className={cn(
-              tabTriggerResponsive,
-              "data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm",
-            )}
-          >
-            <LayoutDashboard className="h-4 w-4 shrink-0" />
-            <span className="tab-label">Overview</span>
-          </TabsTrigger>
-          <TabsTrigger
-            value="inspections"
-            data-testid="tab-inspections"
-            className={cn(
-              tabTriggerResponsive,
-              "data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm",
-            )}
-          >
-            <ClipboardCheck className="h-4 w-4 shrink-0" />
-            <span className="tab-label">Inspections</span>
-          </TabsTrigger>
-          {tenanciesEnabled && (
-            <TabsTrigger
-              value="tenants"
-              data-testid="tab-tenants"
-              className={cn(
-                tabTriggerResponsive,
-                "data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm",
-              )}
-            >
-              <Users className="h-4 w-4 shrink-0" />
-              <span className="tab-label">Tenants</span>
-            </TabsTrigger>
-          )}
-          <TabsTrigger
-            value="inventory"
-            data-testid="tab-inventory"
-            className={cn(
-              tabTriggerResponsive,
-              "data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm",
-            )}
-          >
-            <Package className="h-4 w-4 shrink-0" />
-            <span className="tab-label">Inventory</span>
-          </TabsTrigger>
-          <TabsTrigger
-            value="inspection-schedule"
-            data-testid="tab-inspection-schedule"
-            className={cn(
-              tabTriggerResponsive,
-              "data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm",
-            )}
-          >
-            <ClipboardCheck className="h-4 w-4 shrink-0" />
-            <span className="tab-label">Inspection Schedule</span>
-          </TabsTrigger>
-          {complianceEnabled && (
-            <TabsTrigger
-              value="compliance-schedule"
-              data-testid="tab-compliance-schedule"
-              className={cn(
-                tabTriggerResponsive,
-                "data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm",
-              )}
-            >
-              <FileCheck className="h-4 w-4 shrink-0" />
-              <span className="tab-label">Compliance Documents</span>
-            </TabsTrigger>
-          )}
-          {hmoComplianceEnabled && (
-            <TabsTrigger
-              value="hmo"
-              data-testid="tab-hmo"
-              className={cn(
-                tabTriggerResponsive,
-                "data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm",
-              )}
-            >
-              <ShieldAlert className="h-4 w-4 shrink-0" />
-              <span className="tab-label">HMO</span>
-            </TabsTrigger>
-          )}
-          {maintenanceEnabled && (
-            <TabsTrigger
-              value="maintenance"
-              data-testid="tab-maintenance"
-              className={cn(
-                tabTriggerResponsive,
-                "data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm",
-              )}
-            >
-              <Wrench className="h-4 w-4 shrink-0" />
-              <span className="tab-label">Maintenance</span>
-            </TabsTrigger>
-          )}
-          {rentalsEnabled && (
-            <>
+          {(
+            [
+              { value: "overview", testId: "tab-overview", icon: LayoutDashboard, label: "Overview", show: true },
+              { value: "inspections", testId: "tab-inspections", icon: ClipboardCheck, label: "Inspections", show: true },
+              { value: "tenants", testId: "tab-tenants", icon: Users, label: "Tenants", show: tenanciesEnabled },
+              { value: "inventory", testId: "tab-inventory", icon: Package, label: "Inventory", show: true },
+              { value: "inspection-schedule", testId: "tab-inspection-schedule", icon: ClipboardCheck, label: "Inspection Schedule", show: true },
+              { value: "compliance-schedule", testId: "tab-compliance-schedule", icon: FileCheck, label: "Compliance Documents", show: complianceEnabled },
+              { value: "hmo", testId: "tab-hmo", icon: ShieldAlert, label: "HMO", show: hmoComplianceEnabled },
+              { value: "maintenance", testId: "tab-maintenance", icon: Wrench, label: "Maintenance", show: maintenanceEnabled },
+              { value: "deposit", testId: "tab-deposit", icon: Wallet, label: "Deposit", show: rentalsEnabled },
+              { value: "rent-collection", testId: "tab-rent-collection", icon: Banknote, label: "Rent Collection", show: rentalsEnabled },
+              { value: "expenses", testId: "tab-expenses", icon: Receipt, label: "Expenses", show: rentalsEnabled },
+            ] as const
+          )
+            .filter((t) => t.show)
+            .map((t) => (
               <TabsTrigger
-                value="deposit"
-                data-testid="tab-deposit"
+                key={t.value}
+                value={t.value}
+                data-testid={t.testId}
                 className={cn(
                   tabTriggerResponsive,
-                  "data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm",
+                  "rounded-none border-0 border-b-2 border-transparent bg-transparent px-3 py-2.5 shadow-none ring-0",
+                  "data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none data-[state=active]:ring-0",
+                  "data-[state=inactive]:hover:bg-transparent data-[state=inactive]:hover:text-foreground",
                 )}
               >
-                <Wallet className="h-4 w-4 shrink-0" />
-                <span className="tab-label">Deposit</span>
+                <t.icon className="h-4 w-4 shrink-0" />
+                <span className="tab-label">{t.label}</span>
               </TabsTrigger>
-              <TabsTrigger
-                value="rent-collection"
-                data-testid="tab-rent-collection"
-                className={cn(
-                  tabTriggerResponsive,
-                  "data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm",
-                )}
-              >
-                <Banknote className="h-4 w-4 shrink-0" />
-                <span className="tab-label">Rent Collection</span>
-              </TabsTrigger>
-              <TabsTrigger
-                value="expenses"
-                data-testid="tab-expenses"
-                className={cn(
-                  tabTriggerResponsive,
-                  "data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm",
-                )}
-              >
-                <Receipt className="h-4 w-4 shrink-0" />
-                <span className="tab-label">Expenses</span>
-              </TabsTrigger>
-            </>
-          )}
+            ))}
         </TabsList>
 
         {/* Overview Tab */}
         <TabsContent value="overview" className="space-y-6" data-testid="tab-content-overview">
-          <div className="grid items-stretch gap-4 lg:grid-cols-3">
+          <div className="grid items-stretch gap-4 lg:grid-cols-5">
             <PropertyOverviewFacts
-              className="lg:col-span-2"
+              className="lg:col-span-3"
               propertyType={property.propertyType}
               address={property.address}
               blockId={property.blockId}
               blockName={property.blockName}
               showOccupancy={tenanciesEnabled}
               occupancyLabel={occupancyLabel}
+              totalAreaLabel={totalAreaLabel}
               reapitSourceLabel={
                 canSeeReapitSource && reapitMapping
                   ? `Reapit${
@@ -954,13 +830,23 @@ export default function PropertyDetail() {
                   : null
               }
             />
-            <PropertyLayoutSummary
-              bedrooms={property.bedrooms}
-              bathrooms={property.bathrooms}
-              kitchens={property.kitchens}
-              livingRooms={property.livingRooms}
-              detailedRoomCount={propertyRooms.length}
-            />
+            <Card
+              className={cn(
+                overviewCardClass,
+                "flex h-full min-h-[16rem] flex-col overflow-hidden lg:col-span-2",
+              )}
+            >
+              <MapPreview
+                address={property.address}
+                title={property.address ? `Map of ${property.address}` : undefined}
+                testId="map-embed"
+                externalLinkTestId="link-map-external"
+                className="min-h-0 flex-1 aspect-auto h-full"
+              />
+              <div className="flex shrink-0 items-center justify-between gap-2 border-t border-border/60 px-4 py-2.5">
+                <span className="text-sm font-medium text-foreground">Map</span>
+              </div>
+            </Card>
           </div>
 
           {(property.floorPlanUrl || property.notes) && (
@@ -1003,6 +889,7 @@ export default function PropertyDetail() {
             hasDetailedRooms={propertyRooms.length > 0}
             formatDimensions={formatRoomDimensions}
             formatArea={formatRoomAreaOnly}
+            areaUnit={areaUnit}
           />
         </TabsContent>
 
