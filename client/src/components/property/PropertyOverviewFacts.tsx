@@ -1,8 +1,7 @@
 import type { ReactNode } from "react";
 import { Link } from "wouter";
-import { Building2, Home, MapPin, Users, type LucideIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { overviewCardClass } from "@/components/property/overviewChrome";
 
@@ -13,32 +12,26 @@ type PropertyOverviewFactsProps = {
   blockName?: string | null;
   occupancyLabel?: string | null;
   showOccupancy?: boolean;
+  totalAreaLabel?: string | null;
   reapitSourceLabel?: string | null;
   className?: string;
 };
 
-function FactRow({
-  icon: Icon,
+function FactCell({
   label,
   children,
   className,
 }: {
-  icon: LucideIcon;
   label: string;
   children: ReactNode;
   className?: string;
 }) {
   return (
-    <div className={cn("flex min-w-0 gap-3", className)}>
-      <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-        <Icon className="h-4 w-4" />
-      </div>
-      <div className="min-w-0 space-y-0.5">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-          {label}
-        </p>
-        <div className="text-sm font-medium text-foreground break-words">{children}</div>
-      </div>
+    <div className={cn("min-w-0 space-y-1", className)}>
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        {label}
+      </p>
+      <div className="text-sm font-semibold text-foreground break-words">{children}</div>
     </div>
   );
 }
@@ -50,62 +43,61 @@ export function PropertyOverviewFacts({
   blockName,
   occupancyLabel,
   showOccupancy = false,
+  totalAreaLabel,
   reapitSourceLabel,
   className,
 }: PropertyOverviewFactsProps) {
-  const typeLabel = propertyType
-    ? propertyType.replace(/-/g, " ")
-    : "—";
+  const typeLabel = propertyType ? propertyType.replace(/-/g, " ") : "—";
 
   return (
-    <Card className={cn(overviewCardClass, className)} data-testid="card-property-details">
+    <Card
+      className={cn(overviewCardClass, "flex h-full flex-col", className)}
+      data-testid="card-property-details"
+    >
       <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Building2 className="h-4 w-4 text-primary" />
-          Property details
-        </CardTitle>
-        <CardDescription>Core information for this property</CardDescription>
+        <CardTitle className="text-base">Property details</CardTitle>
       </CardHeader>
-      <CardContent>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <FactRow icon={Home} label="Type">
+      <CardContent className="flex flex-1 flex-col">
+        <div className="grid flex-1 content-start gap-5 sm:grid-cols-2">
+          <FactCell label="Type">
             <span className="capitalize">{typeLabel}</span>
-          </FactRow>
+          </FactCell>
 
-          {showOccupancy && occupancyLabel && (
-            <FactRow icon={Users} label="Occupancy">
+          {showOccupancy && occupancyLabel ? (
+            <FactCell label="Occupancy">
               <Badge
                 variant={occupancyLabel === "Occupied" ? "success" : "secondary"}
                 className="font-medium"
               >
                 {occupancyLabel}
               </Badge>
-            </FactRow>
+            </FactCell>
+          ) : (
+            <FactCell label="Total area">{totalAreaLabel || "—"}</FactCell>
           )}
 
-          <FactRow icon={MapPin} label="Address" className="sm:col-span-2">
+          <FactCell label="Address" className="sm:col-span-2">
             {address}
-          </FactRow>
+          </FactCell>
 
-          <FactRow icon={Building2} label="Block">
+          {showOccupancy && (
+            <FactCell label="Total area">{totalAreaLabel || "—"}</FactCell>
+          )}
+
+          <FactCell label="Block">
             {blockName && blockId ? (
               <Link href={`/blocks/${blockId}`}>
-                <Badge
-                  variant="outline"
-                  className="cursor-pointer border-primary/20 bg-primary/5 text-foreground hover:bg-primary/10"
-                >
-                  {blockName}
-                </Badge>
+                <span className="text-primary hover:underline">{blockName}</span>
               </Link>
             ) : (
-              <span className="text-muted-foreground">Not assigned</span>
+              <span className="font-medium text-muted-foreground">Not assigned</span>
             )}
-          </FactRow>
+          </FactCell>
 
           {reapitSourceLabel && (
-            <FactRow icon={Building2} label="Source" className="sm:col-span-2">
-              <span className="font-normal text-muted-foreground">{reapitSourceLabel}</span>
-            </FactRow>
+            <FactCell label="Source" className="sm:col-span-2">
+              <span className="font-medium text-muted-foreground">{reapitSourceLabel}</span>
+            </FactCell>
           )}
         </div>
       </CardContent>
