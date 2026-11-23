@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Wrench, Upload, Sparkles, Loader2, X, Check, ChevronsUpDown, Pencil, Trash2, Clipboard, Calendar, User as UserIcon, AlertCircle, CheckCircle2, Clock, Filter, FileText, Receipt } from "lucide-react";
+import { Plus, Wrench, Upload, Sparkles, Loader2, X, Check, ChevronsUpDown, Pencil, Trash2, Clipboard, Calendar, User as UserIcon, AlertCircle, CheckCircle2, Clock, Filter } from "lucide-react";
 import { WorkOrderQuotesInvoicesPanel } from "@/components/maintenance-quotes/WorkOrderQuotesInvoicesPanel";
 import { WorkOrderFinanceLinks } from "@/components/maintenance-quotes/WorkOrderFinanceLinks";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
@@ -2092,29 +2092,8 @@ export default function Maintenance() {
                                 View details
                               </Button>
                             )}
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-8"
-                              onClick={() => navigate(`/work-orders/${workOrder.id}/quotes/new`)}
-                              data-testid={`button-new-quotation-${workOrder.id}`}
-                            >
-                              <FileText className="h-3.5 w-3.5 mr-1.5" />
-                              New quotation
-                            </Button>
-                            {user?.role === "owner" && (
-                              <Button
-                                size="sm"
-                                className="h-8"
-                                onClick={() => navigate(`/work-orders/${workOrder.id}/invoices/new`)}
-                                data-testid={`button-new-invoice-${workOrder.id}`}
-                              >
-                                <Receipt className="h-3.5 w-3.5 mr-1.5" />
-                                New invoice
-                              </Button>
-                            )}
+                            <WorkOrderFinanceLinks workOrderId={workOrder.id} />
                           </div>
-                          <WorkOrderFinanceLinks workOrderId={workOrder.id} />
                         </CardContent>
                       </Card>
                     ))}
