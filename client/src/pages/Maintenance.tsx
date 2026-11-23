@@ -7,8 +7,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Wrench, Upload, Sparkles, Loader2, X, Check, ChevronsUpDown, Pencil, Trash2, Clipboard, Calendar, User as UserIcon, AlertCircle, CheckCircle2, Clock, Filter, Receipt } from "lucide-react";
+import { Plus, Wrench, Upload, Sparkles, Loader2, X, Check, ChevronsUpDown, Pencil, Trash2, Clipboard, Calendar, User as UserIcon, AlertCircle, CheckCircle2, Clock, Filter, FileText, Receipt } from "lucide-react";
 import { WorkOrderQuotesInvoicesPanel } from "@/components/maintenance-quotes/WorkOrderQuotesInvoicesPanel";
+import { WorkOrderFinanceLinks } from "@/components/maintenance-quotes/WorkOrderFinanceLinks";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -193,7 +194,6 @@ export default function Maintenance() {
   const [isWorkOrderDialogOpen, setIsWorkOrderDialogOpen] = useState(false);
   const [selectedRequestForWorkOrder, setSelectedRequestForWorkOrder] = useState<MaintenanceRequestWithDetails | null>(null);
   const [selectedWorkOrderDetail, setSelectedWorkOrderDetail] = useState<WorkOrder | null>(null);
-  const [financeWorkOrderId, setFinanceWorkOrderId] = useState<string | null>(null);
   const [completeWorkOrderId, setCompleteWorkOrderId] = useState<string | null>(null);
   const [requestToDelete, setRequestToDelete] = useState<MaintenanceRequestWithDetails | null>(null);
   const [workOrderToDelete, setWorkOrderToDelete] = useState<WorkOrder | null>(null);
@@ -2096,13 +2096,25 @@ export default function Maintenance() {
                               variant="outline"
                               size="sm"
                               className="h-8"
-                              onClick={() => setFinanceWorkOrderId(workOrder.id)}
-                              data-testid={`button-quotes-invoices-${workOrder.id}`}
+                              onClick={() => navigate(`/work-orders/${workOrder.id}/quotes/new`)}
+                              data-testid={`button-new-quotation-${workOrder.id}`}
                             >
-                              <Receipt className="h-3.5 w-3.5 mr-1.5" />
-                              Quotes & invoices
+                              <FileText className="h-3.5 w-3.5 mr-1.5" />
+                              New quotation
                             </Button>
+                            {user?.role === "owner" && (
+                              <Button
+                                size="sm"
+                                className="h-8"
+                                onClick={() => navigate(`/work-orders/${workOrder.id}/invoices/new`)}
+                                data-testid={`button-new-invoice-${workOrder.id}`}
+                              >
+                                <Receipt className="h-3.5 w-3.5 mr-1.5" />
+                                New invoice
+                              </Button>
+                            )}
                           </div>
+                          <WorkOrderFinanceLinks workOrderId={workOrder.id} />
                         </CardContent>
                       </Card>
                     ))}
@@ -2113,31 +2125,6 @@ export default function Maintenance() {
           )}
         </TabsContent>
       </Tabs>
-
-      <Dialog
-        open={!!financeWorkOrderId}
-        onOpenChange={(open) => {
-          if (!open) setFinanceWorkOrderId(null);
-        }}
-      >
-        <DialogContent className={cn(dialogContentBase, "max-w-lg max-h-[90vh] overflow-y-auto")}>
-          <DialogHeader>
-            <DialogTitle>Quotes & invoices</DialogTitle>
-            <DialogDescription>
-              Quotation history and invoices for this work order.
-            </DialogDescription>
-          </DialogHeader>
-          {financeWorkOrderId && (
-            <WorkOrderQuotesInvoicesPanel
-              workOrderId={financeWorkOrderId}
-              onNavigateAway={() => {
-                setFinanceWorkOrderId(null);
-                setSelectedWorkOrderDetail(null);
-              }}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
 
       {/* Assignee Work Order detail (certificates + description) */}
       <Dialog
@@ -2231,17 +2218,13 @@ export default function Maintenance() {
                     </div>
                   );
                 })()}
-                <Button
-                  variant="outline"
-                  className="w-full"
-                  onClick={() => {
-                    setFinanceWorkOrderId(selectedWorkOrderDetail.id);
-                  }}
-                  data-testid={`button-quotes-invoices-detail-${selectedWorkOrderDetail.id}`}
-                >
-                  <Receipt className="h-4 w-4 mr-2" />
-                  Quotes & invoices
-                </Button>
+                <div className="space-y-2 rounded-md border p-3">
+                  <p className="text-sm font-medium">Quotes & invoices</p>
+                  <WorkOrderQuotesInvoicesPanel
+                    workOrderId={selectedWorkOrderDetail.id}
+                    onNavigateAway={() => setSelectedWorkOrderDetail(null)}
+                  />
+                </div>
                 <WorkOrderCertificatePanel
                   workOrderId={selectedWorkOrderDetail.id}
                   propertyId={selectedWorkOrderDetail.maintenanceRequest.propertyId}
