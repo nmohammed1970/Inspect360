@@ -5,6 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { BookOpen, Edit2, Plus, Trash2 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -25,7 +26,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { dialogContentBase } from "@/lib/responsive";
 import { cn } from "@/lib/utils";
-import type { MaintenancePriceBookItem, Organization, User } from "@shared/schema";
+import type { MaintenancePriceBookItem, Organization } from "@shared/schema";
 import {
   MAINTENANCE_PRICE_BOOK_CATEGORIES,
   MAINTENANCE_PRICE_BOOK_CATEGORY_LABELS,
@@ -150,7 +151,12 @@ const LineItemFormDialog = ({
 
   useEffect(() => {
     if (!open) return;
-    form.reset(initialValues || defaultFormValues(defaultCurrency));
+    if (initialValues) {
+      form.reset(initialValues);
+      return;
+    }
+    form.reset(defaultFormValues(defaultCurrency));
+    form.setValue("currency", defaultCurrency);
   }, [open, initialValues, defaultCurrency, form]);
 
   return (
@@ -264,7 +270,10 @@ const LineItemFormDialog = ({
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Currency</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
+                    <Select
+                      onValueChange={field.onChange}
+                      value={field.value || defaultCurrency}
+                    >
                       <FormControl>
                         <SelectTrigger data-testid="select-price-book-currency">
                           <SelectValue placeholder="Currency" />
@@ -456,29 +465,31 @@ const SettingsMaintenancePriceBookPanel = ({
   embedded = false,
 }: SettingsMaintenancePriceBookPanelProps) => {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<MaintenancePriceBookItem | null>(null);
   const [deletingItem, setDeletingItem] = useState<MaintenancePriceBookItem | null>(null);
 
-  const { data: user } = useQuery<User>({
-    queryKey: ["/api/auth/user"],
-  });
+  const organizationId = user?.organizationId;
 
-  const { data: organization } = useQuery<Organization>({
-    queryKey: ["/api/organizations", user?.organizationId],
-    enabled: !!user?.organizationId,
+  const { data: organization, isSuccess: orgLoaded } = useQuery<Organization>({
+    queryKey: ["/api/organizations", organizationId],
+    enabled: !!organizationId,
   });
 
   const defaultCurrency = useMemo<MaintenancePriceBookCurrency>(() => {
-    const preferred = organization?.preferredCurrency;
-    if (
-      preferred &&
-      (MAINTENANCE_PRICE_BOOK_CURRENCIES as readonly string[]).includes(preferred)
-    ) {
-      return preferred as MaintenancePriceBookCurrency;
+    // Prefer org currency once loaded; GBP while pending or if preferred is missing/unsupported.
+    if (orgLoaded) {
+      const preferred = organization?.preferredCurrency;
+      if (
+        preferred &&
+        (MAINTENANCE_PRICE_BOOK_CURRENCIES as readonly string[]).includes(preferred)
+      ) {
+        return preferred as MaintenancePriceBookCurrency;
+      }
     }
     return "GBP";
-  }, [organization?.preferredCurrency]);
+  }, [organization?.preferredCurrency, orgLoaded]);
 
   const { data: items = [], isLoading } = useQuery<MaintenancePriceBookItem[]>({
     queryKey: PRICE_BOOK_QUERY_KEY,
@@ -695,6 +706,7 @@ const SettingsMaintenancePriceBookPanel = ({
       )}
 
       <LineItemFormDialog
+        key={`new-line-${defaultCurrency}`}
         open={isCreateOpen}
         onOpenChange={setIsCreateOpen}
         title="New line"
