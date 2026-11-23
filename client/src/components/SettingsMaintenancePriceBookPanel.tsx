@@ -8,12 +8,20 @@ import { useToast } from "@/hooks/use-toast";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { dialogContentBase } from "@/lib/responsive";
 import { cn } from "@/lib/utils";
@@ -439,7 +447,14 @@ const LineItemFormDialog = ({
   );
 };
 
-const SettingsMaintenancePriceBookPanel = () => {
+interface SettingsMaintenancePriceBookPanelProps {
+  /** When true, omit the large standalone page heading (finance hub tab). */
+  embedded?: boolean;
+}
+
+const SettingsMaintenancePriceBookPanel = ({
+  embedded = false,
+}: SettingsMaintenancePriceBookPanelProps) => {
   const { toast } = useToast();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<MaintenancePriceBookItem | null>(null);
@@ -534,13 +549,24 @@ const SettingsMaintenancePriceBookPanel = () => {
   });
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight">Price Book</h2>
-          <p className="text-muted-foreground">
-            Manage reusable quotation line items for maintenance work
-          </p>
+          {embedded ? (
+            <>
+              <h2 className="text-sm font-semibold tracking-tight">Price book</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Reusable labour, materials, and other line templates for quotations
+              </p>
+            </>
+          ) : (
+            <>
+              <h2 className="text-2xl font-bold tracking-tight">Price Book</h2>
+              <p className="text-muted-foreground">
+                Manage reusable quotation line items for maintenance work
+              </p>
+            </>
+          )}
         </div>
         <Button
           variant="brand"
@@ -553,90 +579,118 @@ const SettingsMaintenancePriceBookPanel = () => {
       </div>
 
       {isLoading ? (
-        <div className="space-y-4">
-          {[1, 2, 3].map((i) => (
-            <Card key={i} className="animate-pulse">
-              <CardHeader>
-                <div className="h-6 bg-muted rounded w-1/3" />
-                <div className="h-4 bg-muted rounded w-1/2" />
-              </CardHeader>
-            </Card>
-          ))}
-        </div>
-      ) : items.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-            <BookOpen className="h-10 w-10 text-muted-foreground mb-3" />
-            <CardTitle className="text-lg mb-1">No price book lines yet</CardTitle>
-            <CardDescription className="mb-4">
-              Add labour, materials, and other line templates to reuse on quotes.
-            </CardDescription>
-            <Button variant="brand" onClick={() => setIsCreateOpen(true)}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add line
-            </Button>
-          </CardContent>
-        </Card>
+        <Skeleton className="h-40 w-full rounded-md" />
       ) : (
-        <div className="space-y-3">
-          {items.map((item) => (
-            <Card key={item.id} data-testid={`card-price-book-item-${item.id}`}>
-              <CardHeader className="pb-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0 space-y-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <CardTitle className="text-base truncate">{item.name}</CardTitle>
+        <div className="overflow-x-auto rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead className="min-w-[180px]">Name</TableHead>
+                <TableHead>SKU</TableHead>
+                <TableHead>Category</TableHead>
+                <TableHead>Unit</TableHead>
+                <TableHead className="text-right">Unit price</TableHead>
+                <TableHead>VAT</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right w-[100px]">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {items.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="h-28 text-center">
+                    <div className="flex flex-col items-center justify-center gap-2 py-4">
+                      <BookOpen className="h-8 w-8 text-muted-foreground" />
+                      <p className="text-sm font-medium">No price book lines yet</p>
+                      <p className="text-xs text-muted-foreground max-w-sm">
+                        Add labour, materials, and other line templates to reuse on quotes.
+                      </p>
+                      <Button
+                        variant="brand"
+                        size="sm"
+                        className="mt-1"
+                        onClick={() => setIsCreateOpen(true)}
+                      >
+                        <Plus className="h-4 w-4 mr-2" />
+                        Add line
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                items.map((item) => (
+                  <TableRow
+                    key={item.id}
+                    className="hover:bg-muted/40"
+                    data-testid={`row-price-book-item-${item.id}`}
+                  >
+                    <TableCell>
+                      <div className="min-w-0 space-y-0.5">
+                        <p className="font-medium truncate">{item.name}</p>
+                        {item.description ? (
+                          <p className="text-xs text-muted-foreground line-clamp-1 max-w-md">
+                            {item.description}
+                          </p>
+                        ) : null}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                      {item.sku || "—"}
+                    </TableCell>
+                    <TableCell className="text-sm whitespace-nowrap">
+                      {MAINTENANCE_PRICE_BOOK_CATEGORY_LABELS[
+                        item.category as keyof typeof MAINTENANCE_PRICE_BOOK_CATEGORY_LABELS
+                      ] || item.category}
+                    </TableCell>
+                    <TableCell className="text-sm whitespace-nowrap">
+                      {MAINTENANCE_PRICE_BOOK_UNIT_LABELS[
+                        item.unit as keyof typeof MAINTENANCE_PRICE_BOOK_UNIT_LABELS
+                      ] || item.unit}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums whitespace-nowrap text-sm">
+                      {formatMoneyMinor(item.defaultUnitPriceMinor, item.currency)}
+                    </TableCell>
+                    <TableCell className="text-sm whitespace-nowrap">
+                      {MAINTENANCE_PRICE_BOOK_VAT_LABELS[
+                        item.vatRate as keyof typeof MAINTENANCE_PRICE_BOOK_VAT_LABELS
+                      ] || item.vatRate}
+                    </TableCell>
+                    <TableCell>
                       {item.active ? (
                         <Badge variant="secondary">Active</Badge>
                       ) : (
                         <Badge variant="outline">Inactive</Badge>
                       )}
-                    </div>
-                    <CardDescription className="flex flex-wrap gap-x-3 gap-y-1">
-                      {item.sku ? <span>SKU: {item.sku}</span> : null}
-                      <span>
-                        {MAINTENANCE_PRICE_BOOK_UNIT_LABELS[
-                          item.unit as keyof typeof MAINTENANCE_PRICE_BOOK_UNIT_LABELS
-                        ] || item.unit}
-                      </span>
-                      <span>{formatMoneyMinor(item.defaultUnitPriceMinor, item.currency)}</span>
-                      <span>
-                        {MAINTENANCE_PRICE_BOOK_VAT_LABELS[
-                          item.vatRate as keyof typeof MAINTENANCE_PRICE_BOOK_VAT_LABELS
-                        ] || item.vatRate}
-                      </span>
-                      <span>
-                        {MAINTENANCE_PRICE_BOOK_CATEGORY_LABELS[
-                          item.category as keyof typeof MAINTENANCE_PRICE_BOOK_CATEGORY_LABELS
-                        ] || item.category}
-                      </span>
-                    </CardDescription>
-                    {item.description ? (
-                      <p className="text-sm text-muted-foreground line-clamp-2">{item.description}</p>
-                    ) : null}
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => setEditingItem(item)}
-                      data-testid={`button-edit-price-book-${item.id}`}
-                    >
-                      <Edit2 className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => setDeletingItem(item)}
-                      data-testid={`button-delete-price-book-${item.id}`}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              </CardHeader>
-            </Card>
-          ))}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="inline-flex gap-0.5">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => setEditingItem(item)}
+                          data-testid={`button-edit-price-book-${item.id}`}
+                          title="Edit"
+                        >
+                          <Edit2 className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive hover:text-destructive"
+                          onClick={() => setDeletingItem(item)}
+                          data-testid={`button-delete-price-book-${item.id}`}
+                          title="Delete"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
         </div>
       )}
 
