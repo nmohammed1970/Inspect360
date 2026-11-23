@@ -475,9 +475,9 @@ export default function HmoDashboard() {
             headingId="hmo-filters-heading"
             headingEnd={
               <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground whitespace-nowrap">
-                  {filtered.length} shown
-                </span>
+              <span className="text-xs text-muted-foreground whitespace-nowrap">
+                {filtered.length} shown
+              </span>
                 {hasActiveFilters && <ClearFiltersButton onClick={clearFilters} />}
               </div>
             }
@@ -519,18 +519,18 @@ export default function HmoDashboard() {
                     value={sortMode}
                     onValueChange={(v) => setSortMode(v as SortMode)}
                   >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
                       <SelectItem value="priority">Priority first</SelectItem>
                       <SelectItem value="due">Next deadline</SelectItem>
                       <SelectItem value="name">Property A–Z</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            </div>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    </div>
+                    </div>
           </FiltersSection>
 
           {/* Work grid */}
@@ -631,16 +631,16 @@ export default function HmoDashboard() {
                     </tbody>
                   </table>
                 )}
-              </div>
+                  </div>
             </section>
 
             <aside className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-1">
-              <Card>
+          <Card>
                 <CardContent className="space-y-3 p-4">
                   <div className="flex items-center justify-between gap-2">
                     <h3 className="text-sm font-semibold">Deadlines ahead</h3>
                     <span className="text-xs text-muted-foreground">Next {windowDays} days</span>
-                  </div>
+                </div>
                   {deadlines.length === 0 ? (
                     <p className="text-sm text-muted-foreground">
                       No recorded deadlines in this forward window.
@@ -648,7 +648,7 @@ export default function HmoDashboard() {
                   ) : (
                     deadlines.map((item) => {
                       const parts = dateParts(item.date);
-                      return (
+                return (
                         <div
                           key={`${item.p.propertyId}-${item.type}-${item.date}`}
                           className="flex items-start gap-3 border-t pt-3 first:border-t-0 first:pt-0"
@@ -663,7 +663,7 @@ export default function HmoDashboard() {
                             </p>
                             <p className="text-xs text-muted-foreground">{item.type}</p>
                           </div>
-                          <Link
+                  <Link
                             href={`/properties/${item.p.propertyId}?tab=hmo`}
                             className="text-sm font-medium text-primary"
                           >
@@ -718,11 +718,11 @@ export default function HmoDashboard() {
             <span className="text-xs text-muted-foreground sm:ml-auto">
               As at {data?.asOf ? new Date(data.asOf).toLocaleString() : "—"}
             </span>
-          </div>
+                      </div>
 
           <div className="min-w-0 rounded-lg border border-[#d7e7e4] bg-gradient-to-b from-[#f7fcfb] to-white p-3 sm:p-5">
             <div className="mb-4 flex items-start justify-between gap-3 border-b-2 border-[#00a99b] pb-3">
-              <div className="min-w-0">
+                      <div className="min-w-0">
                 <p className="text-xs font-semibold tracking-wide text-[#00a99b]">
                   INSPECT360 · HMO PORTFOLIO
                 </p>
@@ -733,8 +733,8 @@ export default function HmoDashboard() {
                   {reportScope === "all" ? "Entire portfolio" : "Filtered portfolio selection"} ·{" "}
                   {reportRows.length} properties
                 </p>
-              </div>
-            </div>
+                      </div>
+                    </div>
 
             <div className="mb-4 grid grid-cols-2 gap-2 md:grid-cols-4">
               {[
@@ -840,8 +840,8 @@ export default function HmoDashboard() {
                           <StatusPill cls={status.cls}>{status.text}</StatusPill>
                         </td>
                       </tr>
-                    );
-                  })}
+                );
+              })}
                   {reportRows.length === 0 && (
                     <tr>
                       <td colSpan={6} className="px-1.5 py-6 text-center text-[#8799a6]">
