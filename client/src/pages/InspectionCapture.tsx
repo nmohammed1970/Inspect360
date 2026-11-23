@@ -642,14 +642,20 @@ export default function InspectionCapture() {
           }
           // Gallery assign can grow entry.photos while a field save is in-flight.
           // Always absorb a longer server photo list so capture stays in sync.
+          // Also keep non-empty local notes if a stale GET still has an empty note.
           if (local) {
             const localPhotos = Array.isArray(local.photos) ? local.photos : [];
             const serverPhotos = Array.isArray(serverEntry.photos) ? serverEntry.photos : [];
-            if (serverPhotos.length > localPhotos.length) {
+            const localNote = String(local.note || "").trim();
+            const serverNote = String(serverEntry.note || "").trim();
+            const absorbPhotos = serverPhotos.length > localPhotos.length;
+            const keepLocalNote = Boolean(localNote && !serverNote);
+            if (absorbPhotos || keepLocalNote) {
               next[key] = {
                 ...local,
                 id: serverEntry.id || local.id,
-                photos: serverPhotos,
+                photos: absorbPhotos ? serverPhotos : local.photos,
+                note: keepLocalNote ? local.note : local.note,
               };
               changed = true;
             }
@@ -665,7 +671,15 @@ export default function InspectionCapture() {
           JSON.stringify(oldEntry.photos) !== JSON.stringify(serverEntry.photos) ||
           oldEntry.markedForReview !== serverEntry.markedForReview
         ) {
-          next[key] = serverEntry;
+          // After pending clears, a late stale GET can still arrive with empty note
+          // while local still has InspectAI text — keep the non-empty local note.
+          const oldNote = String(oldEntry?.note || "").trim();
+          const serverNote = String(serverEntry.note || "").trim();
+          if (oldEntry && oldNote && !serverNote) {
+            next[key] = { ...serverEntry, note: oldEntry.note };
+          } else {
+            next[key] = serverEntry;
+          }
           changed = true;
         }
       }

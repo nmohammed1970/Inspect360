@@ -24,6 +24,13 @@ import Inspections from "@/pages/Inspections";
 import InspectionDetail from "@/pages/InspectionDetail";
 import Compliance from "@/pages/Compliance";
 import Maintenance from "@/pages/Maintenance";
+import WorkOrderQuotation from "@/pages/WorkOrderQuotation";
+import WorkOrderQuotationNew from "@/pages/WorkOrderQuotationNew";
+import WorkOrderInvoiceNew from "@/pages/WorkOrderInvoiceNew";
+import WorkOrderInvoice from "@/pages/WorkOrderInvoice";
+import MaintenanceFinance from "@/pages/MaintenanceFinance";
+import PublicQuote from "@/pages/PublicQuote";
+import PublicInvoice from "@/pages/PublicInvoice";
 import Analytics from "@/pages/Analytics";
 import Reports from "@/pages/Reports";
 import InspectionsReport from "@/pages/InspectionsReport";
@@ -142,6 +149,8 @@ function AppContent() {
     "/admin/templates",
     "/admin/feedback",
     "/tenant/login",
+    "/public/quotes",
+    "/public/invoices",
   ];
 
   // Check if current route is a protected route
@@ -372,6 +381,8 @@ function AppContent() {
         <Switch>
           <Route path="/" component={Auth} />
           <Route path="/auth" component={Auth} />
+          <Route path="/public/quotes/:token" component={PublicQuote} />
+          <Route path="/public/invoices/:token" component={PublicInvoice} />
           <Route path="/forgot-password">
             {() => <ForgotPassword portal="user" />}
           </Route>
@@ -719,6 +730,43 @@ function AppContent() {
                   {() => (
                     <CompanyModuleRoute module="hmo_compliance">
                       <HmoDashboard />
+                    </CompanyModuleRoute>
+                  )}
+                </Route>
+                <Route path="/public/quotes/:token" component={PublicQuote} />
+                <Route path="/public/invoices/:token" component={PublicInvoice} />
+                <Route path="/work-orders/:workOrderId/quotes/new">
+                  {() => (
+                    <CompanyModuleRoute module="maintenance">
+                      <WorkOrderQuotationNew />
+                    </CompanyModuleRoute>
+                  )}
+                </Route>
+                <Route path="/work-orders/:workOrderId/quotes/:quoteId">
+                  {() => (
+                    <CompanyModuleRoute module="maintenance">
+                      <WorkOrderQuotation />
+                    </CompanyModuleRoute>
+                  )}
+                </Route>
+                <Route path="/work-orders/:workOrderId/invoices/new">
+                  {() => (
+                    <CompanyModuleRoute module="maintenance">
+                      <WorkOrderInvoiceNew />
+                    </CompanyModuleRoute>
+                  )}
+                </Route>
+                <Route path="/work-orders/:workOrderId/invoices/:invoiceId">
+                  {() => (
+                    <CompanyModuleRoute module="maintenance">
+                      <WorkOrderInvoice />
+                    </CompanyModuleRoute>
+                  )}
+                </Route>
+                <Route path="/maintenance/finance">
+                  {() => (
+                    <CompanyModuleRoute module="maintenance">
+                      <MaintenanceFinance />
                     </CompanyModuleRoute>
                   )}
                 </Route>

@@ -151,6 +151,8 @@ export function FieldWidget({
   const [localPhotos, setLocalPhotos] = useState<string[]>(photos || []);
   /** When true, allow props `photos=[]` through (user just cleared locally). */
   const allowEmptyPhotosPropRef = useRef(false);
+  /** When true, allow props `note=""` through (user just cleared notes locally). */
+  const allowEmptyNotePropRef = useRef(false);
   /** URLs removed locally — block prop/heal resurrection until unassign+save finish. */
   const recentlyRemovedPhotoKeysRef = useRef<Set<string>>(new Set());
   const [localMarkedForReview, setLocalMarkedForReview] = useState(markedForReview || false);
@@ -277,7 +279,23 @@ export function FieldWidget({
   }, [value]);
 
   useEffect(() => {
-    setLocalNote(note || "");
+    const next = note || "";
+    // Mirror the photo guard: ignore empty prop updates while local notes are
+    // non-empty. Stale /entries refetches after InspectAI used to wipe Kitchen notes.
+    setLocalNote((prev) => {
+      const nextTrim = next.trim();
+      const prevTrim = (prev || "").trim();
+      if (!nextTrim && prevTrim) {
+        if (allowEmptyNotePropRef.current) {
+          allowEmptyNotePropRef.current = false;
+          return next;
+        }
+        return prev;
+      }
+      if (next === prev) return prev;
+      if (nextTrim) allowEmptyNotePropRef.current = false;
+      return next;
+    });
   }, [note]);
 
   useEffect(() => {
@@ -503,6 +521,8 @@ export function FieldWidget({
 
   const handleNoteChange = (newNote: string) => {
     // Update local state immediately for responsive UI
+    if (!newNote.trim()) allowEmptyNotePropRef.current = true;
+    else allowEmptyNotePropRef.current = false;
     setLocalNote(newNote);
 
     // Clear existing timeout
@@ -541,6 +561,8 @@ export function FieldWidget({
       clearTimeout(noteDebounceTimeoutRef.current);
       noteDebounceTimeoutRef.current = null;
     }
+    if (!newNote.trim()) allowEmptyNotePropRef.current = true;
+    else allowEmptyNotePropRef.current = false;
     setLocalNote(newNote);
     const composedValue = composeValue(
       localValue,
@@ -548,7 +570,13 @@ export function FieldWidget({
       localCleanliness,
       audioUrlsRef.current,
     );
-    onChange(composedValue, newNote || undefined, localPhotos.length > 0 ? localPhotos : undefined);
+    // Pass photos when present so InspectAI note saves keep the gallery list.
+    // undefined means "keep existing" for note-only edits with no local photos yet.
+    onChange(
+      composedValue,
+      newNote || undefined,
+      localPhotos.length > 0 ? localPhotos : undefined,
+    );
   };
 
   // Cleanup timeout on unmount
@@ -799,27 +827,21 @@ export function FieldWidget({
         return;
       }
 
-      // Auto-populate the notes field with the AI analysis (prepend to existing notes)
-      const existingNote = localNote || '';
+      // Auto-populate notes with AI analysis (prepend). Clear any pending debounce
+      // so an older empty/partial note save cannot fire after this write.
+      const existingNote = localNote || "";
       const newNote = existingNote
         ? `${analysis}\n\n${existingNote}`
         : analysis;
-      setLocalNote(newNote);
-      const composedValue = composeValue(localValue, localCondition, localCleanliness, audioUrls);
-      // Always pass the current photo list (never undefined) so parent state cannot
-      // drop images while saving AI notes.
-      onChange(composedValue, newNote, localPhotos);
+      commitNoteImmediately(newNote);
 
       // Invalidate organization query to update credit balance on dashboard and billing pages
       if (user?.organizationId) {
         queryClient.invalidateQueries({ queryKey: [`/api/organizations/${user.organizationId}`] });
       }
 
-      // Soft-invalidate only — a forced refetch here raced with the note save and
-      // could briefly replace entry.photos with a stale empty list in the UI.
-      if (inspectionId) {
-        queryClient.invalidateQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
-      }
+      // Do NOT invalidate entries here — updateEntry.onSuccess already does.
+      // An extra refetch raced the note save and cleared Kitchen InspectAI notes.
 
       toast({
         title: "InspectAI Complete",

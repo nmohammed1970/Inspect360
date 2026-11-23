@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Plus, Wrench, Upload, Sparkles, Loader2, X, Check, ChevronsUpDown, Pencil, Trash2, Clipboard, Calendar, User as UserIcon, AlertCircle, CheckCircle2, Clock, Filter } from "lucide-react";
+import { WorkOrderQuotesInvoicesPanel } from "@/components/maintenance-quotes/WorkOrderQuotesInvoicesPanel";
+import { WorkOrderFinanceLinks } from "@/components/maintenance-quotes/WorkOrderFinanceLinks";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -1965,6 +1967,16 @@ export default function Maintenance() {
                               <Badge className={cn(workOrderStatusColors[workOrder.status], "capitalize")}>
                                 {workOrder.status.replace("_", " ")}
                               </Badge>
+                              {(workOrder as any).authorisationStatus === "quote_required" ? (
+                                <Badge variant="outline" className="bg-amber-50 text-amber-900 border-amber-200">
+                                  Quote required
+                                </Badge>
+                              ) : null}
+                              {(workOrder as any).authorisationStatus === "authorised" ? (
+                                <Badge variant="outline" className="bg-emerald-50 text-emerald-900 border-emerald-200">
+                                  Authorised
+                                </Badge>
+                              ) : null}
                             </div>
                           </div>
                         </CardHeader>
@@ -2080,6 +2092,7 @@ export default function Maintenance() {
                                 View details
                               </Button>
                             )}
+                            <WorkOrderFinanceLinks workOrderId={workOrder.id} />
                           </div>
                         </CardContent>
                       </Card>
@@ -2184,6 +2197,13 @@ export default function Maintenance() {
                     </div>
                   );
                 })()}
+                <div className="space-y-2 rounded-md border p-3">
+                  <p className="text-sm font-medium">Quotes & invoices</p>
+                  <WorkOrderQuotesInvoicesPanel
+                    workOrderId={selectedWorkOrderDetail.id}
+                    onNavigateAway={() => setSelectedWorkOrderDetail(null)}
+                  />
+                </div>
                 <WorkOrderCertificatePanel
                   workOrderId={selectedWorkOrderDetail.id}
                   propertyId={selectedWorkOrderDetail.maintenanceRequest.propertyId}

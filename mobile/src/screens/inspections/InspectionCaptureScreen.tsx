@@ -589,7 +589,13 @@ export default function InspectionCaptureScreen() {
             photos: serverEntry.photos && serverEntry.photos.length > 0 
               ? serverEntry.photos 
               : Array.from(new Set([...(localEntry.photos || []), ...(serverEntry.photos || [])])),
-            note: serverEntry.note !== undefined ? serverEntry.note : localEntry.note,
+            // Keep non-empty local InspectAI / typed notes if a stale GET has empty note.
+            note:
+              String(localEntry.note || "").trim() && !String(serverEntry.note || "").trim()
+                ? localEntry.note
+                : serverEntry.note !== undefined
+                  ? serverEntry.note
+                  : localEntry.note,
           };
           merged[key] = mergedEntry;
         }

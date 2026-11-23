@@ -817,6 +817,16 @@ export default function WorkOrderDetailScreen() {
             onPress={() => setShowCertificates(true)}
             icon={<Paperclip size={16} color={themeColors.primary.DEFAULT} />}
           />
+          {!editing && (
+            <Button
+              title="Quotations"
+              variant="outline"
+              onPress={() =>
+                navigation.navigate('WorkOrderQuotes', { workOrderId: wo.id })
+              }
+              icon={<FileText size={16} color={themeColors.primary.DEFAULT} />}
+            />
+          )}
         </View>
       </ScrollView>
 
