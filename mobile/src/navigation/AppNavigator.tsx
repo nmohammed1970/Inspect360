@@ -157,6 +157,14 @@ function WorkOrdersNavigator() {
         name="WorkOrderComplete"
         getComponent={() => require('../screens/workOrders/WorkOrderCompleteScreen').default}
       />
+      <WorkOrdersStack.Screen
+        name="WorkOrderQuotes"
+        getComponent={() => require('../screens/workOrders/WorkOrderQuotesScreen').default}
+      />
+      <WorkOrdersStack.Screen
+        name="WorkOrderQuoteBuilder"
+        getComponent={() => require('../screens/workOrders/WorkOrderQuoteBuilderScreen').default}
+      />
     </WorkOrdersStack.Navigator>
   );
 }

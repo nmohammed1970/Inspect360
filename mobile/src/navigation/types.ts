@@ -49,6 +49,8 @@ export type WorkOrdersStackParamList = {
   WorkOrdersList: undefined;
   WorkOrderDetail: { workOrderId: string };
   WorkOrderComplete: { workOrderId: string };
+  WorkOrderQuotes: { workOrderId: string };
+  WorkOrderQuoteBuilder: { workOrderId: string; quoteId?: string };
 };
 
 export type MainTabParamList = {
