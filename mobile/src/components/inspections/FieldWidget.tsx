@@ -438,6 +438,8 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
   const photoBatchActiveRef = useRef(false);
   /** When true, allow props `photos=[]` through (user just cleared locally). */
   const allowEmptyPhotosPropRef = useRef(false);
+  /** When true, allow props `note=""` through (user just cleared notes locally). */
+  const allowEmptyNotePropRef = useRef(false);
   const localPhotosRef = useRef<string[]>(photos || []);
 
   // Fetch check-in reference for photo / attached-photo fields during Check-Out
@@ -524,9 +526,24 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
   }, [value, safeField.includeCondition, safeField.includeCleanliness]);
 
   useEffect(() => {
-    if (note !== undefined && localNote !== note) {
-      setLocalNote(note || '');
-    }
+    if (note === undefined) return;
+    const next = note || '';
+    // Ignore empty prop updates while local notes are non-empty — stale /entries
+    // refetches after InspectAI used to wipe Kitchen notes (same race as web).
+    setLocalNote((prev) => {
+      const nextTrim = next.trim();
+      const prevTrim = (prev || '').trim();
+      if (!nextTrim && prevTrim) {
+        if (allowEmptyNotePropRef.current) {
+          allowEmptyNotePropRef.current = false;
+          return next;
+        }
+        return prev;
+      }
+      if (next === prev) return prev;
+      if (nextTrim) allowEmptyNotePropRef.current = false;
+      return next;
+    });
   }, [note]);
 
   useEffect(() => {
@@ -682,6 +699,8 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
 
   const handleNoteChange = (newNote: string) => {
     // Update local state immediately for responsive UI
+    if (!newNote.trim()) allowEmptyNotePropRef.current = true;
+    else allowEmptyNotePropRef.current = false;
     setLocalNote(newNote);
 
     // Clear existing timeout
@@ -1138,11 +1157,14 @@ function FieldWidgetComponent(props: FieldWidgetProps) {
       const newNote = existingNote
         ? `${result.analysis}\n\n${existingNote}`
         : result.analysis;
+      allowEmptyNotePropRef.current = false;
       setLocalNote(newNote);
       const composedValue = composeValue(localValue, localCondition, localCleanliness);
+      // Pass current photos so the note save cannot drop the gallery list.
       onChange(composedValue, newNote, localPhotos);
 
-      queryClient.invalidateQueries({ queryKey: [`/api/inspections/${inspectionId}/entries`] });
+      // Do not invalidate entries here — the parent save already refreshes.
+      // An extra refetch raced the note save and cleared InspectAI text.
       Alert.alert('AI Analysis Complete', 'Analysis has been added to the notes field');
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Failed to analyze field');
