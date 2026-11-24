@@ -1957,8 +1957,9 @@ export default function Maintenance() {
                           </Button>
                         )}
 
-                        {canOwnerAct && isWorkOrdersEnabled && (
-                          linkedWorkOrder ? (
+                        {isWorkOrdersEnabled &&
+                          linkedWorkOrder &&
+                          (canOwnerAct || canFieldAct) && (
                             <Button
                               variant={
                                 linkedWorkOrder.status === "completed" ||
@@ -1981,19 +1982,19 @@ export default function Maintenance() {
                               View work order
                               <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
                             </Button>
-                          ) : (
-                            <Button
-                              size="sm"
-                              className="h-8 rounded-full bg-primary px-3 text-xs text-primary-foreground hover:bg-[hsl(var(--primary-hover))]"
-                              onClick={() => {
-                                setSelectedRequestForWorkOrder(request);
-                                setIsWorkOrderDialogOpen(true);
-                              }}
-                              data-testid={`button-create-work-order-${request.id}`}
-                            >
-                              Create work order
-                            </Button>
-                          )
+                          )}
+                        {isWorkOrdersEnabled && !linkedWorkOrder && canOwnerAct && (
+                          <Button
+                            size="sm"
+                            className="h-8 rounded-full bg-primary px-3 text-xs text-primary-foreground hover:bg-[hsl(var(--primary-hover))]"
+                            onClick={() => {
+                              setSelectedRequestForWorkOrder(request);
+                              setIsWorkOrderDialogOpen(true);
+                            }}
+                            data-testid={`button-create-work-order-${request.id}`}
+                          >
+                            Create work order
+                          </Button>
                         )}
 
                         {canOwnerAct &&
