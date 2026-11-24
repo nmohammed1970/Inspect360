@@ -93,9 +93,13 @@ export default function Auth() {
           return;
         }
         
-        // For clerks (inspectors), redirect to inspections page
-        // For other roles, go to dashboard
-        const redirectPath = result.role === "clerk" ? "/inspections" : "/dashboard";
+        // Clerks → inspections; maintenance admins → maintenance; others → dashboard
+        const redirectPath =
+          result.role === "clerk"
+            ? "/inspections"
+            : result.role === "maintenance_admin"
+              ? "/maintenance"
+              : "/dashboard";
         // Use window.location for reliable redirect after login
         window.location.href = redirectPath;
       }

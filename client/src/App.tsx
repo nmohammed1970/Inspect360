@@ -29,6 +29,9 @@ import WorkOrderQuotationNew from "@/pages/WorkOrderQuotationNew";
 import WorkOrderInvoiceNew from "@/pages/WorkOrderInvoiceNew";
 import WorkOrderInvoice from "@/pages/WorkOrderInvoice";
 import MaintenanceFinance from "@/pages/MaintenanceFinance";
+import WorkOrderDetailPage from "@/pages/WorkOrderDetailPage";
+import MaintenanceFeedback from "@/pages/MaintenanceFeedback";
+import MaintenanceJobFeedbackPublic from "@/pages/MaintenanceJobFeedbackPublic";
 import PublicQuote from "@/pages/PublicQuote";
 import PublicInvoice from "@/pages/PublicInvoice";
 import Analytics from "@/pages/Analytics";
@@ -76,6 +79,7 @@ import TenantRequests from "@/pages/TenantRequests";
 import TenantComparisonReports from "@/pages/TenantComparisonReports";
 import TenantComparisonReportDetail from "@/pages/TenantComparisonReportDetail";
 import TenantCheckInReview from "@/pages/TenantCheckInReview";
+import TenantInspections from "@/pages/TenantInspections";
 import TenantCommunity from "@/pages/TenantCommunity";
 import TenantProfile from "@/pages/TenantProfile";
 import CommunityModeration from "@/pages/CommunityModeration";
@@ -116,6 +120,10 @@ function isFieldStaffRole(role: string | undefined): boolean {
   return role === "clerk" || role === "contractor";
 }
 
+function isMaintenanceAdminRole(role: string | undefined): boolean {
+  return role === "maintenance_admin";
+}
+
 function AppContent() {
   // Always call hooks at the top level
   const { isAuthenticated, user, logoutMutation, isLoading } = useAuth();
@@ -151,6 +159,7 @@ function AppContent() {
     "/tenant/login",
     "/public/quotes",
     "/public/invoices",
+    "/maintenance-feedback",
   ];
 
   // Check if current route is a protected route
@@ -383,6 +392,7 @@ function AppContent() {
           <Route path="/auth" component={Auth} />
           <Route path="/public/quotes/:token" component={PublicQuote} />
           <Route path="/public/invoices/:token" component={PublicInvoice} />
+          <Route path="/maintenance-feedback/:token" component={MaintenanceJobFeedbackPublic} />
           <Route path="/forgot-password">
             {() => <ForgotPassword portal="user" />}
           </Route>
@@ -576,6 +586,8 @@ function AppContent() {
                   {showCommunity && <Route path="/tenant/community" component={TenantCommunity} />}
                   <Route path="/tenant/inspection-review/:id" component={TenantCheckInReview} />
                   <Route path="/tenant/check-in-review/:id" component={TenantCheckInReview} />
+                  <Route path="/tenant/inspections/:id/capture" component={InspectionCapture} />
+                  <Route path="/tenant/inspections" component={TenantInspections} />
                   <Route path="/tenant/profile" component={TenantProfile} />
                   <Route path="/dashboard" component={TenantHome} />
                   <Route component={NotFound} />
@@ -647,7 +659,45 @@ function AppContent() {
             </header>
             <main className="flex-1 overflow-auto bg-mist/40 dark:bg-background min-w-0">
               <Switch>
-                {isFieldStaffRole(user?.role) ? (
+                {isMaintenanceAdminRole(user?.role) ? (
+                  <>
+                    <Route path="/" component={Dashboard} />
+                    <Route path="/dashboard" component={Dashboard} />
+                    <Route path="/settings">
+                      {() => <FieldRoleRedirect to="/maintenance" />}
+                    </Route>
+                    <Route path="/billing">
+                      {() => <FieldRoleRedirect to="/maintenance" />}
+                    </Route>
+                    <Route path="/inspections">
+                      {() => <FieldRoleRedirect to="/maintenance" />}
+                    </Route>
+                    <Route path="/properties">
+                      {() => <FieldRoleRedirect to="/maintenance" />}
+                    </Route>
+                    <Route path="/compliance">
+                      {() => <FieldRoleRedirect to="/maintenance" />}
+                    </Route>
+                    <Route path="/hmo">
+                      {() => <FieldRoleRedirect to="/maintenance" />}
+                    </Route>
+                    <Route path="/reports">
+                      {() => <FieldRoleRedirect to="/maintenance" />}
+                    </Route>
+                    <Route path="/asset-inventory">
+                      {() => <FieldRoleRedirect to="/maintenance" />}
+                    </Route>
+                    <Route path="/community-moderation">
+                      {() => <FieldRoleRedirect to="/maintenance" />}
+                    </Route>
+                    <Route path="/feedback">
+                      {() => <FieldRoleRedirect to="/maintenance" />}
+                    </Route>
+                    <Route path="/comparisons">
+                      {() => <FieldRoleRedirect to="/maintenance" />}
+                    </Route>
+                  </>
+                ) : isFieldStaffRole(user?.role) ? (
                   <>
                     <Route path="/">
                       {() => <FieldRoleRedirect to="/inspections" />}
@@ -735,6 +785,7 @@ function AppContent() {
                 </Route>
                 <Route path="/public/quotes/:token" component={PublicQuote} />
                 <Route path="/public/invoices/:token" component={PublicInvoice} />
+                <Route path="/maintenance-feedback/:token" component={MaintenanceJobFeedbackPublic} />
                 <Route path="/work-orders/:workOrderId/quotes/new">
                   {() => (
                     <CompanyModuleRoute module="maintenance">
@@ -760,6 +811,20 @@ function AppContent() {
                   {() => (
                     <CompanyModuleRoute module="maintenance">
                       <WorkOrderInvoice />
+                    </CompanyModuleRoute>
+                  )}
+                </Route>
+                <Route path="/maintenance/work-orders/:workOrderId">
+                  {() => (
+                    <CompanyModuleRoute module="maintenance">
+                      <WorkOrderDetailPage />
+                    </CompanyModuleRoute>
+                  )}
+                </Route>
+                <Route path="/maintenance/feedback">
+                  {() => (
+                    <CompanyModuleRoute module="maintenance">
+                      <MaintenanceFeedback />
                     </CompanyModuleRoute>
                   )}
                 </Route>

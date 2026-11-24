@@ -41,6 +41,10 @@ import {
   loadPublicOrgBrand,
   loadPublicWorkContext,
 } from "./publicFinanceContext";
+import {
+  defaultRecipientForWorkOrder,
+  resolveRecipientUserInOrg,
+} from "./quoteCustomerRecipients";
 
 function orgId(req: any): string {
   return req.user.organizationId as string;
@@ -54,7 +58,10 @@ function rejectTenant(req: any, res: Response, next: NextFunction) {
 }
 
 const guards = [isAuthenticated, requireCompanyModule("maintenance"), rejectTenant] as const;
-const ownerGuards = [...guards, requireRole("owner")] as const;
+const ownerGuards = [
+  ...guards,
+  requireRole("owner", "maintenance_admin", "clerk", "contractor"),
+] as const;
 
 function hashToken(raw: string) {
   return createHash("sha256").update(raw).digest("hex");
@@ -112,12 +119,8 @@ async function loadInvoiceWoContext(workOrderId: string, organizationId: string)
   const request = await storage.getMaintenanceRequest(workOrder.maintenanceRequestId);
   let property: Awaited<ReturnType<typeof storage.getProperty>> | null = null;
   let block: Awaited<ReturnType<typeof storage.getBlock>> | null = null;
-  let landlord: Awaited<ReturnType<typeof storage.getContact>> | null = null;
   if (request?.propertyId) {
     property = (await storage.getProperty(request.propertyId)) || null;
-    if (property?.landlordContactId) {
-      landlord = (await storage.getContact(property.landlordContactId)) || null;
-    }
     if (property?.blockId) {
       block = (await storage.getBlock(property.blockId)) || null;
     }
@@ -125,34 +128,9 @@ async function loadInvoiceWoContext(workOrderId: string, organizationId: string)
   if (request?.blockId && !block) {
     block = (await storage.getBlock(request.blockId)) || null;
   }
-  let recipient: {
-    recipientContactId: string;
-    recipientName: string | null;
-    recipientEmail: string | null;
-    recipientPhone: string | null;
-    recipientAddress: string | null;
-  } | null = null;
-  if (landlord) {
-    const name =
-      [landlord.firstName, landlord.lastName].filter(Boolean).join(" ").trim() ||
-      landlord.companyName ||
-      null;
-    const addressParts = [
-      landlord.address,
-      landlord.city,
-      landlord.state,
-      landlord.postalCode,
-      landlord.country,
-    ].filter(Boolean);
-    recipient = {
-      recipientContactId: landlord.id,
-      recipientName: name,
-      recipientEmail: landlord.email || null,
-      recipientPhone: landlord.phone || null,
-      recipientAddress: addressParts.length ? addressParts.join(", ") : null,
-    };
-  }
+  const recipient = await defaultRecipientForWorkOrder(workOrder);
   return {
+    workOrder,
     issueTitle: request?.title || "Maintenance work",
     locationLabel:
       property?.name || property?.address || block?.name || "Work order location",
@@ -272,8 +250,10 @@ export function registerMaintenanceInvoiceRoutes(app: Express) {
                 workOrderStatus: work.workOrderStatus,
                 issueTitle: work.issueTitle,
                 locationLabel: work.locationLabel,
+                propertyId: invoice.propertyId ?? null,
                 propertyName: work.propertyName,
                 propertyAddress: work.propertyAddress,
+                blockId: invoice.blockId ?? null,
                 blockName: work.blockName,
                 assigneeName: work.assigneeName,
               }
@@ -306,14 +286,52 @@ export function registerMaintenanceInvoiceRoutes(app: Express) {
           return res.status(400).json({ message: "Invalid update", errors: parsed.error.flatten() });
         }
         const d = parsed.data;
+        const organizationId = orgId(req);
+        let recipientPatch: Partial<typeof invoice> = {};
+        if (d.recipientUserId !== undefined) {
+          const snap = await resolveRecipientUserInOrg(organizationId, d.recipientUserId);
+          if (d.recipientUserId && !snap?.recipientUserId) {
+            return res.status(400).json({ message: "Invalid customer selection" });
+          }
+          if (snap) {
+            recipientPatch = {
+              recipientUserId: snap.recipientUserId,
+              recipientContactId: null,
+              recipientName: snap.recipientName,
+              recipientEmail: snap.recipientEmail,
+              recipientPhone: snap.recipientPhone,
+              recipientAddress: null,
+            };
+          }
+        }
         const [updated] = await db
           .update(maintenanceInvoices)
           .set({
-            recipientName: d.recipientName !== undefined ? d.recipientName : invoice.recipientName,
-            recipientEmail: d.recipientEmail !== undefined ? d.recipientEmail : invoice.recipientEmail,
-            recipientPhone: d.recipientPhone !== undefined ? d.recipientPhone : invoice.recipientPhone,
+            ...recipientPatch,
+            recipientName:
+              d.recipientName !== undefined
+                ? d.recipientName
+                : recipientPatch.recipientName !== undefined
+                  ? recipientPatch.recipientName
+                  : invoice.recipientName,
+            recipientEmail:
+              d.recipientEmail !== undefined
+                ? d.recipientEmail
+                : recipientPatch.recipientEmail !== undefined
+                  ? recipientPatch.recipientEmail
+                  : invoice.recipientEmail,
+            recipientPhone:
+              d.recipientPhone !== undefined
+                ? d.recipientPhone
+                : recipientPatch.recipientPhone !== undefined
+                  ? recipientPatch.recipientPhone
+                  : invoice.recipientPhone,
             recipientAddress:
-              d.recipientAddress !== undefined ? d.recipientAddress : invoice.recipientAddress,
+              d.recipientAddress !== undefined
+                ? d.recipientAddress
+                : recipientPatch.recipientAddress !== undefined
+                  ? recipientPatch.recipientAddress
+                  : invoice.recipientAddress,
             notes: d.notes !== undefined ? d.notes : invoice.notes,
             dueAt:
               d.dueAt !== undefined
@@ -488,6 +506,29 @@ export function registerMaintenanceInvoiceRoutes(app: Express) {
         } catch (emailErr: any) {
           emailError = emailErr?.message || "Email failed";
           console.warn("[invoices] send email failed:", emailErr);
+        }
+
+        if (invoice.recipientUserId) {
+          try {
+            const { notifyFinanceUsers } = await import("./notifyFinanceUsers");
+            await notifyFinanceUsers({
+              userIds: [invoice.recipientUserId],
+              organizationId: orgId(req),
+              type: "invoice_sent",
+              title: "New invoice to review",
+              message: `${invoice.invoiceReference}${
+                ctx?.issueTitle ? ` — ${ctx.issueTitle}` : ""
+              }`,
+              data: {
+                workOrderId: invoice.workOrderId,
+                invoiceId: invoice.id,
+                invoiceReference: invoice.invoiceReference,
+                publicLink: link,
+              },
+            });
+          } catch (notifErr) {
+            console.warn("[invoices] recipient notify failed:", notifErr);
+          }
         }
 
         res.json({ ...updated, publicLink: link, emailSent, emailError });

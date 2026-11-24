@@ -9,6 +9,8 @@ export function getTeamRoleDisplayLabel(role: string): string {
       return "Compliance Officer";
     case "contractor":
       return "Maintenance Contractor";
+    case "maintenance_admin":
+      return "Maintenance Admin";
     case "tenant":
       return "Tenant";
     case "operator":

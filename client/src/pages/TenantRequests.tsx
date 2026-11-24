@@ -16,9 +16,17 @@ import {
   BreadcrumbSeparator,
   BreadcrumbPage,
 } from "@/components/ui/breadcrumb";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { TenantLogRequestDialog } from "@/components/TenantLogRequestDialog";
+import { MaintenanceRequestDiscussion } from "@/components/MaintenanceRequestDiscussion";
 import { cn } from "@/lib/utils";
-import { pagePad, textBreak } from "@/lib/responsive";
+import { pagePad, textBreak, dialogContentBase } from "@/lib/responsive";
 
 const statusColors: Record<string, string> = {
   open: "bg-yellow-100 text-yellow-800",
@@ -46,6 +54,7 @@ export default function TenantRequests({ openCreateOnMount = false }: TenantRequ
   const shouldCreate = urlParams.get("create") === "true";
 
   const [isCreateOpen, setIsCreateOpen] = useState(openCreateOnMount || shouldCreate);
+  const [discussionRequest, setDiscussionRequest] = useState<any | null>(null);
 
   const { data: requests = [], isLoading } = useQuery<any[]>({
     queryKey: ["/api/tenant/maintenance-requests"],
@@ -195,21 +204,54 @@ export default function TenantRequests({ openCreateOnMount = false }: TenantRequ
                     </div>
                   </div>
                 )}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs text-muted-foreground">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-muted-foreground">
                   <span>
                     Submitted: {format(new Date(request.createdAt), "MMM dd, yyyy HH:mm")}
                   </span>
-                  {request.assignedTo && (
-                    <span>
-                      Assigned to maintenance team
-                    </span>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {request.assignedTo && (
+                      <span>Assigned to maintenance team</span>
+                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8"
+                      onClick={() => setDiscussionRequest(request)}
+                      data-testid={`button-discussion-${request.id}`}
+                    >
+                      <MessageSquare className="h-3.5 w-3.5 mr-1.5" />
+                      Discussion
+                    </Button>
+                  </div>
                 </div>
               </CardContent>
             </Card>
           ))}
         </div>
       )}
+
+      <Dialog
+        open={!!discussionRequest}
+        onOpenChange={(open) => {
+          if (!open) setDiscussionRequest(null);
+        }}
+      >
+        <DialogContent className={cn(dialogContentBase, "max-w-lg")} data-testid="dialog-tenant-mr-discussion">
+          <DialogHeader>
+            <DialogTitle>Discussion</DialogTitle>
+            <DialogDescription>
+              Messages with your maintenance team about this request.
+            </DialogDescription>
+          </DialogHeader>
+          {discussionRequest ? (
+            <MaintenanceRequestDiscussion
+              requestId={discussionRequest.id}
+              apiBase={`/api/tenant/maintenance-requests/${discussionRequest.id}/messages`}
+              requestTitle={discussionRequest.title}
+            />
+          ) : null}
+        </DialogContent>
+      </Dialog>
 
       <TenantLogRequestDialog
         open={isCreateOpen}

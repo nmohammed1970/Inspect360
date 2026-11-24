@@ -18,7 +18,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Settings as SettingsIcon, Tags, Users, Plus, Edit2, Trash2, Plug, UsersIcon, Building2, Upload, X, FileText, ClipboardList, ChevronUp, ChevronDown, Award, Image as ImageIcon, ExternalLink, Calendar, Pencil, DoorOpen, Bell, SlidersHorizontal, Loader2, Palette, RotateCcw, BookOpen } from "lucide-react";
+import { Settings as SettingsIcon, Tags, Users, Plus, Edit2, Trash2, Plug, UsersIcon, Building2, Upload, X, FileText, ClipboardList, ChevronUp, ChevronDown, Award, Image as ImageIcon, ExternalLink, Calendar, Pencil, DoorOpen, Bell, SlidersHorizontal, Loader2, Palette, RotateCcw, BookOpen, UserCog } from "lucide-react";
 import { insertInspectionCategorySchema, insertComplianceDocumentTypeSchema, insertComplianceDocumentSchema, type InspectionCategory, type ComplianceDocumentType, type ComplianceDocument, type Organization, type User, type OrganizationTrademark } from "@shared/schema";
 import InspectionTemplatesContent from "./InspectionTemplates";
 import CompletionChecklistsContent from "./CompletionChecklists";
@@ -28,6 +28,7 @@ import FixfloIntegrationSettings from "@/components/FixfloIntegrationSettings";
 import ReapitIntegrationSettings from "@/components/ReapitIntegrationSettings";
 import SettingsTeamsPanel from "@/components/SettingsTeamsPanel";
 import SettingsMaintenancePriceBookPanel from "@/components/SettingsMaintenancePriceBookPanel";
+import SettingsMaintenanceAdminPanel from "@/components/SettingsMaintenanceAdminPanel";
 import { ObjectUploader } from "@/components/ObjectUploader";
 import { LocaleDateInput } from "@/components/LocaleDateInput";
 import { AddressInput } from "@/components/AddressInput";
@@ -66,7 +67,7 @@ const categoryFormSchema = insertInspectionCategorySchema.extend({
 
 type CategoryFormValues = z.infer<typeof categoryFormSchema>;
 
-type SettingsSection = 'branding' | 'internal-modules' | 'templates' | 'completion-checklists' | 'categories' | 'document-types' | 'teams' | 'price-book' | 'team' | 'integrations' | 'tenant-portal' | 'late-rent' | 'tenant-sms';
+type SettingsSection = 'branding' | 'internal-modules' | 'templates' | 'completion-checklists' | 'categories' | 'document-types' | 'teams' | 'price-book' | 'maintenance-admin' | 'team' | 'integrations' | 'tenant-portal' | 'late-rent' | 'tenant-sms';
 
 const SETTINGS_SECTIONS: SettingsSection[] = [
   "branding",
@@ -77,6 +78,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   "document-types",
   "teams",
   "price-book",
+  "maintenance-admin",
   "team",
   "integrations",
   "tenant-portal",
@@ -97,6 +99,7 @@ const settingsMenuItems: { id: SettingsSection; label: string; icon: React.Compo
   { id: 'team', label: 'Team Members', icon: Users },
   { id: 'teams', label: 'Maintenance Team', icon: UsersIcon },
   { id: 'price-book', label: 'Price Book', icon: BookOpen },
+  { id: 'maintenance-admin', label: 'Maintenance Admin', icon: UserCog },
   { id: 'integrations', label: 'Integrations', icon: Plug },
   { id: 'tenant-portal', label: 'Tenant Portal Configuration', icon: DoorOpen },
   { id: 'late-rent', label: 'Late Rent Notification', icon: Bell },
@@ -607,7 +610,9 @@ export default function Settings() {
                   .filter((item) => {
                     if (item.id === "document-types") return complianceModuleOn;
                     if (item.id === "late-rent") return rentalsModuleOn;
-                    if (item.id === "price-book") return maintenanceModuleOn;
+                    if (item.id === "price-book" || item.id === "maintenance-admin") {
+                      return maintenanceModuleOn;
+                    }
                     return true;
                   })
                   .map((item) => {
@@ -1409,6 +1414,10 @@ export default function Settings() {
 
           {activeSection === 'price-book' && (
             <SettingsMaintenancePriceBookPanel />
+          )}
+
+          {activeSection === 'maintenance-admin' && (
+            <SettingsMaintenanceAdminPanel />
           )}
 
           {activeSection === 'team' && (

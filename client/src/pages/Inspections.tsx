@@ -170,6 +170,8 @@ export default function Inspections() {
   const canCreateInspections = user?.role === "owner";
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedPropertyId, setSelectedPropertyId] = useState<string>("");
+  /** Step 1 of assign: who-kind before picking a person. */
+  const [assigneeKind, setAssigneeKind] = useState<"" | "team" | "tenant">("");
   
   // Copy inspection dialog state
   const [copyDialogOpen, setCopyDialogOpen] = useState(false);
@@ -237,12 +239,11 @@ export default function Inspections() {
   });
 
   const hasCredits = (creditBalance?.totalAvailable ?? 0) >= 1;
-  const getInspectionAssigneeRoleLabel = (role?: string) =>
-    role === "contractor" ? "contractor" : "inspector";
-  const inspectionAssignees = useMemo(
-    () => teamMembers.filter((member: any) => ["clerk", "contractor"].includes(member.role)),
-    [teamMembers]
-  );
+  const getInspectionAssigneeRoleLabel = (role?: string) => {
+    if (role === "contractor") return "contractor";
+    if (role === "tenant") return "tenant";
+    return "inspector";
+  };
 
   const form = useForm<CreateInspectionData>({
     resolver: zodResolver(createInspectionSchema),
@@ -297,6 +298,16 @@ export default function Inspections() {
     queryKey: ["/api/properties", selectedPropertyId, "tenants"],
     enabled: !!selectedPropertyId && tenanciesEnabled,
   });
+
+  const teamAssignees = useMemo(
+    () => teamMembers.filter((member: any) => ["clerk", "contractor"].includes(member.role)),
+    [teamMembers],
+  );
+  const propertyTenantAssignees = useMemo(
+    () =>
+      (tenants || []).filter((t: any) => t.assignment?.isActive !== false && t.id),
+    [tenants],
+  );
 
   // Copy inspection form
   const copyForm = useForm<CopyInspectionData>({
@@ -518,6 +529,7 @@ export default function Inspections() {
       setDialogOpen(false);
       form.reset();
       setSelectedPropertyId("");
+      setAssigneeKind("");
     },
     onError: () => {
       toast({
@@ -610,6 +622,7 @@ export default function Inspections() {
             return;
           }
           setDialogOpen(open);
+          if (!open) setAssigneeKind("");
         }}>
           <TooltipProvider>
             <Tooltip>
@@ -661,7 +674,9 @@ export default function Inspections() {
                           form.setValue("propertyId", "");
                           form.setValue("blockId", "");
                           form.setValue("tenantId", "");
+                          form.setValue("clerkId", "");
                           setSelectedPropertyId("");
+                          setAssigneeKind(value === "block" ? "team" : "");
                         }}
                         value={field.value}
                       >
@@ -719,6 +734,8 @@ export default function Inspections() {
                             field.onChange(value);
                             setSelectedPropertyId(value);
                             form.setValue("tenantId", "");
+                            form.setValue("clerkId", "");
+                            setAssigneeKind("");
                           }}
                           value={field.value}
                         >
@@ -799,11 +816,11 @@ export default function Inspections() {
                     name="tenantId"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Assign to Tenant (Optional)</FormLabel>
+                        <FormLabel>Tenant name on report (Optional)</FormLabel>
                         <Select onValueChange={field.onChange} value={field.value || "__none__"}>
                           <FormControl>
                             <SelectTrigger data-testid="select-tenant">
-                              <SelectValue placeholder="Select tenant" />
+                              <SelectValue placeholder="Select tenant for report names" />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
@@ -940,30 +957,97 @@ export default function Inspections() {
                   )}
                 />
 
-                <FormField
-                  control={form.control}
-                  name="clerkId"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Assign Inspector / Contractor (Optional)</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger data-testid="select-clerk">
-                            <SelectValue placeholder="Select team member" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {inspectionAssignees.map((assignee: any) => (
-                            <SelectItem key={assignee.id} value={assignee.id}>
-                              {assignee.firstName} {assignee.lastName} ({getInspectionAssigneeRoleLabel(assignee.role)})
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                <div className="space-y-3 rounded-lg border border-border/70 p-3">
+                  <div className="space-y-1.5">
+                    <FormLabel htmlFor="assignee-kind">Assign to</FormLabel>
+                    <Select
+                      value={assigneeKind || undefined}
+                      onValueChange={(value: "team" | "tenant") => {
+                        setAssigneeKind(value);
+                        form.setValue("clerkId", "");
+                      }}
+                      disabled={
+                        form.watch("targetType") === "property" && !selectedPropertyId
+                      }
+                    >
+                      <SelectTrigger id="assignee-kind" data-testid="select-assignee-kind">
+                        <SelectValue
+                          placeholder={
+                            form.watch("targetType") === "property" && !selectedPropertyId
+                              ? "Select a property first"
+                              : "Choose role"
+                          }
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="team">Inspector / maintenance</SelectItem>
+                        {form.watch("targetType") === "property" && (
+                          <SelectItem
+                            value="tenant"
+                            disabled={propertyTenantAssignees.length === 0}
+                          >
+                            Tenant
+                            {propertyTenantAssignees.length === 0
+                              ? " (none on this property)"
+                              : ""}
+                          </SelectItem>
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {assigneeKind ? (
+                    <FormField
+                      control={form.control}
+                      name="clerkId"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>
+                            {assigneeKind === "tenant"
+                              ? "Select tenant"
+                              : "Select inspector / maintenance"}
+                          </FormLabel>
+                          <Select
+                            onValueChange={field.onChange}
+                            value={field.value}
+                            disabled={
+                              assigneeKind === "team"
+                                ? teamAssignees.length === 0
+                                : propertyTenantAssignees.length === 0
+                            }
+                          >
+                            <FormControl>
+                              <SelectTrigger data-testid="select-clerk">
+                                <SelectValue
+                                  placeholder={
+                                    assigneeKind === "tenant"
+                                      ? "Select tenant"
+                                      : "Select team member"
+                                  }
+                                />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {assigneeKind === "team"
+                                ? teamAssignees.map((assignee: any) => (
+                                    <SelectItem key={assignee.id} value={assignee.id}>
+                                      {assignee.firstName} {assignee.lastName} (
+                                      {getInspectionAssigneeRoleLabel(assignee.role)})
+                                    </SelectItem>
+                                  ))
+                                : propertyTenantAssignees.map((assignee: any) => (
+                                    <SelectItem key={assignee.id} value={assignee.id}>
+                                      {assignee.firstName} {assignee.lastName}
+                                    </SelectItem>
+                                  ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  ) : null}
+                </div>
 
                 <FormField
                   control={form.control}
@@ -987,7 +1071,10 @@ export default function Inspections() {
                   <Button
                     type="button"
                     variant="outline"
-                    onClick={() => setDialogOpen(false)}
+                    onClick={() => {
+                      setDialogOpen(false);
+                      setAssigneeKind("");
+                    }}
                     data-testid="button-cancel"
                   >
                     Cancel

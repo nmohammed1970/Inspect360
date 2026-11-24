@@ -454,7 +454,13 @@ function safeErrorLog(message: string, error: any): void {
   }
 }
 import { devRouter } from "./devRoutes";
-import { sendInspectionCompleteEmail, sendTeamWorkOrderNotification, sendContractorWorkOrderNotification, sendComparisonReportToFinance } from "./resend";
+import { sendInspectionCompleteEmail, sendInspectionAssignedEmail, sendTeamWorkOrderNotification, sendContractorWorkOrderNotification, sendComparisonReportToFinance } from "./resend";
+import {
+  validateInspectionAssignee,
+  canPerformInspection,
+  canTenantReviewInspection,
+  isInspectionPerformer,
+} from "./inspectionAssignee";
 import { generateInspectionPDF } from "./pdfService";
 import {
   buildInspectionPdfCacheKey,
@@ -6816,20 +6822,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Use provided clerkId if available, otherwise assign to current user
       let inspectorId = userId;
+      let assigneeUser: Awaited<ReturnType<typeof storage.getUser>> | null = null;
 
       if (clerkId) {
-        // Validate assignee is an inspector (clerk) or contractor in the same organization
-        const clerk = await storage.getUser(clerkId);
-        if (
-          !clerk ||
-          clerk.organizationId !== currentUser.organizationId ||
-          !["clerk", "contractor"].includes(clerk.role)
-        ) {
-          return res.status(400).json({
-            message: "Invalid assignment - must be an inspector or contractor in your organization",
-          });
+        const validated = await validateInspectionAssignee({
+          assigneeId: clerkId,
+          organizationId: currentUser.organizationId,
+          propertyId: propertyId || null,
+          blockId: blockId || null,
+        });
+        if (!validated.ok) {
+          return res.status(validated.status).json({ message: validated.message });
         }
         inspectorId = clerkId;
+        assigneeUser = validated.user;
       }
 
       // Handle template snapshot creation
@@ -7048,6 +7054,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Optional tenant selected at create — must be assigned to this property.
+      // When the performer is a tenant and no report tenant was chosen, sync both fields.
       let tenantId: string | null = null;
       const requestedTenantId =
         typeof bodyTenantId === "string" && bodyTenantId.trim() && bodyTenantId !== "__none__"
@@ -7070,6 +7077,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
         }
         tenantId = requestedTenantId;
+      } else if (assigneeUser?.role === "tenant") {
+        tenantId = assigneeUser.id;
       }
 
       const inspection = await storage.createInspection({
@@ -7103,6 +7112,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
         } catch (seedErr) {
           const errMsg = seedErr instanceof Error ? seedErr.message : String(seedErr);
           console.error("[Create Inspection] Failed to seed room count entry:", seed.fieldKey, errMsg);
+        }
+      }
+
+      // Notify assignee (inspector / contractor / tenant) when explicitly assigned
+      if (assigneeUser?.email && assigneeUser.id !== userId) {
+        try {
+          let propertyName: string | undefined;
+          let blockName: string | undefined;
+          if (propertyId) {
+            const prop = await storage.getProperty(propertyId);
+            propertyName = prop?.name;
+          }
+          if (blockId) {
+            const blk = await storage.getBlock(blockId);
+            blockName = blk?.name;
+          }
+          let templateOrTypeLabel = String(type || "Inspection").replace(/_/g, " ");
+          if (finalTemplateId) {
+            const tpl = await storage.getInspectionTemplate(finalTemplateId);
+            if (tpl?.name) templateOrTypeLabel = tpl.name;
+          }
+          const portalPath =
+            assigneeUser.role === "tenant"
+              ? `tenant/inspections/${inspection.id}/capture`
+              : `inspections/${inspection.id}/capture`;
+          await sendInspectionAssignedEmail(
+            assigneeUser.email,
+            `${assigneeUser.firstName || ""} ${assigneeUser.lastName || ""}`.trim() ||
+              assigneeUser.email,
+            {
+              templateOrTypeLabel,
+              propertyName,
+              blockName,
+              scheduledDate: inspection.scheduledDate,
+              notes: notes || null,
+              inspectionId: inspection.id,
+              portalPath,
+              assigneeRole: assigneeUser.role,
+            },
+          );
+        } catch (emailErr) {
+          console.error("[Create Inspection] Failed to send assignment email:", emailErr);
         }
       }
 
@@ -7407,24 +7458,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
 
-      if (!user?.organizationId) {
+      if (!user) {
         return res.json([]);
       }
 
-      // Owners/compliance see all org inspections; clerks/contractors see only assigned to them
+      // Owners/compliance see all org inspections; assignees (clerk/contractor/tenant) see theirs
       let inspections;
-      if (user.role === "owner" || user.role === "compliance") {
+      if ((user.role === "owner" || user.role === "compliance") && user.organizationId) {
         inspections = await storage.getInspectionsByOrganization(user.organizationId);
       } else {
         inspections = await storage.getInspectionsByInspector(userId);
       }
 
-      const templates = await storage.getInspectionTemplatesByOrganization(
-        user.organizationId,
-      );
-      const templateNameById = new Map(
-        templates.map((t: { id: string; name: string }) => [t.id, t.name]),
-      );
+      let templateNameById = new Map<string, string>();
+      const orgId =
+        user.organizationId ||
+        (inspections[0] as any)?.organizationId ||
+        null;
+      if (orgId) {
+        const templates = await storage.getInspectionTemplatesByOrganization(orgId);
+        templateNameById = new Map(
+          templates.map((t: { id: string; name: string }) => [t.id, t.name]),
+        );
+      }
       const withTemplateNames = inspections.map((inspection: any) => ({
         ...inspection,
         templateName:
@@ -7432,9 +7488,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
             templateNameById.get(inspection.templateId)) ||
           null,
       }));
-
-      // Auto-approve expired check-in inspections
-      // (Disabled: tenant review now stays pending until the tenant signs)
 
       res.json(withTemplateNames);
     } catch (error) {
@@ -7966,27 +8019,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Inspection not found" });
       }
 
-      // Verify access: Clerks can only view inspections assigned to them
-      // Tenants can view check-in/check-out inspections sent for their review
+      // Access: owners/compliance (org), assigned performer, or tenant review workflow
       if (user.role === "tenant") {
-        // For tenants, verify they have access to this property
-        const tenancy = await storage.getTenancyByTenantId(userId);
-        if (!tenancy || tenancy.propertyId !== inspection.propertyId) {
-          return res.status(403).json({ message: "Access denied: You don't have access to this inspection" });
+        if (isInspectionPerformer(user, inspection)) {
+          // Tenant assigned as performer — full capture access
+        } else {
+          const tenancy = await storage.getTenancyByTenantId(userId);
+          if (
+            !canTenantReviewInspection(user, inspection, tenancy?.propertyId)
+          ) {
+            return res.status(403).json({
+              message: "Access denied: You don't have access to this inspection",
+            });
+          }
         }
-        const isReviewableType = inspection.type === "check_in" || inspection.type === "check_out";
-        const wasSentForReview =
-          inspection.tenantApprovalStatus === "pending" ||
-          inspection.tenantApprovalStatus === "signed" ||
-          inspection.tenantApprovalStatus === "approved" ||
-          inspection.tenantApprovalStatus === "disputed";
-        if (!isReviewableType || !wasSentForReview) {
-          return res.status(403).json({ message: "Access denied: This inspection is not available for tenant review" });
-        }
-      } else if (user.role !== "owner" && user.role !== "compliance") {
-        if (inspection.inspectorId !== userId) {
-          return res.status(403).json({ message: "Access denied: Inspection not assigned to you" });
-        }
+      } else if (!canPerformInspection(user, inspection)) {
+        return res.status(403).json({ message: "Access denied: Inspection not assigned to you" });
       }
 
       // Verify organization ownership (skip for tenants as they may not have organizationId)
@@ -8706,8 +8754,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { id } = req.params;
       const user = await storage.getUser(req.user.id);
 
-      if (!user?.organizationId) {
-        return res.status(403).json({ message: "No organization found" });
+      if (!user) {
+        return res.status(403).json({ message: "User not found" });
       }
 
       // Get inspection and verify ownership
@@ -8732,15 +8780,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ownerOrgId = block.organizationId;
       }
 
-      if (ownerOrgId !== user.organizationId) {
-        return res.status(403).json({ message: "Access denied" });
-      }
-
-      // Verify access: Clerks can only update inspections assigned to them
-      if (user.role !== "owner" && user.role !== "compliance") {
-        if (inspection.inspectorId !== user.id) {
-          return res.status(403).json({ message: "Access denied: Inspection not assigned to you" });
+      const isAssignee = isInspectionPerformer(user, inspection);
+      const sameOrg = !!user.organizationId && user.organizationId === ownerOrgId;
+      if (user.role === "tenant") {
+        if (!isAssignee) {
+          return res.status(403).json({ message: "Access denied" });
         }
+      } else if (!sameOrg) {
+        return res.status(403).json({ message: "Access denied" });
+      } else if (!canPerformInspection(user, inspection)) {
+        return res.status(403).json({ message: "Access denied: Inspection not assigned to you" });
       }
 
       // Validate and update inspection
@@ -8750,6 +8799,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
           message: "Invalid request data",
           errors: validation.error.errors
         });
+      }
+
+      // Only owners/compliance may reassign the performer
+      if (
+        validation.data.inspectorId &&
+        validation.data.inspectorId !== inspection.inspectorId
+      ) {
+        if (user.role !== "owner" && user.role !== "compliance") {
+          return res.status(403).json({ message: "Only operators can reassign inspections" });
+        }
+        if (!ownerOrgId) {
+          return res.status(400).json({ message: "Cannot reassign — inspection has no organization" });
+        }
+        const validated = await validateInspectionAssignee({
+          assigneeId: validation.data.inspectorId,
+          organizationId: ownerOrgId,
+          propertyId: inspection.propertyId,
+          blockId: inspection.blockId,
+        });
+        if (!validated.ok) {
+          return res.status(validated.status).json({ message: validated.message });
+        }
       }
 
       // Completed inspections cannot be moved back to an earlier status
@@ -8928,6 +8999,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      // Notify new assignee when performer was reassigned
+      if (
+        updates.inspectorId &&
+        updates.inspectorId !== inspection.inspectorId &&
+        updatedInspection
+      ) {
+        try {
+          const newAssignee = await storage.getUser(updates.inspectorId);
+          if (newAssignee?.email) {
+            let propertyName: string | undefined;
+            let blockName: string | undefined;
+            if (updatedInspection.propertyId) {
+              const prop = await storage.getProperty(updatedInspection.propertyId);
+              propertyName = prop?.name;
+            }
+            if (updatedInspection.blockId) {
+              const blk = await storage.getBlock(updatedInspection.blockId);
+              blockName = blk?.name;
+            }
+            let templateOrTypeLabel = String(updatedInspection.type || "Inspection").replace(/_/g, " ");
+            if (updatedInspection.templateId) {
+              const tpl = await storage.getInspectionTemplate(updatedInspection.templateId);
+              if (tpl?.name) templateOrTypeLabel = tpl.name;
+            }
+            const portalPath =
+              newAssignee.role === "tenant"
+                ? `tenant/inspections/${updatedInspection.id}/capture`
+                : `inspections/${updatedInspection.id}/capture`;
+            await sendInspectionAssignedEmail(
+              newAssignee.email,
+              `${newAssignee.firstName || ""} ${newAssignee.lastName || ""}`.trim() ||
+                newAssignee.email,
+              {
+                templateOrTypeLabel,
+                propertyName,
+                blockName,
+                scheduledDate: updatedInspection.scheduledDate,
+                notes: updatedInspection.notes,
+                inspectionId: updatedInspection.id,
+                portalPath,
+                assigneeRole: newAssignee.role,
+              },
+            );
+          }
+        } catch (assignEmailErr) {
+          console.error("[Update Inspection] Failed to send assignment email:", assignEmailErr);
+        }
+      }
+
       res.json(updatedInspection);
     } catch (error) {
       console.error("Error updating inspection:", error);
@@ -8942,8 +9062,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { id } = req.params;
       const user = await storage.getUser(req.user.id);
 
-      if (!user?.organizationId) {
-        return res.status(403).json({ message: "No organization found" });
+      if (!user) {
+        return res.status(403).json({ message: "User not found" });
       }
 
       // Get inspection and verify ownership
@@ -8968,15 +9088,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ownerOrgId = block.organizationId;
       }
 
-      if (ownerOrgId !== user.organizationId) {
-        return res.status(403).json({ message: "Access denied" });
-      }
-
-      // Verify access: Clerks can only update inspections assigned to them
-      if (user.role !== "owner" && user.role !== "compliance") {
-        if (inspection.inspectorId !== user.id) {
-          return res.status(403).json({ message: "Access denied: Inspection not assigned to you" });
+      const isAssignee = isInspectionPerformer(user, inspection);
+      const sameOrg = !!user.organizationId && user.organizationId === ownerOrgId;
+      if (user.role === "tenant") {
+        if (!isAssignee) {
+          return res.status(403).json({ message: "Access denied" });
         }
+      } else if (!sameOrg) {
+        return res.status(403).json({ message: "Access denied" });
+      } else if (!canPerformInspection(user, inspection)) {
+        return res.status(403).json({ message: "Access denied: Inspection not assigned to you" });
       }
 
       // Completed inspections cannot be moved back to an earlier status
@@ -9379,21 +9500,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       if (user.role === "tenant") {
-        const isReviewableType = inspection.type === "check_in" || inspection.type === "check_out";
-        const wasSentForReview =
-          inspection.tenantApprovalStatus === "pending" ||
-          inspection.tenantApprovalStatus === "signed" ||
-          inspection.tenantApprovalStatus === "approved" ||
-          inspection.tenantApprovalStatus === "disputed";
-        if (!isReviewableType || !wasSentForReview) {
-          return res.status(403).json({ message: "Access denied" });
+        if (!isInspectionPerformer(user, inspection)) {
+          const tenancy = await storage.getTenancyByTenantId(userId);
+          if (!canTenantReviewInspection(user, inspection, tenancy?.propertyId)) {
+            return res.status(403).json({ message: "Access denied" });
+          }
         }
       } else if (!user.organizationId || inspection.organizationId !== user.organizationId) {
         return res.status(403).json({ message: "Access denied" });
-      } else if (user.role !== "owner" && user.role !== "compliance") {
-        if (inspection.inspectorId !== userId) {
-          return res.status(403).json({ message: "Access denied" });
-        }
+      } else if (!canPerformInspection(user, inspection)) {
+        return res.status(403).json({ message: "Access denied" });
       }
 
       const snapshot = (inspection as any).completionChecklistSnapshotJson ?? null;
@@ -9413,19 +9529,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
-      if (!user?.organizationId) {
-        return res.status(403).json({ message: "User not in organization" });
+      if (!user) {
+        return res.status(403).json({ message: "Unauthorized" });
       }
 
       const inspection = await storage.getInspection(req.params.id);
-      if (!inspection || inspection.organizationId !== user.organizationId) {
+      if (!inspection) {
         return res.status(404).json({ message: "Inspection not found" });
       }
 
+      const sameOrg = !!user.organizationId && inspection.organizationId === user.organizationId;
       if (user.role === "tenant") {
-        return res.status(403).json({ message: "Tenants cannot edit checklists" });
-      }
-      if (user.role !== "owner" && user.role !== "compliance" && inspection.inspectorId !== userId) {
+        if (!isInspectionPerformer(user, inspection)) {
+          return res.status(403).json({ message: "Tenants cannot edit checklists" });
+        }
+      } else if (!sameOrg) {
+        return res.status(404).json({ message: "Inspection not found" });
+      } else if (!canPerformInspection(user, inspection)) {
         return res.status(403).json({ message: "Access denied" });
       }
 
@@ -15245,6 +15365,20 @@ ${optionalNotes || "No details provided."}`;
         dueDate: dueDate ? new Date(dueDate) : null,
       });
 
+      void import("./maintenance/notifyMaintenanceAdmins").then(({ notifyMaintenanceAdminsOfNewRequest }) =>
+        notifyMaintenanceAdminsOfNewRequest({
+          organizationId: request.organizationId,
+          requestId: request.id,
+          title: request.title,
+          priority: request.priority,
+          description: request.description,
+          propertyId: request.propertyId,
+          blockId: request.blockId,
+          reportedByUserId: request.reportedBy,
+          source: request.source,
+        }),
+      );
+
       res.json(request);
     } catch (error) {
       console.error("Error creating maintenance request:", error);
@@ -15331,6 +15465,20 @@ ${optionalNotes || "No details provided."}`;
         inspectionEntryId: inspectionEntryId || null,
       });
 
+      void import("./maintenance/notifyMaintenanceAdmins").then(({ notifyMaintenanceAdminsOfNewRequest }) =>
+        notifyMaintenanceAdminsOfNewRequest({
+          organizationId: request.organizationId,
+          requestId: request.id,
+          title: request.title,
+          priority: request.priority,
+          description: request.description,
+          propertyId: request.propertyId,
+          blockId: request.blockId,
+          reportedByUserId: request.reportedBy,
+          source: request.source,
+        }),
+      );
+
       res.json(request);
     } catch (error) {
       console.error("Error creating quick-add maintenance request:", error);
@@ -15411,7 +15559,7 @@ ${optionalNotes || "No details provided."}`;
     }
   });
 
-  app.delete("/api/maintenance/:id", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk"), async (req: any, res) => {
+  app.delete("/api/maintenance/:id", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk", "maintenance_admin"), async (req: any, res) => {
     try {
       const { id } = req.params;
       const user = await storage.getUser(req.user.id);
@@ -15454,8 +15602,13 @@ ${optionalNotes || "No details provided."}`;
         return res.status(403).json({ message: "Unauthorized to update this request" });
       }
 
-      // Owners, clerks, and contractors can edit maintenance requests
-      if (user.role !== "owner" && user.role !== "clerk" && user.role !== "contractor") {
+      // Owners, clerks, contractors, and maintenance admins can edit maintenance requests
+      if (
+        user.role !== "owner" &&
+        user.role !== "clerk" &&
+        user.role !== "contractor" &&
+        user.role !== "maintenance_admin"
+      ) {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
 
@@ -17567,7 +17720,7 @@ ${optionalNotes || "No details provided."}`;
     return identity;
   }
 
-  app.post("/api/work-orders", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "contractor"), async (req: any, res) => {
+  app.post("/api/work-orders", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk", "contractor", "maintenance_admin"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -17643,6 +17796,7 @@ ${optionalNotes || "No details provided."}`;
       const workOrderData = {
         ...validatedData,
         organizationId: user.organizationId,
+        createdBy: userId,
         completionChecklistId,
         completionChecklistSnapshotJson: completionChecklistSnapshotJson as any,
       } as any;
@@ -17793,7 +17947,7 @@ ${optionalNotes || "No details provided."}`;
         return res.status(403).json({ error: "No organization found" });
       }
 
-      const workOrder = await storage.getWorkOrder(req.params.id);
+      const workOrder = await storage.getWorkOrderDetailed(req.params.id);
       if (!workOrder) {
         return res.status(404).json({ error: "Work order not found" });
       }
@@ -17808,6 +17962,185 @@ ${optionalNotes || "No details provided."}`;
       res.status(500).json({ error: "Failed to fetch work order" });
     }
   });
+
+  app.post(
+    "/api/work-orders/:id/schedule",
+    isAuthenticated,
+    requireCompanyModule("maintenance"),
+    requireRole("owner", "clerk", "contractor", "maintenance_admin"),
+    async (req: any, res) => {
+      try {
+        const userId = req.user.id;
+        const user = await storage.getUser(userId);
+        if (!user?.organizationId) {
+          return res.status(403).json({ error: "No organization found" });
+        }
+
+        const workOrder = await storage.getWorkOrder(req.params.id);
+        if (!workOrder) {
+          return res.status(404).json({ error: "Work order not found" });
+        }
+
+        if (!(await assertWorkOrderAccess(user as any, workOrder))) {
+          return res.status(403).json({ error: "Access denied" });
+        }
+
+        if ((workOrder as any).authorisationStatus === "quote_required") {
+          return res.status(409).json({
+            error: "A customer-accepted quotation is required before scheduling",
+            code: "QUOTE_AUTHORISATION_REQUIRED",
+          });
+        }
+
+        const rawScheduledAt = req.body?.scheduledAt;
+        if (rawScheduledAt == null || String(rawScheduledAt).trim() === "") {
+          return res.status(400).json({ error: "scheduledAt is required" });
+        }
+
+        const scheduledAt = new Date(rawScheduledAt);
+        if (Number.isNaN(scheduledAt.getTime())) {
+          return res.status(400).json({ error: "scheduledAt must be a valid ISO datetime" });
+        }
+
+        // Allow a small clock skew; reject clearly past times
+        const skewMs = 60_000;
+        if (scheduledAt.getTime() < Date.now() - skewMs) {
+          return res.status(400).json({ error: "scheduledAt must be now or in the future" });
+        }
+
+        const isReschedule = !!(workOrder as any).scheduledAt;
+        const updated = await storage.updateWorkOrder(workOrder.id, {
+          scheduledAt,
+          updatedAt: new Date(),
+        } as any);
+
+        const { appendWorkOrderEvent, resolveWorkOrderLocation } = await import(
+          "./maintenance/quoteLifecycle"
+        );
+        await appendWorkOrderEvent({
+          organizationId: user.organizationId,
+          workOrderId: workOrder.id,
+          eventType: "job_scheduled",
+          actorUserId: userId,
+          payload: {
+            scheduledAt: scheduledAt.toISOString(),
+            isReschedule,
+          },
+        });
+
+        const { propertyId } = await resolveWorkOrderLocation(workOrder.id);
+        let notified = 0;
+        let emailed = 0;
+        let warning: string | undefined;
+
+        if (propertyId) {
+          const property = await storage.getProperty(propertyId);
+          const request = await storage.getMaintenanceRequest(workOrder.maintenanceRequestId);
+          const { notifyTenantsOfJobSchedule } = await import(
+            "./maintenance/notifyTenantsOfJobSchedule"
+          );
+          const result = await notifyTenantsOfJobSchedule({
+            organizationId: user.organizationId,
+            workOrderId: workOrder.id,
+            propertyId,
+            scheduledAt,
+            jobTitle: request?.title || null,
+            propertyName: property?.name || null,
+            propertyAddress: property?.address || null,
+            isReschedule,
+          });
+          notified = result.notified;
+          emailed = result.emailed;
+          warning = result.warning;
+        } else {
+          warning = "No property linked to this work order; tenants were not notified";
+        }
+
+        res.json({
+          ...updated,
+          scheduledAt: updated.scheduledAt ?? scheduledAt,
+          notified,
+          emailed,
+          ...(warning ? { warning } : {}),
+        });
+      } catch (error) {
+        console.error("Error scheduling work order:", error);
+        res.status(500).json({ error: "Failed to schedule work order" });
+      }
+    },
+  );
+
+  app.post(
+    "/api/work-orders/:id/arrive",
+    isAuthenticated,
+    requireCompanyModule("maintenance"),
+    requireRole("owner", "clerk", "contractor", "maintenance_admin"),
+    async (req: any, res) => {
+      try {
+        const userId = req.user.id;
+        const user = await storage.getUser(userId);
+        if (!user?.organizationId) {
+          return res.status(403).json({ error: "No organization found" });
+        }
+
+        const workOrder = await storage.getWorkOrder(req.params.id);
+        if (!workOrder) {
+          return res.status(404).json({ error: "Work order not found" });
+        }
+
+        if (!(await assertWorkOrderAccess(user as any, workOrder))) {
+          return res.status(403).json({ error: "Access denied" });
+        }
+
+        if ((workOrder as any).authorisationStatus === "quote_required") {
+          return res.status(409).json({
+            error: "A customer-accepted quotation is required before marking arrival",
+            code: "QUOTE_AUTHORISATION_REQUIRED",
+          });
+        }
+
+        if (workOrder.status === "completed" || workOrder.status === "rejected") {
+          return res.status(409).json({
+            error: "Cannot mark arrival on a completed or rejected work order",
+          });
+        }
+
+        // Idempotent: already arrived — return existing stamp, no second event
+        if ((workOrder as any).arrivedAt) {
+          return res.json(workOrder);
+        }
+
+        const arrivedAt = new Date();
+        const updates: Record<string, unknown> = {
+          arrivedAt,
+          updatedAt: arrivedAt,
+        };
+        if (workOrder.status === "assigned") {
+          updates.status = "in_progress";
+        }
+
+        const updated = await storage.updateWorkOrder(workOrder.id, updates as any);
+
+        const { appendWorkOrderEvent } = await import("./maintenance/quoteLifecycle");
+        await appendWorkOrderEvent({
+          organizationId: user.organizationId,
+          workOrderId: workOrder.id,
+          eventType: "arrived_on_site",
+          actorUserId: userId,
+          payload: {
+            arrivedAt: arrivedAt.toISOString(),
+            previousStatus: workOrder.status,
+            status: updated.status,
+          },
+        });
+
+        res.json(updated);
+      } catch (error) {
+        console.error("Error marking work order arrival:", error);
+        res.status(500).json({ error: "Failed to mark arrival on site" });
+      }
+    },
+  );
 
   app.patch("/api/work-orders/:id/status", isAuthenticated, requireCompanyModule("maintenance"), async (req: any, res) => {
     try {
@@ -17871,6 +18204,24 @@ ${optionalNotes || "No details provided."}`;
           });
         } catch (hmoErr) {
           console.warn("[hmo] WO completion verification hook failed:", hmoErr);
+        }
+
+        try {
+          const detailed = await storage.getWorkOrderDetailed(req.params.id);
+          const { notifyWorkOrderCompleted } = await import(
+            "./maintenance/notifyWorkOrderCompleted"
+          );
+          await notifyWorkOrderCompleted({
+            organizationId: user.organizationId,
+            workOrderId: req.params.id,
+            propertyId: detailed?.maintenanceRequest?.propertyId ?? detailed?.property?.id ?? null,
+            jobTitle: detailed?.maintenanceRequest?.title ?? null,
+            propertyName: detailed?.property?.name ?? null,
+            propertyAddress: (detailed?.property as any)?.address ?? null,
+            req,
+          });
+        } catch (notifyErr) {
+          console.warn("[notifyWorkOrderCompleted] hook failed:", notifyErr);
         }
       }
 
@@ -17997,7 +18348,7 @@ ${optionalNotes || "No details provided."}`;
     },
   );
 
-  app.patch("/api/work-orders/:id/cost", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "contractor"), async (req: any, res) => {
+  app.patch("/api/work-orders/:id/cost", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk", "contractor", "maintenance_admin"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -18023,7 +18374,7 @@ ${optionalNotes || "No details provided."}`;
     }
   });
 
-  app.delete("/api/work-orders/:id", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk"), async (req: any, res) => {
+  app.delete("/api/work-orders/:id", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk", "maintenance_admin"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) {
@@ -18061,7 +18412,7 @@ ${optionalNotes || "No details provided."}`;
     }
   });
 
-  app.patch("/api/work-orders/:id", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk", "contractor"), async (req: any, res) => {
+  app.patch("/api/work-orders/:id", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk", "contractor", "maintenance_admin"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) return res.status(403).json({ error: "No organization found" });
@@ -18164,7 +18515,7 @@ ${optionalNotes || "No details provided."}`;
     }
   });
 
-  app.get("/api/work-orders/:id/certificates", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk", "contractor", "compliance"), async (req: any, res) => {
+  app.get("/api/work-orders/:id/certificates", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk", "contractor", "compliance", "maintenance_admin"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) return res.status(403).json({ error: "No organization found" });
@@ -18181,7 +18532,7 @@ ${optionalNotes || "No details provided."}`;
     }
   });
 
-  app.post("/api/work-orders/:id/certificates", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk", "contractor"), async (req: any, res) => {
+  app.post("/api/work-orders/:id/certificates", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk", "contractor", "maintenance_admin"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) return res.status(403).json({ error: "No organization found" });
@@ -18206,7 +18557,7 @@ ${optionalNotes || "No details provided."}`;
     }
   });
 
-  app.post("/api/work-orders/:id/certificates/:certId/analyse", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk", "contractor"), async (req: any, res) => {
+  app.post("/api/work-orders/:id/certificates/:certId/analyse", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk", "contractor", "maintenance_admin"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) return res.status(403).json({ error: "No organization found" });
@@ -18228,7 +18579,7 @@ ${optionalNotes || "No details provided."}`;
     }
   });
 
-  app.post("/api/work-orders/:id/certificates/:certId/confirm", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk", "contractor", "compliance"), async (req: any, res) => {
+  app.post("/api/work-orders/:id/certificates/:certId/confirm", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk", "contractor", "compliance", "maintenance_admin"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) return res.status(403).json({ error: "No organization found" });
@@ -18804,7 +19155,7 @@ ${optionalNotes || "No details provided."}`;
   });
 
   // Add tag to maintenance request
-  app.post("/api/maintenance/:requestId/tags/:tagId", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk", "contractor"), async (req: any, res) => {
+  app.post("/api/maintenance/:requestId/tags/:tagId", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk", "contractor", "maintenance_admin"), async (req: any, res) => {
     try {
       await storage.addTagToMaintenanceRequest(req.params.requestId, req.params.tagId);
       res.json({ success: true });
@@ -19769,26 +20120,17 @@ ${optionalNotes || "No details provided."}`;
         return res.status(403).json({ message: "Access denied" });
       }
 
-      // For tenants, verify access to the inspection
+      // For tenants: performer capture OR review workflow
       if (user.role === "tenant") {
         const inspection = await storage.getInspection(inspectionId);
         if (!inspection) {
           return res.status(404).json({ message: "Inspection not found" });
         }
-        const tenancy = await storage.getTenancyByTenantId(userId);
-        if (!tenancy || tenancy.propertyId !== inspection.propertyId) {
-          return res.status(403).json({ message: "Access denied" });
-        }
-        if (inspection.type !== "check_in" && inspection.type !== "check_out") {
-          return res.status(403).json({ message: "Access denied: Tenants can only view check-in and check-out inspections" });
-        }
-        const wasSentForReview =
-          inspection.tenantApprovalStatus === "pending" ||
-          inspection.tenantApprovalStatus === "signed" ||
-          inspection.tenantApprovalStatus === "approved" ||
-          inspection.tenantApprovalStatus === "disputed";
-        if (!wasSentForReview) {
-          return res.status(403).json({ message: "Access denied: This inspection is not available for tenant review" });
+        if (!isInspectionPerformer(user, inspection)) {
+          const tenancy = await storage.getTenancyByTenantId(userId);
+          if (!canTenantReviewInspection(user, inspection, tenancy?.propertyId)) {
+            return res.status(403).json({ message: "Access denied" });
+          }
         }
       } else if (!user?.organizationId) {
         return res.status(403).json({ message: "User not in organization" });
@@ -19889,10 +20231,32 @@ ${optionalNotes || "No details provided."}`;
   app.post("/api/inspection-entries", isAuthenticated, async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
-      if (!user?.organizationId) {
-        return res.status(403).json({ message: "User not in organization" });
+      if (!user) {
+        return res.status(403).json({ message: "Unauthorized" });
       }
       const validatedData = insertInspectionEntrySchema.parse(req.body);
+
+      // Enforce assignee / org access before writes
+      {
+        const insp = await storage.getInspection(validatedData.inspectionId);
+        if (!insp) {
+          return res.status(404).json({ message: "Inspection not found" });
+        }
+        if (user.role === "tenant") {
+          if (!isInspectionPerformer(user, insp)) {
+            return res.status(403).json({ message: "Access denied" });
+          }
+        } else if (!user.organizationId) {
+          return res.status(403).json({ message: "User not in organization" });
+        } else if (insp.organizationId !== user.organizationId) {
+          return res.status(403).json({ message: "Access denied" });
+        } else if (!canPerformInspection(user, insp)) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+        if (insp.status === "completed") {
+          return res.status(403).json({ message: "Completed inspections cannot be edited" });
+        }
+      }
 
       // Debug: Log valueJson structure
       if (validatedData.valueJson && typeof validatedData.valueJson === 'object' && 'audioUrl' in validatedData.valueJson) {
@@ -21376,10 +21740,24 @@ ${optionalNotes || "No details provided."}`;
   registerMaintenanceQuoteRoutes(app);
   const { registerPublicMaintenanceQuoteRoutes } = await import("./maintenance/publicQuoteRoutes");
   registerPublicMaintenanceQuoteRoutes(app);
+  const { registerMaintenanceJobFeedbackRoutes } = await import("./maintenance/jobFeedbackRoutes");
+  registerMaintenanceJobFeedbackRoutes(app);
   const { registerMaintenanceInvoiceRoutes } = await import("./maintenance/invoiceRoutes");
   registerMaintenanceInvoiceRoutes(app);
   const { registerMaintenanceFinanceRoutes } = await import("./maintenance/financeRoutes");
   registerMaintenanceFinanceRoutes(app);
+  const { registerMaintenanceMessageRoutes } = await import(
+    "./maintenance/maintenanceMessageRoutes"
+  );
+  registerMaintenanceMessageRoutes(app);
+  const { registerMaintenanceInboxRoutes } = await import(
+    "./maintenance/maintenanceInboxRoutes"
+  );
+  registerMaintenanceInboxRoutes(app);
+  const { registerMaintenanceDocumentAttachmentRoutes } = await import(
+    "./maintenance/documentAttachmentRoutes"
+  );
+  registerMaintenanceDocumentAttachmentRoutes(app);
 
   // Admin Login
   app.post("/api/admin/login", async (req, res) => {
@@ -32651,6 +33029,20 @@ You can help the tenant with:
         await storage.updateTenantMaintenanceChat(chat.id, {
           maintenanceRequestId: maintenanceRequest.id,
         });
+
+        void import("./maintenance/notifyMaintenanceAdmins").then(({ notifyMaintenanceAdminsOfNewRequest }) =>
+          notifyMaintenanceAdminsOfNewRequest({
+            organizationId: maintenanceRequest.organizationId,
+            requestId: maintenanceRequest.id,
+            title: maintenanceRequest.title,
+            priority: maintenanceRequest.priority,
+            description: maintenanceRequest.description,
+            propertyId: maintenanceRequest.propertyId,
+            blockId: maintenanceRequest.blockId,
+            reportedByUserId: maintenanceRequest.reportedBy,
+            source: maintenanceRequest.source,
+          }),
+        );
       }
 
       res.json({ chatId: chat.id, userMessage, assistantMessage });
@@ -32713,7 +33105,22 @@ You can help the tenant with:
         organizationId: user.organizationId,
         photoUrls,
         aiSuggestedFixes,
+        source: "tenant_portal",
       });
+
+      void import("./maintenance/notifyMaintenanceAdmins").then(({ notifyMaintenanceAdminsOfNewRequest }) =>
+        notifyMaintenanceAdminsOfNewRequest({
+          organizationId: maintenanceRequest.organizationId,
+          requestId: maintenanceRequest.id,
+          title: maintenanceRequest.title,
+          priority: maintenanceRequest.priority,
+          description: maintenanceRequest.description,
+          propertyId: maintenanceRequest.propertyId,
+          blockId: maintenanceRequest.blockId,
+          reportedByUserId: maintenanceRequest.reportedBy,
+          source: maintenanceRequest.source,
+        }),
+      );
 
       await storage.updateTenantMaintenanceChat(chatId, {
         maintenanceRequestId: maintenanceRequest.id,
@@ -32805,6 +33212,20 @@ You can help the tenant with:
         aiSuggestedFixes,
         source: "tenant_portal",
       });
+
+      void import("./maintenance/notifyMaintenanceAdmins").then(({ notifyMaintenanceAdminsOfNewRequest }) =>
+        notifyMaintenanceAdminsOfNewRequest({
+          organizationId: maintenanceRequest.organizationId,
+          requestId: maintenanceRequest.id,
+          title: maintenanceRequest.title,
+          priority: maintenanceRequest.priority,
+          description: maintenanceRequest.description,
+          propertyId: maintenanceRequest.propertyId,
+          blockId: maintenanceRequest.blockId,
+          reportedByUserId: maintenanceRequest.reportedBy,
+          source: maintenanceRequest.source,
+        }),
+      );
 
       res.status(201).json(maintenanceRequest);
     } catch (error) {

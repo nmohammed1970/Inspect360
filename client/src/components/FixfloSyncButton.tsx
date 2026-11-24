@@ -26,6 +26,8 @@ interface FixfloSyncButtonProps {
   fixfloStatus?: string | null;
   fixfloContractorName?: string | null;
   title: string;
+  /** Compact pill for request card footer (design mock). */
+  variant?: "button" | "badge";
 }
 
 export function FixfloSyncButton({
@@ -35,9 +37,11 @@ export function FixfloSyncButton({
   fixfloStatus,
   fixfloContractorName,
   title,
+  variant = "button",
 }: FixfloSyncButtonProps) {
   const { toast } = useToast();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const isBadge = variant === "badge";
 
   // Sync to Fixflo mutation
   const syncMutation = useMutation({
@@ -71,15 +75,19 @@ export function FixfloSyncButton({
   // If already synced, show status badge
   if (fixfloIssueId) {
     return (
-      <div className="flex flex-col gap-1" data-testid={`fixflo-status-${requestId}`}>
+      <div className={isBadge ? "inline-flex" : "flex flex-col gap-1"} data-testid={`fixflo-status-${requestId}`}>
         <Tooltip>
           <TooltipTrigger asChild>
-            <Badge 
-              variant="outline" 
-              className="gap-1 cursor-help"
+            <Badge
+              variant="outline"
+              className={
+                isBadge
+                  ? "gap-1 cursor-help rounded-full border-[color:var(--brand-success)]/30 bg-[color:var(--brand-success)]/10 px-2.5 py-0.5 text-[11px] font-medium text-[color:var(--brand-success)]"
+                  : "gap-1 cursor-help"
+              }
               data-testid={`badge-fixflo-status-${requestId}`}
             >
-              <CheckCircle className="w-3 h-3 text-green-500" />
+              <CheckCircle className={isBadge ? "w-3 h-3" : "w-3 h-3 text-green-500"} />
               Synced to Fixflo
             </Badge>
           </TooltipTrigger>
@@ -91,7 +99,7 @@ export function FixfloSyncButton({
             </div>
           </TooltipContent>
         </Tooltip>
-        {fixfloContractorName && (
+        {!isBadge && fixfloContractorName && (
           <Badge variant="secondary" className="text-xs" data-testid={`badge-contractor-${requestId}`}>
             {fixfloContractorName}
           </Badge>
@@ -105,16 +113,28 @@ export function FixfloSyncButton({
     <>
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setIsDialogOpen(true)}
-            className="gap-2"
-            data-testid={`button-sync-fixflo-${requestId}`}
-          >
-            <ExternalLink className="w-4 h-4" />
-            Sync to Fixflo
-          </Button>
+          {isBadge ? (
+            <button
+              type="button"
+              onClick={() => setIsDialogOpen(true)}
+              className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/60 px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              data-testid={`button-sync-fixflo-${requestId}`}
+            >
+              <RefreshCw className="h-3 w-3" />
+              Not synced
+            </button>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsDialogOpen(true)}
+              className="gap-2"
+              data-testid={`button-sync-fixflo-${requestId}`}
+            >
+              <ExternalLink className="w-4 h-4" />
+              Sync to Fixflo
+            </Button>
+          )}
         </TooltipTrigger>
         <TooltipContent>
           <p>Send this maintenance request to Fixflo</p>

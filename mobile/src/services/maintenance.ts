@@ -14,6 +14,9 @@ export interface WorkOrder {
   id: string;
   status: string;
   slaDue?: string | null;
+  scheduledAt?: string | null;
+  arrivedAt?: string | null;
+  authorisationStatus?: string | null;
   costEstimate?: number | null;
   costActual?: number | null;
   createdAt: string;
@@ -106,9 +109,35 @@ export interface WorkOrderCertificate {
   complianceDocumentId?: string | null;
 }
 
+export type MaintenanceRequestMessage = {
+  id: string;
+  body: string;
+  authorUserId: string;
+  createdAt: string;
+  author?: {
+    id: string;
+    firstName?: string | null;
+    lastName?: string | null;
+    role?: string | null;
+  } | null;
+};
+
 export const maintenanceService = {
   async getMaintenanceRequests(): Promise<MaintenanceRequestWithDetails[]> {
     return apiRequestJson<MaintenanceRequestWithDetails[]>('GET', '/api/maintenance');
+  },
+
+  async getMaintenanceRequestMessages(
+    requestId: string,
+  ): Promise<MaintenanceRequestMessage[]> {
+    return apiRequestJson('GET', `/api/maintenance/${requestId}/messages`);
+  },
+
+  async postMaintenanceRequestMessage(
+    requestId: string,
+    body: string,
+  ): Promise<MaintenanceRequestMessage> {
+    return apiRequestJson('POST', `/api/maintenance/${requestId}/messages`, { body });
   },
 
   async getMaintenanceRequest(id: string): Promise<MaintenanceRequestWithDetails> {
@@ -184,6 +213,17 @@ export const maintenanceService = {
 
   async updateWorkOrderStatus(id: string, status: string): Promise<void> {
     await apiRequestJson('PATCH', `/api/work-orders/${id}/status`, { status });
+  },
+
+  async scheduleWorkOrder(
+    id: string,
+    scheduledAt: string,
+  ): Promise<WorkOrder & { notified?: number; emailed?: number; warning?: string }> {
+    return apiRequestJson('POST', `/api/work-orders/${id}/schedule`, { scheduledAt });
+  },
+
+  async arriveOnSite(id: string): Promise<WorkOrder> {
+    return apiRequestJson('POST', `/api/work-orders/${id}/arrive`);
   },
 
   async getWorkOrderCompletionChecklist(workOrderId: string): Promise<{

@@ -8,10 +8,7 @@ import {
   canAccessWorkOrder,
   type WorkOrderIdentity,
 } from "../workOrderAccess";
-import {
-  sendQuoteOwnerDecisionEmail,
-  sendQuoteToCustomerEmail,
-} from "./maintenanceFinanceEmails";
+import { sendQuoteToCustomerEmail } from "./maintenanceFinanceEmails";
 import {
   maintenanceQuoteLines,
   maintenanceQuotes,
@@ -27,7 +24,6 @@ import {
   formatQuoteReference,
   isQuoteEditable,
   isQuoteRevisable,
-  ownerDecisionSchema,
   quoteHeaderPatchSchema,
   quoteLinesReplaceSchema,
 } from "@shared/maintenanceQuoteConstants";
@@ -36,8 +32,14 @@ import {
   appendWorkOrderEvent,
   createQuoteShareToken,
   publicAppBaseUrl,
+  resolveWorkOrderLocation,
   transitionOrThrow,
 } from "./quoteLifecycle";
+import {
+  defaultRecipientForWorkOrder,
+  listQuoteCustomerCandidates,
+  resolveRecipientUserInOrg,
+} from "./quoteCustomerRecipients";
 
 function orgId(req: any): string {
   return req.user.organizationId as string;
@@ -248,6 +250,35 @@ async function loadLines(quoteId: string): Promise<MaintenanceQuoteLine[]> {
 
 export function registerMaintenanceQuoteRoutes(app: Express) {
   app.get(
+    "/api/work-orders/:workOrderId/customer-candidates",
+    ...quoteGuards,
+    async (req: any, res: Response) => {
+      try {
+        const organizationId = orgId(req);
+        const access = await assertWoAccess(req.user, req.params.workOrderId);
+        if ("error" in access) {
+          return res.status(access.error).json({ message: access.message });
+        }
+
+        const workOrder = await storage.getWorkOrder(req.params.workOrderId);
+        if (!workOrder || workOrder.organizationId !== organizationId) {
+          return res.status(404).json({ message: "Work order not found" });
+        }
+
+        const [candidates, defaultRecipient] = await Promise.all([
+          listQuoteCustomerCandidates(organizationId),
+          defaultRecipientForWorkOrder(workOrder),
+        ]);
+
+        res.json({ candidates, defaultRecipient });
+      } catch (error) {
+        console.error("[quotes] customer-candidates failed:", error);
+        res.status(500).json({ message: "Failed to load customers" });
+      }
+    },
+  );
+
+  app.get(
     "/api/work-orders/:workOrderId/quotes",
     ...quoteGuards,
     async (req: any, res: Response) => {
@@ -302,24 +333,30 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
           year,
         );
 
-        const landlordSnap = ctx?.landlord ? contactSnapshot(ctx.landlord) : null;
+        const defaultRecipient = ctx?.workOrder
+          ? await defaultRecipientForWorkOrder(ctx.workOrder)
+          : null;
+        const location = await resolveWorkOrderLocation(req.params.workOrderId);
 
         const [quote] = await db
           .insert(maintenanceQuotes)
           .values({
             organizationId,
             workOrderId: req.params.workOrderId,
+            propertyId: location.propertyId,
+            blockId: location.blockId,
             status: "draft",
             quoteNumber,
             quoteReference,
             versionNumber: 1,
             quoteType: "original",
             currency: currency as "GBP" | "USD" | "EUR" | "AED",
-            recipientContactId: landlordSnap?.recipientContactId ?? null,
-            recipientName: landlordSnap?.recipientName ?? null,
-            recipientEmail: landlordSnap?.recipientEmail ?? null,
-            recipientPhone: landlordSnap?.recipientPhone ?? null,
-            recipientAddress: landlordSnap?.recipientAddress ?? null,
+            recipientContactId: null,
+            recipientUserId: defaultRecipient?.recipientUserId ?? null,
+            recipientName: defaultRecipient?.recipientName ?? null,
+            recipientEmail: defaultRecipient?.recipientEmail ?? null,
+            recipientPhone: defaultRecipient?.recipientPhone ?? null,
+            recipientAddress: null,
             scopeDescription: ctx?.request?.description || ctx?.issueTitle || null,
             preparedByUserId: req.user.id,
             subtotalMinor: 0,
@@ -438,7 +475,7 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
         if (!quote) {
           return res.status(404).json({ message: "Quote not found" });
         }
-        const recipientOnlyStatuses = ["owner_approved", "sent"];
+        const recipientOnlyStatuses = ["sent"];
         const fullEdit = isQuoteEditable(quote.status);
         const recipientOnly = recipientOnlyStatuses.includes(quote.status);
         if (!fullEdit && !recipientOnly) {
@@ -458,8 +495,40 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
         }
 
         const data = parsed.data;
+        const recipientKeys = [
+          "recipientUserId",
+          "recipientContactId",
+          "recipientName",
+          "recipientEmail",
+          "recipientPhone",
+          "recipientAddress",
+        ] as const;
+        const touchesRecipient = recipientKeys.some((key) => data[key] !== undefined);
+        if (touchesRecipient) {
+          const role = req.user?.role || "";
+          if (role !== "owner" && role !== "maintenance_admin") {
+            return res.status(403).json({
+              message: "Only owners and maintenance admins can change the quote customer",
+            });
+          }
+        }
+
         const patch: Partial<MaintenanceQuote> = { updatedAt: new Date() };
 
+        if (data.recipientUserId !== undefined) {
+          const snap = await resolveRecipientUserInOrg(organizationId, data.recipientUserId);
+          if (data.recipientUserId && !snap?.recipientUserId) {
+            return res.status(400).json({ message: "Invalid customer selection" });
+          }
+          if (snap) {
+            patch.recipientUserId = snap.recipientUserId;
+            patch.recipientContactId = null;
+            patch.recipientName = snap.recipientName;
+            patch.recipientEmail = snap.recipientEmail;
+            patch.recipientPhone = snap.recipientPhone;
+            patch.recipientAddress = null;
+          }
+        }
         if (data.recipientContactId !== undefined) {
           patch.recipientContactId = data.recipientContactId;
         }
@@ -598,173 +667,27 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
   app.post(
     "/api/work-orders/:workOrderId/quotes/:quoteId/submit",
     ...quoteGuards,
-    async (req: any, res: Response) => {
-      try {
-        const organizationId = orgId(req);
-        const access = await assertWoAccess(req.user, req.params.workOrderId);
-        if ("error" in access) {
-          return res.status(access.error).json({ message: access.message });
-        }
-
-        const quote = await getQuoteForWo(
-          organizationId,
-          req.params.workOrderId,
-          req.params.quoteId,
-        );
-        if (!quote) {
-          return res.status(404).json({ message: "Quote not found" });
-        }
-
-        if (quote.status !== "draft" && quote.status !== "owner_changes_requested") {
-          return res
-            .status(409)
-            .json({ message: "Only draft quotes can be submitted for approval" });
-        }
-
-        const lines = await loadLines(quote.id);
-        const namedLines = lines.filter((l) => (l.name || "").trim().length > 0);
-        if (namedLines.length === 0) {
-          return res.status(400).json({ message: "Add at least one named line before submitting" });
-        }
-
-        transitionOrThrow(
-          quote.status,
-          "pending_owner_approval",
-          req.user.role === "owner" ? "owner" : "staff",
-        );
-
-        const [updated] = await db
-          .update(maintenanceQuotes)
-          .set({
-            status: "pending_owner_approval",
-            submittedAt: new Date(),
-            submittedByUserId: req.user.id,
-            updatedAt: new Date(),
-          })
-          .where(eq(maintenanceQuotes.id, quote.id))
-          .returning();
-
-        await appendWorkOrderEvent({
-          organizationId,
-          workOrderId: quote.workOrderId,
-          eventType: "quote_submitted",
-          actorUserId: req.user.id,
-          payload: { quoteId: quote.id },
-        });
-
-        res.json(serializeQuote(updated, lines));
-      } catch (error) {
-        console.error("[quotes] submit failed:", error);
-        res.status(500).json({ message: "Failed to submit quote" });
-      }
+    async (_req: any, res: Response) => {
+      return res.status(410).json({
+        message: "Submit for owner approval is removed. Use Send to customer instead.",
+      });
     },
   );
 
   app.post(
     "/api/work-orders/:workOrderId/quotes/:quoteId/owner-decision",
     ...quoteGuards,
-    requireRole("owner"),
-    async (req: any, res: Response) => {
-      try {
-        const organizationId = orgId(req);
-        const access = await assertWoAccess(req.user, req.params.workOrderId);
-        if ("error" in access) {
-          return res.status(access.error).json({ message: access.message });
-        }
-
-        const quote = await getQuoteForWo(
-          organizationId,
-          req.params.workOrderId,
-          req.params.quoteId,
-        );
-        if (!quote) return res.status(404).json({ message: "Quote not found" });
-        if (quote.status !== "pending_owner_approval") {
-          return res.status(409).json({ message: "Quote is not awaiting owner approval" });
-        }
-
-        const parsed = ownerDecisionSchema.safeParse(req.body);
-        if (!parsed.success) {
-          return res.status(400).json({ message: "Invalid decision", errors: parsed.error.flatten() });
-        }
-
-        const { decision, reason } = parsed.data;
-        if (
-          (decision === "reject" || decision === "request_changes") &&
-          !(reason || "").trim()
-        ) {
-          return res.status(400).json({ message: "Reason is required for reject / request changes" });
-        }
-
-        const statusMap = {
-          approve: "owner_approved",
-          reject: "owner_rejected",
-          request_changes: "owner_changes_requested",
-        } as const;
-        const nextStatus = statusMap[decision];
-        transitionOrThrow(quote.status, nextStatus, "owner");
-
-        const [updated] = await db
-          .update(maintenanceQuotes)
-          .set({
-            status: nextStatus,
-            ownerDecision: decision,
-            ownerDecisionReason: reason?.trim() || null,
-            ownerDecidedAt: new Date(),
-            ownerDecidedByUserId: req.user.id,
-            updatedAt: new Date(),
-          })
-          .where(eq(maintenanceQuotes.id, quote.id))
-          .returning();
-
-        await appendWorkOrderEvent({
-          organizationId,
-          workOrderId: quote.workOrderId,
-          eventType: "quote_owner_decision",
-          actorUserId: req.user.id,
-          payload: { quoteId: quote.id, decision, nextStatus },
-        });
-
-        const lines = await loadLines(quote.id);
-        const ctx = await loadWoContext(quote.workOrderId, organizationId);
-
-        // Best-effort notify preparer
-        try {
-          const preparer = await storage.getUser(quote.preparedByUserId);
-          if (preparer?.email) {
-            await sendQuoteOwnerDecisionEmail({
-              to: preparer.email,
-              organizationId,
-              workOrderId: quote.workOrderId,
-              quoteId: quote.id,
-              quoteReference: quote.quoteReference,
-              decision,
-              reason,
-              currency: quote.currency,
-              subtotalMinor: quote.subtotalMinor,
-              taxMinor: quote.taxMinor,
-              totalMinor: quote.totalMinor,
-              lines,
-              issueTitle: ctx?.issueTitle,
-              locationLabel: ctx?.locationLabel,
-              baseUrl: publicAppBaseUrl(req),
-            });
-          }
-        } catch (emailErr) {
-          console.warn("[quotes] owner-decision email failed:", emailErr);
-        }
-
-        res.json(serializeQuote(updated, lines));
-      } catch (error: any) {
-        console.error("[quotes] owner-decision failed:", error);
-        res.status(500).json({ message: error?.message || "Failed to record owner decision" });
-      }
+    async (_req: any, res: Response) => {
+      return res.status(410).json({
+        message: "Owner approval is removed. Send the quote directly to the customer.",
+      });
     },
   );
 
   app.post(
     "/api/work-orders/:workOrderId/quotes/:quoteId/send",
     ...quoteGuards,
-    requireRole("owner"),
+    requireRole("owner", "maintenance_admin", "contractor", "clerk"),
     async (req: any, res: Response) => {
       try {
         const organizationId = orgId(req);
@@ -781,13 +704,25 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
         if (!quote) return res.status(404).json({ message: "Quote not found" });
 
         const isResend = quote.status === "sent";
-        if (quote.status !== "owner_approved" && !isResend) {
+        if (quote.status !== "draft" && !isResend) {
           return res.status(409).json({
-            message: "Quote must be owner-approved before sending to the customer",
+            message: "Only draft quotes can be sent to the customer (or resent when already sent)",
           });
         }
         if (!isResend) {
-          transitionOrThrow(quote.status, "sent", "owner");
+          const sendActor =
+            req.user.role === "owner" || req.user.role === "maintenance_admin"
+              ? "owner"
+              : "staff";
+          transitionOrThrow(quote.status, "sent", sendActor);
+
+          const lines = await loadLines(quote.id);
+          const namedLines = lines.filter((l) => (l.name || "").trim().length > 0);
+          if (namedLines.length === 0) {
+            return res.status(400).json({
+              message: "Add at least one named line before sending",
+            });
+          }
         }
 
         if (!(quote.recipientName || "").trim() || !(quote.recipientEmail || "").trim()) {
@@ -802,6 +737,13 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
           createdByUserId: req.user.id,
         });
 
+        const firstSendPatch = !isResend
+          ? {
+              submittedAt: new Date(),
+              submittedByUserId: req.user.id as string,
+            }
+          : {};
+
         const [updated] = await db
           .update(maintenanceQuotes)
           .set({
@@ -809,6 +751,7 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
             sentAt: new Date(),
             expiresAt,
             updatedAt: new Date(),
+            ...firstSendPatch,
           })
           .where(eq(maintenanceQuotes.id, quote.id))
           .returning();
@@ -866,6 +809,29 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
           });
         }
 
+        if (quote.recipientUserId) {
+          try {
+            const { notifyFinanceUsers } = await import("./notifyFinanceUsers");
+            await notifyFinanceUsers({
+              userIds: [quote.recipientUserId],
+              organizationId,
+              type: "quote_sent",
+              title: isResend ? "Quotation resent" : "New quotation to review",
+              message: `${quote.quoteReference}${
+                ctx?.issueTitle ? ` — ${ctx.issueTitle}` : ""
+              }`,
+              data: {
+                workOrderId: quote.workOrderId,
+                quoteId: quote.id,
+                quoteReference: quote.quoteReference,
+                publicLink: link,
+              },
+            });
+          } catch (notifErr) {
+            console.warn("[quotes] recipient notify failed:", notifErr);
+          }
+        }
+
         res.json({
           ...serializeQuote(updated, lines),
           publicLink: link,
@@ -882,7 +848,7 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
   app.post(
     "/api/work-orders/:workOrderId/quotes/:quoteId/resend",
     ...quoteGuards,
-    requireRole("owner"),
+    requireRole("owner", "maintenance_admin", "contractor", "clerk"),
     async (req: any, res: Response) => {
       // Alias of send (handles status === sent).
       try {
@@ -897,7 +863,7 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
           req.params.quoteId,
         );
         if (!quote) return res.status(404).json({ message: "Quote not found" });
-        if (quote.status !== "sent" && quote.status !== "owner_approved") {
+        if (quote.status !== "sent") {
           return res.status(409).json({ message: "Quote cannot be resent in this status" });
         }
         if (!(quote.recipientName || "").trim() || !(quote.recipientEmail || "").trim()) {
@@ -954,6 +920,28 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
         } catch (emailErr: any) {
           emailError = emailErr?.message || "Email failed";
           console.warn("[quotes] resend email failed:", emailErr);
+        }
+        if (quote.recipientUserId) {
+          try {
+            const { notifyFinanceUsers } = await import("./notifyFinanceUsers");
+            await notifyFinanceUsers({
+              userIds: [quote.recipientUserId],
+              organizationId,
+              type: "quote_sent",
+              title: "Quotation resent",
+              message: `${quote.quoteReference}${
+                ctx?.issueTitle ? ` — ${ctx.issueTitle}` : ""
+              }`,
+              data: {
+                workOrderId: quote.workOrderId,
+                quoteId: quote.id,
+                quoteReference: quote.quoteReference,
+                publicLink: link,
+              },
+            });
+          } catch (notifErr) {
+            console.warn("[quotes] recipient notify failed:", notifErr);
+          }
         }
         res.json({
           ...serializeQuote(updated, lines),
@@ -1038,6 +1026,8 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
             .values({
               organizationId,
               workOrderId: quote.workOrderId,
+              propertyId: quote.propertyId,
+              blockId: quote.blockId,
               status: "draft",
               quoteNumber: quote.quoteNumber,
               quoteReference: quote.quoteReference,
@@ -1045,6 +1035,7 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
               quoteType: quote.quoteType === "variation" ? "variation" : "revision",
               currency: quote.currency,
               recipientContactId: quote.recipientContactId,
+              recipientUserId: quote.recipientUserId,
               recipientName: quote.recipientName,
               recipientEmail: quote.recipientEmail,
               recipientPhone: quote.recipientPhone,
@@ -1143,6 +1134,8 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
           .values({
             organizationId,
             workOrderId: quote.workOrderId,
+            propertyId: quote.propertyId,
+            blockId: quote.blockId,
             status: "draft",
             quoteNumber,
             quoteReference,
@@ -1150,6 +1143,7 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
             quoteType: "variation",
             currency: quote.currency,
             recipientContactId: quote.recipientContactId,
+            recipientUserId: quote.recipientUserId,
             recipientName: quote.recipientName,
             recipientEmail: quote.recipientEmail,
             recipientPhone: quote.recipientPhone,
@@ -1224,7 +1218,7 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
   app.post(
     "/api/work-orders/:workOrderId/quotes/:quoteId/convert-to-invoice",
     ...quoteGuards,
-    requireRole("owner"),
+    requireRole("owner", "maintenance_admin", "contractor", "clerk"),
     async (req: any, res: Response) => {
       try {
         const { convertQuoteToInvoice } = await import("./invoiceService");
@@ -1244,6 +1238,7 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
         const result = await convertQuoteToInvoice({
           quote,
           actorUserId: req.user.id,
+          actorRole: req.user.role || "",
         });
         res.status(201).json(result);
       } catch (error: any) {

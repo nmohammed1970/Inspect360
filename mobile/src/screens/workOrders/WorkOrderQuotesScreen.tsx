@@ -18,6 +18,7 @@ import {
   isQuoteEditable,
   MAINTENANCE_QUOTE_STATUS_LABELS,
 } from '../../../../shared/maintenanceQuoteConstants';
+import { useAuth } from '../../contexts/AuthContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import Card from '../../components/ui/Card';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
@@ -52,7 +53,13 @@ export default function WorkOrderQuotesScreen() {
   const route = useRoute<RouteProp<WorkOrdersStackParamList, 'WorkOrderQuotes'>>();
   const { workOrderId } = route.params;
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const canConvertQuote =
+    user?.role === 'owner' ||
+    user?.role === 'maintenance_admin' ||
+    user?.role === 'contractor';
   const [creating, setCreating] = useState(false);
+  const [convertingId, setConvertingId] = useState<string | null>(null);
 
   const query = useQuery({
     queryKey: ['work-order-quotes', workOrderId],
@@ -62,9 +69,7 @@ export default function WorkOrderQuotesScreen() {
   const createMutation = useMutation({
     mutationFn: async () => {
       const list = query.data ?? (await quotesService.listQuotes(workOrderId));
-      const draft = list.find(
-        (q) => q.status === 'draft' || q.status === 'owner_changes_requested',
-      );
+        const draft = list.find((q) => q.status === 'draft');
       if (draft) return draft;
       return quotesService.createQuote(workOrderId);
     },
@@ -86,6 +91,23 @@ export default function WorkOrderQuotesScreen() {
     createMutation.mutate();
   }, [createMutation]);
 
+  const convertMutation = useMutation({
+    mutationFn: (quoteId: string) => quotesService.convertToInvoice(workOrderId, quoteId),
+    onSuccess: (invoice) => {
+      queryClient.invalidateQueries({ queryKey: ['work-order-quotes', workOrderId] });
+      Alert.alert(
+        'Invoice created',
+        invoice.invoiceReference
+          ? `Draft invoice ${invoice.invoiceReference} created.`
+          : 'Draft invoice created from this quotation.',
+      );
+    },
+    onError: (err: Error) => {
+      Alert.alert('Convert failed', err.message || 'Please try again');
+    },
+    onSettled: () => setConvertingId(null),
+  });
+
   const openQuote = useCallback(
     (quote: MaintenanceQuote) => {
       navigation.navigate('WorkOrderQuoteBuilder', {
@@ -96,12 +118,33 @@ export default function WorkOrderQuotesScreen() {
     [navigation, workOrderId],
   );
 
+  const handleConvert = useCallback(
+    (quote: MaintenanceQuote) => {
+      Alert.alert(
+        'Convert to invoice?',
+        'This creates a draft invoice from the accepted quotation.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Convert',
+            onPress: () => {
+              setConvertingId(quote.id);
+              convertMutation.mutate(quote.id);
+            },
+          },
+        ],
+      );
+    },
+    [convertMutation],
+  );
+
   const renderItem = useCallback(
     ({ item }: { item: MaintenanceQuote }) => {
       const editable = isQuoteEditable(item.status);
+      const showConvert = canConvertQuote && item.status === 'accepted';
       return (
-        <TouchableOpacity onPress={() => openQuote(item)} activeOpacity={0.7}>
-          <Card style={styles.card}>
+        <Card style={styles.card}>
+          <TouchableOpacity onPress={() => openQuote(item)} activeOpacity={0.7}>
             <View style={styles.cardRow}>
               <View style={styles.cardMain}>
                 <Text
@@ -150,11 +193,35 @@ export default function WorkOrderQuotesScreen() {
                 <ChevronRight size={18} color={themeColors.text.secondary} />
               </View>
             </View>
-          </Card>
-        </TouchableOpacity>
+          </TouchableOpacity>
+          {showConvert ? (
+            <TouchableOpacity
+              onPress={() => handleConvert(item)}
+              disabled={convertingId === item.id}
+              style={[styles.convertBtn, { borderColor: themeColors.primary.DEFAULT }]}
+            >
+              <Text
+                style={{
+                  color: themeColors.primary.DEFAULT,
+                  fontWeight: '600',
+                  fontSize: getFontSize(13),
+                }}
+              >
+                {convertingId === item.id ? 'Converting…' : 'Convert to invoice'}
+              </Text>
+            </TouchableOpacity>
+          ) : null}
+        </Card>
       );
     },
-    [isDark, openQuote, themeColors],
+    [
+      canConvertQuote,
+      convertingId,
+      handleConvert,
+      isDark,
+      openQuote,
+      themeColors,
+    ],
   );
 
   return (
@@ -179,7 +246,7 @@ export default function WorkOrderQuotesScreen() {
         <View style={styles.headerText}>
           <Text style={[styles.title, { color: themeColors.text.primary }]}>Quotations</Text>
           <Text style={[styles.subtitle, { color: themeColors.text.secondary }]}>
-            Create and submit drafts for owner approval
+            Create drafts and send them to the customer
           </Text>
         </View>
       </View>
@@ -293,6 +360,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing[2],
+  },
+  convertBtn: {
+    alignSelf: 'flex-start',
+    marginTop: spacing[1],
+    paddingVertical: spacing[1],
+    paddingHorizontal: spacing[2],
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: borderRadius.sm,
   },
   badge: {
     paddingHorizontal: spacing[2],

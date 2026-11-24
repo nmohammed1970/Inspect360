@@ -30,7 +30,7 @@ export const sessions = pgTable(
 );
 
 // Enums
-export const userRoleEnum = pgEnum("user_role", ["owner", "clerk", "compliance", "tenant", "contractor"]);
+export const userRoleEnum = pgEnum("user_role", ["owner", "clerk", "compliance", "tenant", "contractor", "maintenance_admin"]);
 export const inspectionStatusEnum = pgEnum("inspection_status", ["scheduled", "in_progress", "completed", "reviewed"]);
 export const inspectionTypeEnum = pgEnum("inspection_type", ["check_in", "check_out", "routine", "maintenance", "esg_sustainability_inspection", "fire_hazard_assessment", "maintenance_inspection", "damage", "emergency", "safety_compliance", "compliance_regulatory", "pre_purchase", "specialized"]);
 export const complianceStatusEnum = pgEnum("compliance_status", ["current", "expiring_soon", "expired"]);
@@ -1375,6 +1375,37 @@ export const insertMaintenanceRequestSchema = createInsertSchema(maintenanceRequ
 export type MaintenanceRequest = typeof maintenanceRequests.$inferSelect;
 export type InsertMaintenanceRequest = z.infer<typeof insertMaintenanceRequestSchema>;
 
+/** Staff–tenant discussion thread on a maintenance request. */
+export const maintenanceRequestMessages = pgTable(
+  "maintenance_request_messages",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    organizationId: varchar("organization_id").notNull(),
+    maintenanceRequestId: varchar("maintenance_request_id").notNull(),
+    authorUserId: varchar("author_user_id").notNull(),
+    body: text("body").notNull(),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [
+    index("maintenance_request_messages_request_idx").on(
+      table.maintenanceRequestId,
+      table.createdAt,
+    ),
+    index("maintenance_request_messages_org_idx").on(table.organizationId),
+  ],
+);
+
+export const insertMaintenanceRequestMessageSchema = createInsertSchema(
+  maintenanceRequestMessages,
+).omit({
+  id: true,
+  createdAt: true,
+});
+export type MaintenanceRequestMessage = typeof maintenanceRequestMessages.$inferSelect;
+export type InsertMaintenanceRequestMessage = z.infer<
+  typeof insertMaintenanceRequestMessageSchema
+>;
+
 /** Org-scoped catalog of reusable quotation line templates. */
 export const maintenancePriceBookItems = pgTable(
   "maintenance_price_book_items",
@@ -1442,6 +1473,10 @@ export const maintenanceQuotes = pgTable(
     id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
     organizationId: varchar("organization_id").notNull(),
     workOrderId: varchar("work_order_id").notNull(),
+    /** Snapshot from WO→MR at create (site = property). */
+    propertyId: varchar("property_id"),
+    /** Snapshot from WO→MR / property.block at create. */
+    blockId: varchar("block_id"),
     status: varchar("status").notNull().default("draft"),
     quoteNumber: integer("quote_number").notNull(),
     quoteReference: varchar("quote_reference").notNull(),
@@ -1449,6 +1484,8 @@ export const maintenanceQuotes = pgTable(
     quoteType: varchar("quote_type").notNull().default("original"),
     currency: currencyEnum("currency").notNull().default("GBP"),
     recipientContactId: varchar("recipient_contact_id"),
+    /** Org user selected as quote customer (owners / maintenance admins). */
+    recipientUserId: varchar("recipient_user_id"),
     recipientName: varchar("recipient_name"),
     recipientEmail: varchar("recipient_email"),
     recipientPhone: varchar("recipient_phone"),
@@ -1482,6 +1519,8 @@ export const maintenanceQuotes = pgTable(
     index("maintenance_quotes_org_idx").on(table.organizationId),
     index("maintenance_quotes_work_order_idx").on(table.workOrderId),
     index("maintenance_quotes_org_status_idx").on(table.organizationId, table.status),
+    index("maintenance_quotes_org_property_idx").on(table.organizationId, table.propertyId),
+    index("maintenance_quotes_org_block_idx").on(table.organizationId, table.blockId),
     uniqueIndex("maintenance_quotes_org_number_version_uidx").on(
       table.organizationId,
       table.quoteNumber,
@@ -1574,11 +1613,17 @@ export const maintenanceInvoices = pgTable(
     organizationId: varchar("organization_id").notNull(),
     workOrderId: varchar("work_order_id").notNull(),
     quoteId: varchar("quote_id"),
+    /** Snapshot from WO→MR or copied from quote on convert (site = property). */
+    propertyId: varchar("property_id"),
+    /** Snapshot from WO→MR / property.block or copied from quote. */
+    blockId: varchar("block_id"),
     status: varchar("status").notNull().default("draft"),
     invoiceNumber: integer("invoice_number").notNull(),
     invoiceReference: varchar("invoice_reference").notNull(),
     currency: currencyEnum("currency").notNull().default("GBP"),
     recipientContactId: varchar("recipient_contact_id"),
+    /** Org user selected as invoice customer (owners / maintenance admins). */
+    recipientUserId: varchar("recipient_user_id"),
     recipientName: varchar("recipient_name"),
     recipientEmail: varchar("recipient_email"),
     recipientPhone: varchar("recipient_phone"),
@@ -1600,6 +1645,8 @@ export const maintenanceInvoices = pgTable(
   (table) => [
     index("maintenance_invoices_org_idx").on(table.organizationId),
     index("maintenance_invoices_work_order_idx").on(table.workOrderId),
+    index("maintenance_invoices_org_property_idx").on(table.organizationId, table.propertyId),
+    index("maintenance_invoices_org_block_idx").on(table.organizationId, table.blockId),
     uniqueIndex("maintenance_invoices_org_number_uidx").on(
       table.organizationId,
       table.invoiceNumber,
@@ -1672,6 +1719,32 @@ export const maintenanceInvoicePayments = pgTable(
 );
 
 export type MaintenanceInvoicePayment = typeof maintenanceInvoicePayments.$inferSelect;
+
+/** File attachments for quotes/invoices (shared storage keys across convert). */
+export const maintenanceDocumentAttachments = pgTable(
+  "maintenance_document_attachments",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    organizationId: varchar("organization_id").notNull(),
+    quoteId: varchar("quote_id"),
+    invoiceId: varchar("invoice_id"),
+    storageKey: text("storage_key").notNull(),
+    fileName: varchar("file_name").notNull(),
+    mimeType: varchar("mime_type"),
+    fileSizeBytes: integer("file_size_bytes"),
+    uploadedByUserId: varchar("uploaded_by_user_id").notNull(),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [
+    index("maintenance_doc_attachments_org_idx").on(table.organizationId),
+    index("maintenance_doc_attachments_quote_idx").on(table.quoteId),
+    index("maintenance_doc_attachments_invoice_idx").on(table.invoiceId),
+    index("maintenance_doc_attachments_storage_idx").on(table.storageKey),
+  ],
+);
+
+export type MaintenanceDocumentAttachment =
+  typeof maintenanceDocumentAttachments.$inferSelect;
 
 // Tenant Maintenance Chat Conversations (AI Chatbot for preventative maintenance)
 export const tenantMaintenanceChats = pgTable("tenant_maintenance_chats", {
@@ -1918,6 +1991,10 @@ export const workOrders = pgTable("work_orders", {
   assignedToId: varchar("assigned_to_id"), // Specific team member assigned
   status: workOrderStatusEnum("status").notNull().default("assigned"),
   slaDue: timestamp("sla_due"), // Service Level Agreement deadline
+  /** Visit / job schedule (technician-set after quote accepted). Distinct from slaDue. */
+  scheduledAt: timestamp("scheduled_at"),
+  /** Technician ack that they have reached the property. */
+  arrivedAt: timestamp("arrived_at"),
   costEstimate: integer("cost_estimate"), // In cents
   costActual: integer("cost_actual"), // In cents
   variationNotes: text("variation_notes"), // Notes on cost variations
@@ -1937,15 +2014,20 @@ export const workOrders = pgTable("work_orders", {
   authorisationStatus: varchar("authorisation_status").notNull().default("not_required"),
   approvedQuoteId: varchar("approved_quote_id"),
   authorisedTotalMinor: integer("authorised_total_minor"),
+  /** User who created the work order (nullable for legacy rows). */
+  createdBy: varchar("created_by"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
 export const insertWorkOrderSchema = createInsertSchema(workOrders, {
   slaDue: z.union([z.date(), z.string().transform((s) => s ? new Date(s) : undefined)]).optional(),
+  scheduledAt: z.union([z.date(), z.string().transform((s) => s ? new Date(s) : undefined)]).optional(),
+  arrivedAt: z.union([z.date(), z.string().transform((s) => s ? new Date(s) : undefined)]).optional(),
 }).omit({
   id: true,
   organizationId: true,
+  createdBy: true,
   createdAt: true,
   updatedAt: true,
 });
@@ -1979,6 +2061,35 @@ export type WorkOrderCompletionChecklistResponse =
 export type InsertWorkOrderCompletionChecklistResponse = z.infer<
   typeof insertWorkOrderCompletionChecklistResponseSchema
 >;
+
+/** Tenant CSAT invite + submission after a work order is marked completed. */
+export const maintenanceJobFeedback = pgTable(
+  "maintenance_job_feedback",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    organizationId: varchar("organization_id").notNull(),
+    workOrderId: varchar("work_order_id").notNull(),
+    token: varchar("token").notNull(),
+    rating: integer("rating"),
+    improvementNotes: text("improvement_notes"),
+    submittedAt: timestamp("submitted_at"),
+    submittedByEmail: varchar("submitted_by_email"),
+    tenantUserId: varchar("tenant_user_id"),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("maintenance_job_feedback_token_uidx").on(table.token),
+    uniqueIndex("maintenance_job_feedback_wo_uidx").on(table.workOrderId),
+    index("maintenance_job_feedback_org_idx").on(table.organizationId),
+  ],
+);
+
+export const insertMaintenanceJobFeedbackSchema = createInsertSchema(maintenanceJobFeedback).omit({
+  id: true,
+  createdAt: true,
+});
+export type MaintenanceJobFeedback = typeof maintenanceJobFeedback.$inferSelect;
+export type InsertMaintenanceJobFeedback = z.infer<typeof insertMaintenanceJobFeedbackSchema>;
 
 // Certificates uploaded against work orders → optional Compliance documents
 export const workOrderCertificates = pgTable("work_order_certificates", {
@@ -2684,7 +2795,7 @@ export const createTeamMemberSchema = z.object({
   lastName: z.string().min(1).max(255).optional(),
   username: z.string().min(3, "Username must be at least 3 characters").max(100),
   password: z.string().min(MIN_PASSWORD_LENGTH, `Password must be at least ${MIN_PASSWORD_LENGTH} characters`),
-  role: z.enum(["owner", "clerk", "compliance", "contractor", "tenant"]), // Include tenant for tenant user creation
+  role: z.enum(["owner", "clerk", "compliance", "contractor", "tenant", "maintenance_admin"]), // Include tenant for tenant user creation
   phone: z.string().max(50).optional(),
   address: z.union([
     z.object({
@@ -2721,11 +2832,11 @@ export const updateTeamMemberSchema = z.object({
   education: z.string().optional(),
   profileImageUrl: z.union([z.string().url(), z.string().startsWith("/objects/"), z.literal("")]).optional(),
   certificateUrls: z.array(z.union([z.string().url(), z.string().startsWith("/objects/"), z.literal("")])).optional(),
-  role: z.enum(["owner", "clerk", "compliance", "contractor"]).optional(), // Tenants managed via Contacts
+  role: z.enum(["owner", "clerk", "compliance", "contractor", "maintenance_admin"]).optional(), // Tenants managed via Contacts
 });
 
 export const updateUserRoleSchema = z.object({
-  role: z.enum(["owner", "clerk", "compliance", "contractor"]), // Tenants managed via Contacts
+  role: z.enum(["owner", "clerk", "compliance", "contractor", "maintenance_admin"]), // Tenants managed via Contacts
 });
 
 export const updateUserStatusSchema = z.object({

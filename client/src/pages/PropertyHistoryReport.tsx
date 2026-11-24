@@ -783,11 +783,13 @@ export default function PropertyHistoryReport() {
                       [wo?.contractor?.firstName, wo?.contractor?.lastName].filter(Boolean).join(" ") ||
                       "—";
                     const cost =
-                      wo?.costActual != null
-                        ? formatMoneyValue(wo.costActual, formatCurrency, true)
-                        : wo?.costEstimate != null
-                          ? formatMoneyValue(wo.costEstimate, formatCurrency, true)
-                          : "—";
+                      wo?.authorisedTotalMinor != null
+                        ? formatMoneyValue(wo.authorisedTotalMinor, formatCurrency, true)
+                        : wo?.costActual != null
+                          ? formatMoneyValue(wo.costActual, formatCurrency, true)
+                          : wo?.costEstimate != null
+                            ? formatMoneyValue(wo.costEstimate, formatCurrency, true)
+                            : "—";
                     const href = `/maintenance/${req.id}`;
                     return (
                       <TableRow key={req.id}>

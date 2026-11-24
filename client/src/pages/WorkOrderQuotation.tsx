@@ -21,6 +21,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
@@ -29,13 +36,6 @@ import {
   isQuoteRevisable,
 } from "@shared/maintenanceQuoteConstants";
 import { useAuth } from "@/hooks/useAuth";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import type {
   MaintenancePriceBookCategory,
   MaintenancePriceBookUnit,
@@ -48,6 +48,7 @@ import {
   type EditableQuoteLine,
 } from "@/components/maintenance-quotes/QuoteLinesEditor";
 import { formatMoneyMinor } from "@/components/maintenance-quotes/quoteMoney";
+import { DocumentAttachmentsPanel } from "@/components/maintenance-quotes/DocumentAttachmentsPanel";
 import { cn } from "@/lib/utils";
 
 type QuoteDetail = {
@@ -58,6 +59,7 @@ type QuoteDetail = {
   quoteReference: string;
   versionNumber: number;
   currency: string;
+  recipientUserId?: string | null;
   recipientName: string | null;
   recipientEmail: string | null;
   recipientPhone: string | null;
@@ -70,6 +72,7 @@ type QuoteDetail = {
   totalMinor: number;
   preparedByName: string | null;
   submittedAt: string | null;
+  sentAt?: string | null;
   lines?: Array<{
     id: string;
     name: string;
@@ -98,13 +101,13 @@ type QuoteDetail = {
 
 function statusBadgeClass(status: string): string {
   if (status === "draft") return "bg-slate-100 text-slate-800 border-slate-200";
-  if (status === "pending_owner_approval" || status === "sent") {
+  if (status === "sent" || status === "customer_changes_requested") {
     return "bg-amber-100 text-amber-900 border-amber-200";
   }
-  if (status === "owner_approved" || status === "accepted" || status === "converted") {
+  if (status === "accepted" || status === "converted") {
     return "bg-emerald-100 text-emerald-900 border-emerald-200";
   }
-  if (status === "owner_rejected" || status === "declined") {
+  if (status === "declined") {
     return "bg-red-100 text-red-900 border-red-200";
   }
   return "bg-muted text-foreground";
@@ -115,19 +118,11 @@ function statusLabel(status: string): string {
 }
 
 function approvalStepIndex(status: string): number {
-  if (status === "draft" || status === "owner_changes_requested") return 0;
-  if (status === "pending_owner_approval") return 1;
-  if (status === "owner_approved") return 2;
-  if (
-    status === "sent" ||
-    status === "accepted" ||
-    status === "converted" ||
-    status === "declined" ||
-    status === "customer_changes_requested"
-  ) {
-    return 3;
-  }
-  return 1;
+  if (status === "draft") return 0;
+  if (status === "sent" || status === "customer_changes_requested") return 1;
+  if (status === "accepted" || status === "declined") return 2;
+  if (status === "converted") return 3;
+  return 0;
 }
 
 function linesFromServer(quote: QuoteDetail): EditableQuoteLine[] {
@@ -155,9 +150,11 @@ export default function WorkOrderQuotation() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { user } = useAuth();
-  const isOwner = user?.role === "owner";
-  const [decisionOpen, setDecisionOpen] = useState<"reject" | "request_changes" | null>(null);
-  const [decisionReason, setDecisionReason] = useState("");
+  const isOwner =
+    user?.role === "owner" || user?.role === "maintenance_admin";
+  const canEditRecipient = isOwner;
+  const canSendQuote = isOwner || user?.role === "contractor";
+  const canConvertQuote = canSendQuote;
   const [lastPublicLink, setLastPublicLink] = useState<string | null>(null);
   const [lastEmailSent, setLastEmailSent] = useState<boolean | null>(null);
   const [pdfDownloading, setPdfDownloading] = useState(false);
@@ -188,10 +185,34 @@ export default function WorkOrderQuotation() {
   const [scopeDescription, setScopeDescription] = useState("");
   const [engineerNotes, setEngineerNotes] = useState("");
   const [validUntil, setValidUntil] = useState("");
+  const [recipientUserId, setRecipientUserId] = useState<string>("");
   const [recipientName, setRecipientName] = useState("");
   const [recipientEmail, setRecipientEmail] = useState("");
   const [lines, setLines] = useState<EditableQuoteLine[]>([blankQuoteLine()]);
   const [hydratedId, setHydratedId] = useState<string | null>(null);
+
+  type CustomerCandidate = {
+    id: string;
+    displayName: string;
+    email: string | null;
+    phone: string | null;
+    role: string;
+  };
+
+  const candidatesQuery = useQuery<{
+    candidates: CustomerCandidate[];
+    defaultRecipient: { recipientUserId: string | null } | null;
+  }>({
+    queryKey: ["/api/work-orders", workOrderId, "customer-candidates"],
+    queryFn: async () => {
+      const res = await fetch(`/api/work-orders/${workOrderId}/customer-candidates`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to load customers");
+      return res.json();
+    },
+    enabled: Boolean(workOrderId),
+  });
 
   useEffect(() => {
     if (!quote || hydratedId === quote.id) return;
@@ -200,11 +221,21 @@ export default function WorkOrderQuotation() {
     setValidUntil(
       quote.validUntil ? new Date(quote.validUntil).toISOString().slice(0, 10) : "",
     );
+    setRecipientUserId(quote.recipientUserId || "");
     setRecipientName(quote.recipientName || "");
     setRecipientEmail(quote.recipientEmail || "");
     setLines(linesFromServer(quote));
     setHydratedId(quote.id);
   }, [quote, hydratedId]);
+
+  const applyCustomer = (userId: string) => {
+    setRecipientUserId(userId);
+    const candidate = candidatesQuery.data?.candidates.find((c) => c.id === userId);
+    if (candidate) {
+      setRecipientName(candidate.displayName);
+      setRecipientEmail(candidate.email || "");
+    }
+  };
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -212,8 +243,13 @@ export default function WorkOrderQuotation() {
         scopeDescription: scopeDescription || null,
         engineerNotes: engineerNotes || null,
         validUntil: validUntil || null,
-        recipientName: recipientName || null,
-        recipientEmail: recipientEmail || null,
+        ...(canEditRecipient
+          ? {
+              recipientUserId: recipientUserId || null,
+              recipientName: recipientName || null,
+              recipientEmail: recipientEmail || null,
+            }
+          : {}),
       });
       const res = await apiRequest(
         "PUT",
@@ -255,88 +291,45 @@ export default function WorkOrderQuotation() {
     },
   });
 
-  const submitMutation = useMutation({
-    mutationFn: async () => {
-      await apiRequest("PATCH", `/api/work-orders/${workOrderId}/quotes/${quoteId}`, {
-        scopeDescription: scopeDescription || null,
-        engineerNotes: engineerNotes || null,
-        validUntil: validUntil || null,
-        recipientName: recipientName || null,
-        recipientEmail: recipientEmail || null,
-      });
-      await apiRequest(
-        "PUT",
-        `/api/work-orders/${workOrderId}/quotes/${quoteId}/lines`,
-        {
-          lines: lines.map((line) => ({
-            name: line.name,
-            description: line.description || null,
-            sku: line.sku || null,
-            category: line.category,
-            unit: line.unit,
-            quantity: line.quantity,
-            unitPriceMinor: line.unitPriceMinor,
-            vatRate: line.vatRate,
-            priceBookItemId: line.priceBookItemId,
-          })),
-        },
-      );
-      const res = await apiRequest(
-        "POST",
-        `/api/work-orders/${workOrderId}/quotes/${quoteId}/submit`,
-      );
-      return res.json();
-    },
-    onSuccess: (data) => {
-      queryClient.setQueryData(
-        ["/api/work-orders", workOrderId, "quotes", quoteId],
-        (prev: QuoteDetail | undefined) =>
-          prev
-            ? {
-                ...prev,
-                ...data,
-                preparedByName: prev.preparedByName,
-                context: prev.context,
-              }
-            : data,
-      );
-      setHydratedId(null);
-      toast({ title: "Submitted for approval" });
-    },
-    onError: (e: Error) => {
-      toast({ title: "Submit failed", description: e.message, variant: "destructive" });
-    },
-  });
-
-  const ownerDecisionMutation = useMutation({
-    mutationFn: async (payload: {
-      decision: "approve" | "reject" | "request_changes";
-      reason?: string;
-    }) => {
-      const res = await apiRequest(
-        "POST",
-        `/api/work-orders/${workOrderId}/quotes/${quoteId}/owner-decision`,
-        payload,
-      );
-      return res.json();
-    },
-    onSuccess: () => {
-      setDecisionOpen(null);
-      setDecisionReason("");
-      setHydratedId(null);
-      invalidateQuote();
-      toast({ title: "Decision recorded" });
-    },
-    onError: (e: Error) =>
-      toast({ title: "Decision failed", description: e.message, variant: "destructive" }),
-  });
-
   const sendMutation = useMutation({
     mutationFn: async () => {
-      await apiRequest("PATCH", `/api/work-orders/${workOrderId}/quotes/${quoteId}`, {
-        recipientName: recipientName || null,
-        recipientEmail: recipientEmail || null,
-      });
+      if (editable) {
+        await apiRequest("PATCH", `/api/work-orders/${workOrderId}/quotes/${quoteId}`, {
+          scopeDescription: scopeDescription || null,
+          engineerNotes: engineerNotes || null,
+          validUntil: validUntil || null,
+          ...(canEditRecipient
+            ? {
+                recipientUserId: recipientUserId || null,
+                recipientName: recipientName || null,
+                recipientEmail: recipientEmail || null,
+              }
+            : {}),
+        });
+        await apiRequest(
+          "PUT",
+          `/api/work-orders/${workOrderId}/quotes/${quoteId}/lines`,
+          {
+            lines: lines.map((line) => ({
+              name: line.name,
+              description: line.description || null,
+              sku: line.sku || null,
+              category: line.category,
+              unit: line.unit,
+              quantity: line.quantity,
+              unitPriceMinor: line.unitPriceMinor,
+              vatRate: line.vatRate,
+              priceBookItemId: line.priceBookItemId,
+            })),
+          },
+        );
+      } else if (canEditRecipient) {
+        await apiRequest("PATCH", `/api/work-orders/${workOrderId}/quotes/${quoteId}`, {
+          recipientUserId: recipientUserId || null,
+          recipientName: recipientName || null,
+          recipientEmail: recipientEmail || null,
+        });
+      }
       const res = await apiRequest(
         "POST",
         `/api/work-orders/${workOrderId}/quotes/${quoteId}/send`,
@@ -346,6 +339,12 @@ export default function WorkOrderQuotation() {
     onSuccess: (data) => {
       setHydratedId(null);
       invalidateQuote();
+      queryClient.invalidateQueries({
+        queryKey: ["/api/maintenance-finance/pending-count"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["/api/maintenance-finance/tracking"],
+      });
       setLastPublicLink(data.publicLink || null);
       setLastEmailSent(data.emailSent !== false);
       if (data.emailSent === false) {
@@ -414,6 +413,12 @@ export default function WorkOrderQuotation() {
       queryClient.invalidateQueries({
         queryKey: ["/api/work-orders", workOrderId, "invoices"],
       });
+      queryClient.invalidateQueries({
+        queryKey: ["/api/maintenance-finance/pending-count"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["/api/maintenance-finance/tracking"],
+      });
       toast({ title: "Invoice draft created" });
       setLocation(`/work-orders/${workOrderId}/invoices/${data.id}`);
     },
@@ -459,7 +464,7 @@ export default function WorkOrderQuotation() {
   }
 
   const step = approvalStepIndex(quote.status);
-  const steps = ["Draft", "Submitted", "Review", "Approved"] as const;
+  const steps = ["Draft", "Sent", "Customer", "Converted"] as const;
 
   return (
     <div className="space-y-4 p-4 md:p-6 max-w-[1400px] mx-auto">
@@ -509,61 +514,27 @@ export default function WorkOrderQuotation() {
               Download PDF
             </Button>
             {editable ? (
-              <>
-                <Button
-                  variant="outline"
-                  disabled={saveMutation.isPending || submitMutation.isPending}
-                  onClick={() => saveMutation.mutate()}
-                  data-testid="button-save-quote-draft"
-                >
-                  {saveMutation.isPending ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : null}
-                  Save Draft
-                </Button>
-                <Button
-                  disabled={submitMutation.isPending || saveMutation.isPending}
-                  onClick={() => submitMutation.mutate()}
-                  data-testid="button-submit-quote"
-                >
-                  {submitMutation.isPending ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : null}
-                  Submit for Approval
-                </Button>
-              </>
-            ) : null}
-            {isOwner && quote.status === "pending_owner_approval" ? (
-              <>
-                <Button
-                  variant="outline"
-                  onClick={() => setDecisionOpen("request_changes")}
-                  data-testid="button-quote-request-changes"
-                >
-                  Request Changes
-                </Button>
-                <Button
-                  variant="destructive"
-                  onClick={() => setDecisionOpen("reject")}
-                  data-testid="button-quote-reject"
-                >
-                  Reject
-                </Button>
-                <Button
-                  disabled={ownerDecisionMutation.isPending}
-                  onClick={() => ownerDecisionMutation.mutate({ decision: "approve" })}
-                  data-testid="button-quote-approve"
-                >
-                  Approve Quotation
-                </Button>
-              </>
-            ) : null}
-            {isOwner && (quote.status === "owner_approved" || quote.status === "sent") ? (
               <Button
-                disabled={sendMutation.isPending}
+                variant="outline"
+                disabled={saveMutation.isPending || sendMutation.isPending}
+                onClick={() => saveMutation.mutate()}
+                data-testid="button-save-quote-draft"
+              >
+                {saveMutation.isPending ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : null}
+                Save Draft
+              </Button>
+            ) : null}
+            {canSendQuote && (editable || quote.status === "sent") ? (
+              <Button
+                disabled={sendMutation.isPending || saveMutation.isPending}
                 onClick={() => sendMutation.mutate()}
                 data-testid="button-quote-send"
               >
+                {sendMutation.isPending ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : null}
                 {quote.status === "sent" ? "Resend to Customer" : "Send to Customer"}
               </Button>
             ) : null}
@@ -577,7 +548,7 @@ export default function WorkOrderQuotation() {
                 Create revision
               </Button>
             ) : null}
-            {isOwner && quote.status === "accepted" ? (
+            {canConvertQuote && quote.status === "accepted" ? (
               <Button
                 disabled={convertMutation.isPending}
                 onClick={() => convertMutation.mutate()}
@@ -618,25 +589,20 @@ export default function WorkOrderQuotation() {
         />
       </div>
 
-      {(quote.status === "draft" || quote.status === "pending_owner_approval") && (
+      {quote.status === "draft" ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-950">
           <div className="flex gap-2 items-start">
             <AlertTriangle className="h-5 w-5 shrink-0 text-amber-600 mt-0.5" />
             <div>
-              <p className="font-semibold">
-                {quote.status === "draft"
-                  ? "Quotation needs approval before work starts"
-                  : "Awaiting owner approval"}
-              </p>
+              <p className="font-semibold">Ready to send to the customer</p>
               <p className="text-sm text-amber-900/80">
-                {quote.status === "draft"
-                  ? "Save your lines, then submit for approval so an owner can review."
-                  : "Owner can approve or request changes. Editing is locked while pending."}
+                Confirm the customer and line items, then send. The customer receives an email
+                with a secure link to view and respond.
               </p>
             </div>
           </div>
         </div>
-      )}
+      ) : null}
 
       {lastPublicLink ? (
         <div
@@ -700,33 +666,46 @@ export default function WorkOrderQuotation() {
                 />
               </div>
               <div className="space-y-1.5 sm:col-span-1">
-                <Label htmlFor="recipient-name">Recipient</Label>
-                <Input
-                  id="recipient-name"
-                  disabled={
-                    !(
-                      editable ||
-                      quote.status === "owner_approved" ||
-                      quote.status === "sent"
-                    )
-                  }
-                  value={recipientName}
-                  onChange={(e) => setRecipientName(e.target.value)}
-                  placeholder="Customer / landlord name"
-                />
+                <Label>Customer</Label>
+                {canEditRecipient && (editable || quote.status === "sent") ? (
+                  <Select
+                    value={recipientUserId || undefined}
+                    onValueChange={applyCustomer}
+                    disabled={candidatesQuery.isLoading}
+                  >
+                    <SelectTrigger data-testid="select-quote-customer">
+                      <SelectValue
+                        placeholder={
+                          candidatesQuery.isLoading
+                            ? "Loading…"
+                            : "Select customer"
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(candidatesQuery.data?.candidates || []).map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.displayName}
+                          {c.email ? ` (${c.email})` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input value={recipientName} disabled className="bg-muted/40" />
+                )}
+                {canEditRecipient && !recipientUserId && recipientName ? (
+                  <p className="text-xs text-muted-foreground">
+                    Current: {recipientName}
+                  </p>
+                ) : null}
               </div>
               <div className="space-y-1.5 sm:col-span-2">
-                <Label htmlFor="recipient-email">Recipient Email</Label>
+                <Label htmlFor="recipient-email">Customer Email</Label>
                 <Input
                   id="recipient-email"
                   type="email"
-                  disabled={
-                    !(
-                      editable ||
-                      quote.status === "owner_approved" ||
-                      quote.status === "sent"
-                    )
-                  }
+                  disabled={!(canEditRecipient && (editable || quote.status === "sent"))}
                   value={recipientEmail}
                   onChange={(e) => setRecipientEmail(e.target.value)}
                   placeholder="Required before send"
@@ -780,15 +759,24 @@ export default function WorkOrderQuotation() {
               />
             </CardContent>
           </Card>
+
+          {workOrderId && quoteId ? (
+            <DocumentAttachmentsPanel
+              workOrderId={workOrderId}
+              documentType="quote"
+              documentId={quoteId}
+              canEdit={editable}
+            />
+          ) : null}
         </div>
 
         <div className="space-y-4">
           <Card>
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between gap-2">
-                <CardTitle className="text-base">Approval Route</CardTitle>
+                <CardTitle className="text-base">Customer Approval</CardTitle>
                 <Badge variant="secondary" className="text-xs">
-                  Manager Approval Required
+                  Single stage
                 </Badge>
               </div>
             </CardHeader>
@@ -823,21 +811,23 @@ export default function WorkOrderQuotation() {
               </ol>
               <dl className="space-y-2 text-sm">
                 <div className="flex justify-between gap-2">
-                  <dt className="text-muted-foreground">Requested by</dt>
+                  <dt className="text-muted-foreground">Prepared by</dt>
                   <dd>{quote.preparedByName || "—"}</dd>
                 </div>
                 <div className="flex justify-between gap-2">
-                  <dt className="text-muted-foreground">Submitted</dt>
+                  <dt className="text-muted-foreground">Sent</dt>
                   <dd>
-                    {quote.submittedAt
-                      ? new Date(quote.submittedAt).toLocaleString()
-                      : "Not yet"}
+                    {quote.sentAt
+                      ? new Date(quote.sentAt).toLocaleString()
+                      : quote.submittedAt
+                        ? new Date(quote.submittedAt).toLocaleString()
+                        : "Not yet"}
                   </dd>
                 </div>
               </dl>
               <p className="rounded-lg bg-primary/5 border border-primary/15 px-3 py-2 text-xs text-muted-foreground">
-                Owner approval and customer acceptance are separate. Sending creates a secure
-                customer link; convert is available only after the customer accepts.
+                Send emails the selected customer a secure View &amp; respond link. Convert to
+                invoice is available only after they accept.
               </p>
             </CardContent>
           </Card>
@@ -864,7 +854,13 @@ export default function WorkOrderQuotation() {
                 variant="outline"
                 size="sm"
                 className="w-full mt-2"
-                onClick={() => setLocation("/maintenance?tab=work-orders")}
+                onClick={() =>
+                  setLocation(
+                    workOrderId
+                      ? `/maintenance/work-orders/${workOrderId}`
+                      : "/maintenance?tab=work-orders",
+                  )
+                }
               >
                 View work order
               </Button>
@@ -873,46 +869,6 @@ export default function WorkOrderQuotation() {
         </div>
       </div>
 
-      <Dialog
-        open={!!decisionOpen}
-        onOpenChange={(open) => {
-          if (!open) {
-            setDecisionOpen(null);
-            setDecisionReason("");
-          }
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {decisionOpen === "reject" ? "Reject Quotation" : "Request Changes"}
-            </DialogTitle>
-          </DialogHeader>
-          <Textarea
-            value={decisionReason}
-            onChange={(e) => setDecisionReason(e.target.value)}
-            placeholder="Reason (required)"
-            rows={4}
-          />
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDecisionOpen(null)}>
-              Cancel
-            </Button>
-            <Button
-              disabled={!decisionReason.trim() || ownerDecisionMutation.isPending}
-              onClick={() => {
-                if (!decisionOpen) return;
-                ownerDecisionMutation.mutate({
-                  decision: decisionOpen,
-                  reason: decisionReason.trim(),
-                });
-              }}
-            >
-              Confirm
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

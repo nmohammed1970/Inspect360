@@ -278,11 +278,13 @@ export async function generatePropertyHistoryReportHTML(params: {
       [wo?.contractor?.firstName, wo?.contractor?.lastName].filter(Boolean).join(" ") ||
       "";
     const cost =
-      wo?.costActual != null && wo.costActual !== ""
-        ? formatMoneyCents(wo.costActual, currency)
-        : wo?.costEstimate != null && wo.costEstimate !== ""
-          ? formatMoneyCents(wo.costEstimate, currency)
-          : "—";
+      wo?.authorisedTotalMinor != null && wo.authorisedTotalMinor !== ""
+        ? formatMoneyCents(wo.authorisedTotalMinor, currency)
+        : wo?.costActual != null && wo.costActual !== ""
+          ? formatMoneyCents(wo.costActual, currency)
+          : wo?.costEstimate != null && wo.costEstimate !== ""
+            ? formatMoneyCents(wo.costEstimate, currency)
+            : "—";
     return [
       stackedCell(req.title || "—", prettyLabel(req.source)),
       stackedCell(formatDate(req.createdAt) || "—", formatDate(req.dueDate) || ""),

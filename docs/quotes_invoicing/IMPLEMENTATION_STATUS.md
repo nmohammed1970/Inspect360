@@ -7,13 +7,13 @@ Source of truth for phases in [`IMPLEMENTATION_PLAN/`](IMPLEMENTATION_PLAN/) (`0
 **Yes — the planned WO-first lifecycle is in place in code:**
 
 ```text
-Existing WO → Quote draft → Submit → Owner approve
-  → Send (email + PDF + secure link) → Customer accept/decline/changes (public page only)
+Existing WO → Quote draft → Send to customer (email + PDF + secure View & respond link)
+  → Customer accept/decline/changes (public page only)
   → WO authorised + cost_estimate locked → Convert → Invoice draft
   → Send invoice (email + PDF + link) → Record payments (partial/full)
 ```
 
-Owner approve ≠ customer accept (independent). No offline customer decision. New WOs get `quote_required`; existing stay `not_required`. Tenants blocked from staff finance APIs.
+Single-stage customer approval only (no separate owner approval). No offline customer decision. New WOs get `quote_required`; existing stay `not_required`. Tenants blocked from staff finance APIs.
 
 **Not proven as Phase 07:** formal E2E / regression pack not executed as a dedicated phase. Ops must apply migrations + `APP_URL` + Resend before production smoke.
 
@@ -24,9 +24,9 @@ Owner approve ≠ customer accept (independent). No offline customer decision. N
 | Phase | Status | Done | Remaining |
 |---|---|---|---|
 | **01 Foundation** | Done | Price book; `maintenance_quotes` / lines / sequences; invoices / payments / share tokens; WO auth columns; `work_order_events`; `maintenanceFinanceMath` | — |
-| **02 Quotation** | Done (+ polish open) | Draft on existing WO; lines (freehand + price-book soft link); VAT enum; save; submit; currency snapshot; PDF generate/download | Contact-search recipient UI; events on every draft edit |
-| **03 Approvals** | Done (+ polish open) | Owner approve/reject/request changes; send/resend hashed token; public accept/decline/request-changes; revise + variation; email + PDF attach; `emailSent`/`publicLink` | Cron: `sent` → `expired` |
-| **04 Workflow** | Done (+ polish open) | Start/complete gate when `quote_required`; cost lock after accept; delete WO blocked if quotes/invoices; `/maintenance/finance` pending + tracking; WO “Quote required / Authorised” badges | Richer Analytics badges; mobile-only pass |
+| **02 Quotation** | Done (+ polish open) | Draft on existing WO; lines (freehand + price-book soft link); VAT enum; save; send to customer; currency snapshot; PDF generate/download | events on every draft edit |
+| **03 Approvals** | Done (single-stage) | Send/resend hashed token; public accept/decline/request-changes; revise + variation; email + PDF attach; `emailSent`/`publicLink` (owner-approval stage removed) | Cron: `sent` → `expired` |
+| **04 Workflow** | Done (+ polish open) | Start/complete gate when `quote_required`; cost lock after accept; delete WO blocked if quotes/invoices; `/maintenance/finance` awaiting-customer tracking; WO “Quote required / Authorised” badges | Richer Analytics badges; mobile-only pass |
 | **05 Invoice** | Done (+ polish open) | Convert from `accepted` only; draft edit; send + public view; void; PDF download/attach | Broader OD-09 private `/objects` (PDFs already auth/token gated) |
 | **06 Payments** | Done (+ polish open) | Payment API; unpaid/partial/paid; invoice payment panel; finance nav | Dedicated WO “record” tabs (quotes/invoices/activity as one surface) |
 | **07 Testing** | Not done | Unit maths + transition tests exist | Full scenario pack, permission matrix, UI 390px pass, update `IMPLEMENTATION_PROGRESS.md` |
@@ -50,6 +50,6 @@ Offline/phone customer accept (OD-03); Stripe/ledgers; contractor AP (OD-13); ap
 
 ## Ops before real use
 
-1. Migrations (as `creativecloud`): `addMaintenancePriceBookItems.sql` → `addMaintenanceQuotes.sql` → `addMaintenanceQuoteLifecycle.sql` (+ any line SKU add-on) + `GRANT` to `inspect360`  
+1. Migrations (as `creativecloud`): `addMaintenancePriceBookItems.sql` → `addMaintenanceQuotes.sql` → `addMaintenanceQuoteLifecycle.sql` (+ line SKU / created_by / wipeDualApprovalQuotes as needed) + `GRANT` to `inspect360`  
 2. Env: `APP_URL` or `PUBLIC_APP_URL`, `RESEND_API_KEY`, `RESEND_FROM_EMAIL`  
 3. Smoke the happy path above once on Contabo/dev

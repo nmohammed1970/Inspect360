@@ -4,6 +4,7 @@ import {
   PropertyExpensesPanel,
   PropertyRentCollectionPanel,
 } from "@/components/PropertyFinancePanels";
+import { SiteMaintenanceFinancePanel } from "@/components/maintenance-quotes/SiteMaintenanceFinancePanel";
 import { HmoPropertyPanel } from "@/components/hmo/HmoPropertyPanel";
 import { useState, useEffect, useMemo } from "react";
 import { useRoute, Link, useSearch } from "wouter";
@@ -1287,6 +1288,16 @@ export default function PropertyDetail() {
               ))}
             </div>
           )}
+
+          {propertyId ? (
+            <div className="space-y-3 pt-4 border-t">
+              <h2 className="text-xl font-semibold">Quotes &amp; invoices</h2>
+              <p className="text-sm text-muted-foreground">
+                Historical quotations and invoices for this property (independent of work order status).
+              </p>
+              <SiteMaintenanceFinancePanel scope="property" scopeId={propertyId} />
+            </div>
+          ) : null}
         </TabsContent>
         )}
 

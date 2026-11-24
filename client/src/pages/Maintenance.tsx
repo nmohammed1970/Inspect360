@@ -7,8 +7,15 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Wrench, Upload, Sparkles, Loader2, X, Check, ChevronsUpDown, Pencil, Trash2, Clipboard, Calendar, User as UserIcon, AlertCircle, CheckCircle2, Clock, Filter } from "lucide-react";
-import { WorkOrderQuotesInvoicesPanel } from "@/components/maintenance-quotes/WorkOrderQuotesInvoicesPanel";
+import { Plus, Wrench, Upload, Sparkles, Loader2, X, Check, ChevronsUpDown, Pencil, Trash2, Clipboard, Calendar, User as UserIcon, AlertCircle, AlertTriangle, CheckCircle2, Clock, Filter, Building2, MoreVertical, ArrowRight, MessageSquare } from "lucide-react";
+import { MaintenanceRequestDiscussion } from "@/components/MaintenanceRequestDiscussion";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { WorkOrderFinanceLinks } from "@/components/maintenance-quotes/WorkOrderFinanceLinks";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
@@ -16,7 +23,6 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { formatDistanceToNow } from "date-fns";
 import { useLocale } from "@/contexts/LocaleContext";
-import { FixfloSyncButton } from "@/components/FixfloSyncButton";
 import { LocaleDateInput } from "@/components/LocaleDateInput";
 import {
   MaintenanceAiAnalysisView,
@@ -76,13 +82,10 @@ import { ModernFilePickerInline } from "@/components/ModernFilePickerInline";
 import { extractFileUrlFromUploadResponse, cn } from "@/lib/utils";
 import { useModules } from "@/hooks/use-modules";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { WorkOrderCertificatePanel } from "@/components/WorkOrderCertificatePanel";
 import { WorkOrderCompleteDialog } from "@/components/WorkOrderCompleteDialog";
-import { WorkOrderCompletionChecklistPanel } from "@/components/WorkOrderCompletionChecklistPanel";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 import { FiltersSection } from "@/components/FiltersSection";
 import { pagePad, dialogContentBase } from "@/lib/responsive";
-import { parseSignatureValue } from "@shared/signature";
 import { PageHeader } from "@/components/PageHeader";
 
 type MaintenanceRequestWithDetails = MaintenanceRequest & {
@@ -95,6 +98,9 @@ interface WorkOrder {
   id: string;
   status: string;
   slaDue?: string | null;
+  scheduledAt?: string | null;
+  arrivedAt?: string | null;
+  authorisationStatus?: string | null;
   costEstimate?: number | null;
   costActual?: number | null;
   createdAt: string;
@@ -193,10 +199,12 @@ export default function Maintenance() {
   // Work order creation state
   const [isWorkOrderDialogOpen, setIsWorkOrderDialogOpen] = useState(false);
   const [selectedRequestForWorkOrder, setSelectedRequestForWorkOrder] = useState<MaintenanceRequestWithDetails | null>(null);
-  const [selectedWorkOrderDetail, setSelectedWorkOrderDetail] = useState<WorkOrder | null>(null);
   const [completeWorkOrderId, setCompleteWorkOrderId] = useState<string | null>(null);
   const [requestToDelete, setRequestToDelete] = useState<MaintenanceRequestWithDetails | null>(null);
   const [workOrderToDelete, setWorkOrderToDelete] = useState<WorkOrder | null>(null);
+  const [scheduleWorkOrder, setScheduleWorkOrder] = useState<WorkOrder | null>(null);
+  const [scheduleAtLocal, setScheduleAtLocal] = useState("");
+  const [discussionRequest, setDiscussionRequest] = useState<MaintenanceRequestWithDetails | null>(null);
 
   const { data: completionChecklists = [] } = useQuery<any[]>({
     queryKey: ["/api/completion-checklists"],
@@ -208,26 +216,22 @@ export default function Maintenance() {
   });
   const activeCompletionChecklists = completionChecklists.filter((c: any) => c.isActive !== false);
 
-  const assignWorkOrderChecklistMutation = useMutation({
-    mutationFn: async ({ id, completionChecklistId }: { id: string; completionChecklistId: string | null }) => {
-      return apiRequest("PATCH", `/api/work-orders/${id}`, { completionChecklistId });
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["/api/work-orders"] });
-      toast({ title: "Checklist updated" });
-    },
-    onError: (e: any) => {
-      toast({ title: "Failed to update checklist", description: e?.message, variant: "destructive" });
-    },
-  });
-
-  // Inspectors (clerk) must not see work orders in the inspector portal.
+  // Demo: clerks can see org-wide work orders alongside field/admin roles.
   const canSeeWorkOrders =
-    user?.role === "owner" || user?.role === "contractor";
+    user?.role === "owner" ||
+    user?.role === "clerk" ||
+    user?.role === "contractor" ||
+    user?.role === "maintenance_admin";
   const isAssigneeRole = user?.role === "contractor";
+  const canFieldAct =
+    user?.role === "clerk" ||
+    user?.role === "contractor" ||
+    user?.role === "maintenance_admin";
+  const isMaintenanceManager =
+    user?.role === "owner" || user?.role === "maintenance_admin";
   const tabFromUrl = new URLSearchParams(searchParams).get("tab");
   const defaultWorkOrdersTab =
-    tabFromUrl === "work-orders" || (isAssigneeRole && tabFromUrl !== "requests");
+    tabFromUrl === "work-orders" || (canFieldAct && tabFromUrl !== "requests");
   const [activeTab, setActiveTab] = useState(
     defaultWorkOrdersTab && canSeeWorkOrders ? "work-orders" : "requests",
   );
@@ -264,7 +268,7 @@ export default function Maintenance() {
   // Fetch organization clerks (for assignment)
   const { data: clerks = [] } = useQuery<User[]>({
     queryKey: ["/api/users/clerks"],
-    enabled: user?.role === "owner" && isMaintenanceEnabled !== false,
+    enabled: isMaintenanceManager && isMaintenanceEnabled !== false,
   });
 
   // Fetch work orders (owners: org-wide; clerks/contractors: assignee-scoped by API)
@@ -276,7 +280,7 @@ export default function Maintenance() {
   // Fetch teams for work order assignment
   const { data: teams = [] } = useQuery<any[]>({
     queryKey: ["/api/teams"],
-    enabled: user?.role === "owner" && isMaintenanceEnabled !== false,
+    enabled: isMaintenanceManager && isMaintenanceEnabled !== false,
   });
 
   // Work order creation mutation
@@ -299,7 +303,8 @@ export default function Maintenance() {
   // Work order status update mutation
   const updateWorkOrderStatusMutation = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: string }) => {
-      return apiRequest("PATCH", `/api/work-orders/${id}/status`, { status });
+      await apiRequest("PATCH", `/api/work-orders/${id}/status`, { status });
+      return { id, status };
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/work-orders"] });
@@ -307,6 +312,70 @@ export default function Maintenance() {
     },
     onError: () => {
       toast({ title: "Failed to update work order status", variant: "destructive" });
+    },
+  });
+
+  const canScheduleWorkOrder =
+    user?.role === "owner" ||
+    user?.role === "clerk" ||
+    user?.role === "contractor" ||
+    user?.role === "maintenance_admin";
+
+  const openScheduleDialog = (workOrder: WorkOrder) => {
+    const existing = workOrder.scheduledAt ? new Date(workOrder.scheduledAt) : null;
+    const base =
+      existing && !Number.isNaN(existing.getTime()) && existing.getTime() >= Date.now() - 60_000
+        ? existing
+        : new Date();
+    if (!existing) {
+      base.setMinutes(0, 0, 0);
+      if (base.getTime() < Date.now()) {
+        base.setHours(base.getHours() + 1);
+      }
+    }
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const local = `${base.getFullYear()}-${pad(base.getMonth() + 1)}-${pad(base.getDate())}T${pad(base.getHours())}:${pad(base.getMinutes())}`;
+    setScheduleAtLocal(local);
+    setScheduleWorkOrder(workOrder);
+  };
+
+  const scheduleWorkOrderMutation = useMutation({
+    mutationFn: async ({ id, scheduledAt }: { id: string; scheduledAt: string }) => {
+      const res = await apiRequest("POST", `/api/work-orders/${id}/schedule`, { scheduledAt });
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/work-orders"] });
+      setScheduleWorkOrder(null);
+      toast({
+        title: "Job scheduled",
+        description: data?.warning || (data?.emailed || data?.notified ? "Tenant notified" : "No tenant email on file"),
+      });
+    },
+    onError: (e: any) => {
+      toast({
+        title: "Failed to schedule job",
+        description: e?.message || "Failed to schedule job",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const arriveOnSiteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("POST", `/api/work-orders/${id}/arrive`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/work-orders"] });
+      toast({ title: "Arrived on site", description: "Arrival recorded" });
+    },
+    onError: (e: any) => {
+      toast({
+        title: "Failed to mark arrival",
+        description: e?.message || "Failed to mark arrival",
+        variant: "destructive",
+      });
     },
   });
 
@@ -819,13 +888,45 @@ export default function Maintenance() {
   };
 
   const getPriorityBadge = (priority: string) => {
-    const variants: Record<string, { variant: "default" | "secondary" | "destructive"; label: string }> = {
-      low: { variant: "secondary", label: "Low" },
-      medium: { variant: "default", label: "Medium" },
-      high: { variant: "destructive", label: "High" },
+    const config: Record<
+      string,
+      { label: string; className: string; icon?: typeof AlertTriangle }
+    > = {
+      low: {
+        label: "Low",
+        className:
+          "rounded-full border-border bg-muted px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground",
+      },
+      medium: {
+        label: "Medium",
+        className:
+          "rounded-full border-[color:var(--brand-warning)]/40 bg-[color:var(--brand-warning)]/15 px-2.5 py-0.5 text-[11px] font-medium text-[color:var(--brand-slate)]",
+      },
+      high: {
+        label: "High",
+        className:
+          "rounded-full border-[color:var(--brand-critical)]/30 bg-[color:var(--brand-critical)]/10 px-2.5 py-0.5 text-[11px] font-medium text-[color:var(--brand-critical)]",
+        icon: AlertTriangle,
+      },
+      urgent: {
+        label: "Urgent",
+        className:
+          "rounded-full border-[color:var(--brand-critical)]/30 bg-[color:var(--brand-critical)]/10 px-2.5 py-0.5 text-[11px] font-medium text-[color:var(--brand-critical)]",
+        icon: AlertTriangle,
+      },
     };
-    const config = variants[priority] || variants.medium;
-    return <Badge variant={config.variant} data-testid={`badge-priority-${priority}`}>{config.label}</Badge>;
+    const item = config[priority] || config.medium;
+    const Icon = item.icon;
+    return (
+      <Badge
+        variant="outline"
+        className={cn("gap-1 shadow-none", item.className)}
+        data-testid={`badge-priority-${priority}`}
+      >
+        {Icon ? <Icon className="h-3 w-3" /> : null}
+        {item.label}
+      </Badge>
+    );
   };
 
   const getStatusBadge = (status: string) => (
@@ -836,6 +937,40 @@ export default function Maintenance() {
       {formatMaintenanceStatus(status)}
     </Badge>
   );
+
+  const priorityAccentClass = (priority: string) => {
+    if (priority === "urgent" || priority === "high") return "border-l-[color:var(--brand-critical)]";
+    if (priority === "medium") return "border-l-[color:var(--brand-warning)]";
+    return "border-l-[color:var(--brand-teal)]";
+  };
+
+  const statusSelectClass = (status: string) => {
+    if (status === "in_progress") {
+      return "border-[color:var(--brand-success)]/30 bg-[color:var(--brand-success)]/10 text-[color:var(--brand-success)]";
+    }
+    if (status === "completed" || status === "closed") {
+      return "border-border bg-muted text-muted-foreground";
+    }
+    return "border-[color:var(--brand-info)]/30 bg-[color:var(--brand-info)]/10 text-[color:var(--brand-info)]";
+  };
+
+  const reporterInitials = (req: MaintenanceRequestWithDetails) => {
+    const f = req.reportedByUser?.firstName?.[0] ?? "";
+    const l = req.reportedByUser?.lastName?.[0] ?? "";
+    return (f + l).toUpperCase() || "?";
+  };
+
+  const assigneeInitials = (req: MaintenanceRequestWithDetails) => {
+    const f = req.assignedToUser?.firstName?.[0] ?? "";
+    const l = req.assignedToUser?.lastName?.[0] ?? "";
+    return (f + l).toUpperCase() || "?";
+  };
+
+  const daysOpenLabel = (createdAt?: string | Date | null) => {
+    const start = createdAt ? new Date(createdAt).getTime() : Date.now();
+    const days = Math.max(0, Math.floor((Date.now() - start) / 86_400_000));
+    return `${days} day${days === 1 ? "" : "s"} open`;
+  };
 
   // Location / tenant scope (used for summary + list)
   let scopedRequests = requests;
@@ -1631,125 +1766,54 @@ export default function Maintenance() {
                 </CardContent>
               </Card>
             ) : (
-              filteredRequests.map((request) => (
+              filteredRequests.map((request) => {
+                const linkedWorkOrder = workOrders.find(
+                  (wo) => wo.maintenanceRequest?.id === request.id,
+                );
+                const canManage =
+                  user?.role === "owner" ||
+                  user?.role === "clerk" ||
+                  user?.role === "maintenance_admin";
+                const canOwnerAct =
+                  isMaintenanceManager && request.status !== "completed";
+                const isHmoFinding =
+                  request.source === "hmo_finding" ||
+                  (request.aiAnalysisJson as any)?.source === "hmo_finding";
+
+                return (
                 <Card
                   key={request.id}
                   data-testid={`card-request-${request.id}`}
                   className={cn(
-                    "shadow-sm overflow-hidden border-l-4",
-                    request.status === "open" && "border-l-blue-500",
-                    request.status === "in_progress" && "border-l-amber-500",
-                    request.status === "completed" && "border-l-emerald-500",
-                    request.status === "closed" && "border-l-slate-400",
+                    "overflow-hidden rounded-2xl border border-border/80 bg-card shadow-sm border-l-4",
+                    priorityAccentClass(request.priority),
                   )}
                 >
-                  <CardHeader className="p-4 md:p-5">
-                    <div className="flex flex-col gap-3">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-start justify-between gap-2 mb-2">
-                          <CardTitle className="text-base md:text-lg flex-1 font-semibold leading-snug" data-testid={`text-title-${request.id}`}>
-                            {request.title}
-                          </CardTitle>
-                          <div className="flex items-center gap-2 flex-shrink-0">
-                            {(user?.role === "owner" || user?.role === "clerk") && (
-                              <>
-                                <Button
-                                  size="icon"
-                                  variant="ghost"
-                                  onClick={() => handleEdit(request)}
-                                  data-testid={`button-edit-${request.id}`}
-                                  className="h-8 w-8"
-                                  title="Edit request"
-                                >
-                                  <Pencil className="w-4 h-4" />
-                                </Button>
-                                <Button
-                                  size="icon"
-                                  variant="ghost"
-                                  onClick={() => setRequestToDelete(request)}
-                                  data-testid={`button-delete-${request.id}`}
-                                  className="h-8 w-8 text-destructive hover:text-destructive"
-                                  title="Delete request"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </Button>
-                              </>
-                            )}
-                            {getPriorityBadge(request.priority)}
-                            {getStatusBadge(request.status)}
-                          </div>
-                        </div>
-                        <div className="flex flex-wrap gap-2 text-xs md:text-sm text-muted-foreground">
-                          <span data-testid={`text-property-${request.id}`}>
-                            {request.property?.name || "Unknown"}
-                          </span>
-                          {request.property?.address && (
-                            <span className="hidden sm:inline">• {request.property.address}</span>
-                          )}
-                          {request.dueDate ? (
-                            <span>• Due {locale.formatDate(new Date(request.dueDate), "PPP")}</span>
-                          ) : (
-                            <span>• Created {locale.formatDate(new Date(request.createdAt?.toString() || Date.now()), "PPP")}</span>
-                          )}
-                        </div>
-                        {(user?.role === "owner" || user?.role === "clerk") && (
-                          <div className="mt-2">
-                            <FixfloSyncButton
-                              requestId={request.id}
-                              propertyId={request.propertyId}
-                              fixfloIssueId={request.fixfloIssueId}
-                              fixfloStatus={request.fixfloStatus}
-                              fixfloContractorName={request.fixfloContractorName}
-                              title={request.title}
-                            />
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-3 p-4 md:p-5 pt-0">
-                    {request.description && (
-                      <p className="text-sm text-muted-foreground line-clamp-3" data-testid={`text-description-${request.id}`}>
-                        {request.description}
-                      </p>
-                    )}
-
-                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-3 border-t">
-                      <div className="text-xs md:text-sm">
-                        <span className="text-muted-foreground">Reported by: </span>
-                        <span data-testid={`text-reporter-${request.id}`}>
-                          {request.reportedByUser
-                            ? `${request.reportedByUser.firstName} ${request.reportedByUser.lastName}`
-                            : "Unknown"}
-                        </span>
-                        {request.assignedToUser && (
-                          <>
-                            <span className="text-muted-foreground"> • Assigned to: </span>
-                            <span data-testid={`text-assignee-${request.id}`}>
-                              {request.assignedToUser.firstName} {request.assignedToUser.lastName}
-                            </span>
-                          </>
-                        )}
-                      </div>
-
-                      {(request.source === "hmo_finding" ||
-                        (request.aiAnalysisJson as any)?.source === "hmo_finding") &&
-                        request.verificationStatus === "awaiting_verification" && (
-                          <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 mb-2">
-                            HMO work reported complete — awaiting authorised verification before
-                            this request can close.
-                          </div>
-                        )}
-
-                      {user?.role === "owner" && request.status !== "completed" && (
-                        <div className="flex flex-col sm:flex-row gap-2">
+                  <CardContent className="p-4 md:p-5 space-y-3">
+                    {/* Top: title + priority / status / menu */}
+                    <div className="flex items-start justify-between gap-3">
+                      <h3
+                        className="min-w-0 flex-1 text-base font-semibold leading-snug text-foreground md:text-[17px]"
+                        data-testid={`text-title-${request.id}`}
+                      >
+                        {request.title}
+                      </h3>
+                      <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+                        {getPriorityBadge(request.priority)}
+                        {canOwnerAct ? (
                           <Select
                             value={request.status}
                             onValueChange={(status) =>
                               updateStatusMutation.mutate({ id: request.id, status })
                             }
                           >
-                            <SelectTrigger className="w-full sm:w-40 h-8" data-testid={`select-status-${request.id}`}>
+                            <SelectTrigger
+                              className={cn(
+                                "h-7 w-auto min-w-[7.5rem] gap-1 rounded-full border px-2.5 text-[11px] font-medium shadow-none [&>svg]:h-3 [&>svg]:w-3",
+                                statusSelectClass(request.status),
+                              )}
+                              data-testid={`select-status-${request.id}`}
+                            >
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -1759,19 +1823,113 @@ export default function Maintenance() {
                               <SelectItem value="closed" data-testid={`option-status-closed-${request.id}`}>Closed</SelectItem>
                             </SelectContent>
                           </Select>
+                        ) : (
+                          getStatusBadge(request.status)
+                        )}
+                        {canManage && (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-7 w-7 text-muted-foreground"
+                                data-testid={`button-request-menu-${request.id}`}
+                                aria-label="Request actions"
+                              >
+                                <MoreVertical className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem
+                                onClick={() => handleEdit(request)}
+                                data-testid={`button-edit-${request.id}`}
+                              >
+                                <Pencil className="mr-2 h-4 w-4" />
+                                Edit
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                className="text-destructive focus:text-destructive"
+                                onClick={() => setRequestToDelete(request)}
+                                data-testid={`button-delete-${request.id}`}
+                              >
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Delete
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        )}
+                      </div>
+                    </div>
 
-                          {!request.assignedTo && clerks.length > 0 && (
+                    {/* Meta: property + age */}
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground md:text-[13px]">
+                      <span className="inline-flex min-w-0 items-center gap-1.5" data-testid={`text-property-${request.id}`}>
+                        <Building2 className="h-3.5 w-3.5 shrink-0 text-[color:var(--brand-slate)]" />
+                        <span className="truncate">
+                          {request.property?.name || "Unknown"}
+                          {request.property?.address ? `, ${request.property.address}` : ""}
+                        </span>
+                      </span>
+                      <span className="inline-flex items-center gap-1.5">
+                        <Clock className="h-3.5 w-3.5 shrink-0 text-[color:var(--brand-slate)]" />
+                        {daysOpenLabel(request.createdAt)}
+                      </span>
+                    </div>
+
+                    {isHmoFinding && request.verificationStatus === "awaiting_verification" && (
+                      <div className="rounded-lg border border-[color:var(--brand-warning)]/40 bg-[color:var(--brand-warning)]/10 px-3 py-2 text-sm text-[color:var(--brand-slate)]">
+                        HMO work reported complete — awaiting authorised verification before
+                        this request can close.
+                      </div>
+                    )}
+
+                    {/* Footer */}
+                    <div className="flex flex-col gap-3 border-t border-border/70 pt-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
+                        <Avatar className="h-8 w-8 border border-border/60 bg-muted">
+                          <AvatarFallback className="bg-[color:var(--brand-mist)] text-[11px] font-semibold text-[color:var(--brand-navy)]">
+                            {reporterInitials(request)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span
+                          className="truncate text-sm font-medium text-foreground"
+                          data-testid={`text-reporter-${request.id}`}
+                        >
+                          {request.reportedByUser
+                            ? `${request.reportedByUser.firstName} ${request.reportedByUser.lastName}`
+                            : "Unknown"}
+                        </span>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                        {canOwnerAct && clerks.length > 0 && (
+                          request.assignedToUser ? (
+                            <div
+                              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-border bg-background px-2.5 text-xs font-medium"
+                              data-testid={`text-assignee-${request.id}`}
+                            >
+                              <Avatar className="h-5 w-5">
+                                <AvatarFallback className="bg-[color:var(--brand-navy)] text-[9px] text-white">
+                                  {assigneeInitials(request)}
+                                </AvatarFallback>
+                              </Avatar>
+                              {request.assignedToUser.firstName} {request.assignedToUser.lastName}
+                            </div>
+                          ) : (
                             <Select
                               onValueChange={(assignedTo) =>
                                 updateStatusMutation.mutate({
                                   id: request.id,
                                   status: "in_progress",
-                                  assignedTo
+                                  assignedTo,
                                 })
                               }
                             >
-                              <SelectTrigger className="w-full sm:w-40 h-8" data-testid={`select-assign-${request.id}`}>
-                                <SelectValue placeholder="Assign to..." />
+                              <SelectTrigger
+                                className="h-8 w-auto min-w-[6.5rem] gap-1 rounded-full border-border px-3 text-xs shadow-none"
+                                data-testid={`select-assign-${request.id}`}
+                              >
+                                <SelectValue placeholder="+ Assign" />
                               </SelectTrigger>
                               <SelectContent>
                                 {clerks.map((clerk) => (
@@ -1785,90 +1943,131 @@ export default function Maintenance() {
                                 ))}
                               </SelectContent>
                             </Select>
-                          )}
+                          )
+                        )}
 
+                        {(isMaintenanceManager ||
+                          isAssigneeRole ||
+                          user?.role === "tenant") && (
                           <Button
                             variant="outline"
                             size="sm"
+                            className="h-8 rounded-full px-3 text-xs"
+                            onClick={() => setDiscussionRequest(request)}
+                            data-testid={`button-discussion-${request.id}`}
+                          >
+                            <MessageSquare className="mr-1.5 h-3.5 w-3.5" />
+                            Discussion
+                          </Button>
+                        )}
+
+                        {isWorkOrdersEnabled &&
+                          linkedWorkOrder &&
+                          (canOwnerAct || canFieldAct) && (
+                            <Button
+                              variant={
+                                linkedWorkOrder.status === "completed" ||
+                                linkedWorkOrder.status === "rejected"
+                                  ? "outline"
+                                  : "default"
+                              }
+                              size="sm"
+                              className={cn(
+                                "h-8 rounded-full px-3 text-xs",
+                                linkedWorkOrder.status !== "completed" &&
+                                  linkedWorkOrder.status !== "rejected" &&
+                                  "bg-emerald-600 text-white hover:bg-emerald-700",
+                              )}
+                              onClick={() => {
+                                navigate(`/maintenance/work-orders/${linkedWorkOrder.id}`);
+                              }}
+                              data-testid={`button-view-work-order-${request.id}`}
+                            >
+                              View work order
+                              <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                        {isWorkOrdersEnabled && !linkedWorkOrder && canOwnerAct && (
+                          <Button
+                            size="sm"
+                            className="h-8 rounded-full bg-primary px-3 text-xs text-primary-foreground hover:bg-[hsl(var(--primary-hover))]"
                             onClick={() => {
                               setSelectedRequestForWorkOrder(request);
                               setIsWorkOrderDialogOpen(true);
                             }}
                             data-testid={`button-create-work-order-${request.id}`}
-                            className="w-full sm:w-auto h-8"
                           >
-                            <Clipboard className="w-4 h-4 mr-2" />
-                            <span className="hidden sm:inline">Create Work Order</span>
-                            <span className="sm:hidden">Work Order</span>
+                            Create work order
                           </Button>
+                        )}
 
-                          {(request.source === "hmo_finding" ||
-                            (request.aiAnalysisJson as any)?.source === "hmo_finding") &&
-                            (request.verificationStatus === "awaiting_verification" ||
-                              request.verificationStatus === "rejected" ||
-                              request.status === "in_progress") && (
-                              <>
-                                <Button
-                                  size="sm"
-                                  className="h-8"
-                                  data-testid={`button-hmo-verify-${request.id}`}
-                                  onClick={async () => {
-                                    try {
-                                      await apiRequest(
-                                        "POST",
-                                        `/api/maintenance/${request.id}/hmo-verification`,
-                                        { action: "verify" },
-                                      );
-                                      queryClient.invalidateQueries({
-                                        queryKey: ["/api/maintenance"],
-                                      });
-                                      toast({ title: "HMO issue verified closed" });
-                                    } catch (e: any) {
-                                      toast({
-                                        title: "Verification failed",
-                                        description: e.message,
-                                        variant: "destructive",
-                                      });
-                                    }
-                                  }}
-                                >
-                                  Confirm resolved
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="secondary"
-                                  className="h-8"
-                                  data-testid={`button-hmo-reject-${request.id}`}
-                                  onClick={async () => {
-                                    try {
-                                      await apiRequest(
-                                        "POST",
-                                        `/api/maintenance/${request.id}/hmo-verification`,
-                                        { action: "reject", notes: "Rejected — reopen" },
-                                      );
-                                      queryClient.invalidateQueries({
-                                        queryKey: ["/api/maintenance"],
-                                      });
-                                      toast({ title: "Reopened — verification rejected" });
-                                    } catch (e: any) {
-                                      toast({
-                                        title: "Could not reject",
-                                        description: e.message,
-                                        variant: "destructive",
-                                      });
-                                    }
-                                  }}
-                                >
-                                  Reject — reopen
-                                </Button>
-                              </>
-                            )}
-                        </div>
-                      )}
+                        {canOwnerAct &&
+                          isHmoFinding &&
+                          (request.verificationStatus === "awaiting_verification" ||
+                            request.verificationStatus === "rejected" ||
+                            request.status === "in_progress") && (
+                            <>
+                              <Button
+                                size="sm"
+                                className="h-8 rounded-full"
+                                data-testid={`button-hmo-verify-${request.id}`}
+                                onClick={async () => {
+                                  try {
+                                    await apiRequest(
+                                      "POST",
+                                      `/api/maintenance/${request.id}/hmo-verification`,
+                                      { action: "verify" },
+                                    );
+                                    queryClient.invalidateQueries({
+                                      queryKey: ["/api/maintenance"],
+                                    });
+                                    toast({ title: "HMO issue verified closed" });
+                                  } catch (e: any) {
+                                    toast({
+                                      title: "Verification failed",
+                                      description: e.message,
+                                      variant: "destructive",
+                                    });
+                                  }
+                                }}
+                              >
+                                Confirm resolved
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                className="h-8 rounded-full"
+                                data-testid={`button-hmo-reject-${request.id}`}
+                                onClick={async () => {
+                                  try {
+                                    await apiRequest(
+                                      "POST",
+                                      `/api/maintenance/${request.id}/hmo-verification`,
+                                      { action: "reject", notes: "Rejected — reopen" },
+                                    );
+                                    queryClient.invalidateQueries({
+                                      queryKey: ["/api/maintenance"],
+                                    });
+                                    toast({ title: "Reopened — verification rejected" });
+                                  } catch (e: any) {
+                                    toast({
+                                      title: "Could not reject",
+                                      description: e.message,
+                                      variant: "destructive",
+                                    });
+                                  }
+                                }}
+                              >
+                                Reject — reopen
+                              </Button>
+                            </>
+                          )}
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
-              ))
+                );
+              })
             )}
             </div>
           </section>
@@ -1952,7 +2151,9 @@ export default function Maintenance() {
                               </CardDescription>
                             </div>
                             <div className="flex items-center gap-1 shrink-0">
-                              {(user?.role === "owner" || user?.role === "clerk") && (
+                              {(user?.role === "owner" ||
+                                user?.role === "clerk" ||
+                                user?.role === "maintenance_admin") && (
                                 <Button
                                   size="icon"
                                   variant="ghost"
@@ -2030,6 +2231,36 @@ export default function Maintenance() {
                               </div>
                             )}
 
+                            {workOrder.scheduledAt && (
+                              <div className="flex items-center gap-2 text-sm">
+                                <Clock className="h-4 w-4 text-muted-foreground shrink-0" />
+                                <div>
+                                  <p className="font-medium">Scheduled visit</p>
+                                  <p className="text-muted-foreground">
+                                    {new Date(workOrder.scheduledAt).toLocaleString(undefined, {
+                                      dateStyle: "medium",
+                                      timeStyle: "short",
+                                    })}
+                                  </p>
+                                </div>
+                              </div>
+                            )}
+
+                            {workOrder.arrivedAt && (
+                              <div className="flex items-center gap-2 text-sm">
+                                <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                                <div>
+                                  <p className="font-medium">Arrived on site</p>
+                                  <p className="text-muted-foreground">
+                                    {new Date(workOrder.arrivedAt).toLocaleString(undefined, {
+                                      dateStyle: "medium",
+                                      timeStyle: "short",
+                                    })}
+                                  </p>
+                                </div>
+                              </div>
+                            )}
+
                             {(workOrder.costEstimate || workOrder.costActual) && (
                               <div className="flex items-center gap-2 text-sm">
                                 <span className="h-4 w-4 text-muted-foreground flex items-center justify-center font-semibold shrink-0">£</span>
@@ -2056,7 +2287,9 @@ export default function Maintenance() {
                           </div>
 
                           <div className="mt-4 flex flex-wrap items-center gap-3 pt-3 border-t">
-                            {isAssigneeRole && workOrder.status !== "completed" && workOrder.status !== "rejected" && (
+                            {canFieldAct &&
+                              workOrder.status !== "completed" &&
+                              workOrder.status !== "rejected" && (
                               <div className="flex items-center gap-2">
                                 <label className="text-sm font-medium">Update Status:</label>
                                 <Select
@@ -2081,17 +2314,68 @@ export default function Maintenance() {
                                 </Select>
                               </div>
                             )}
-                            {isAssigneeRole && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="h-8"
-                                onClick={() => setSelectedWorkOrderDetail(workOrder)}
-                                data-testid={`button-view-work-order-${workOrder.id}`}
-                              >
-                                View details
-                              </Button>
-                            )}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-8"
+                              onClick={() => navigate(`/maintenance/work-orders/${workOrder.id}`)}
+                              data-testid={`button-view-work-order-${workOrder.id}`}
+                            >
+                              View details
+                            </Button>
+                            {canFieldAct &&
+                              workOrder.status !== "completed" &&
+                              workOrder.status !== "rejected" && (
+                                <Button
+                                  size="sm"
+                                  className="h-8"
+                                  onClick={() => setCompleteWorkOrderId(workOrder.id)}
+                                  data-testid={`button-mark-complete-${workOrder.id}`}
+                                >
+                                  <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+                                  Mark Job As Complete
+                                </Button>
+                              )}
+                            {canScheduleWorkOrder &&
+                              workOrder.status !== "completed" &&
+                              workOrder.status !== "rejected" &&
+                              workOrder.authorisationStatus !== "quote_required" && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8"
+                                  onClick={() => openScheduleDialog(workOrder)}
+                                  data-testid={`button-schedule-work-order-${workOrder.id}`}
+                                >
+                                  <Calendar className="w-3.5 h-3.5 mr-1.5" />
+                                  {workOrder.scheduledAt ? "Reschedule" : "Schedule Job"}
+                                </Button>
+                              )}
+                            {canScheduleWorkOrder &&
+                              workOrder.status !== "completed" &&
+                              workOrder.status !== "rejected" &&
+                              workOrder.authorisationStatus !== "quote_required" &&
+                              !workOrder.arrivedAt && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8"
+                                  disabled={arriveOnSiteMutation.isPending}
+                                  onClick={() => arriveOnSiteMutation.mutate(workOrder.id)}
+                                  data-testid={`button-arrive-work-order-${workOrder.id}`}
+                                >
+                                  <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+                                  {arriveOnSiteMutation.isPending ? "Recording…" : "Arrived on Site"}
+                                </Button>
+                              )}
+                            {canScheduleWorkOrder &&
+                              workOrder.status !== "completed" &&
+                              workOrder.status !== "rejected" &&
+                              workOrder.authorisationStatus === "quote_required" && (
+                                <span className="text-xs text-muted-foreground self-center">
+                                  Accept quotation before scheduling
+                                </span>
+                              )}
                             <WorkOrderFinanceLinks workOrderId={workOrder.id} />
                           </div>
                         </CardContent>
@@ -2105,113 +2389,32 @@ export default function Maintenance() {
         </TabsContent>
       </Tabs>
 
-      {/* Assignee Work Order detail (certificates + description) */}
       <Dialog
-        open={!!selectedWorkOrderDetail}
+        open={!!discussionRequest}
         onOpenChange={(open) => {
-          if (!open) setSelectedWorkOrderDetail(null);
+          if (!open) setDiscussionRequest(null);
         }}
       >
-        <DialogContent className={cn(dialogContentBase, "max-w-2xl max-h-[90vh] overflow-y-auto")}>
-          {selectedWorkOrderDetail && (
-            <>
-              <DialogHeader>
-                <DialogTitle>{selectedWorkOrderDetail.maintenanceRequest.title}</DialogTitle>
-                <DialogDescription>
-                  {[selectedWorkOrderDetail.property?.name, selectedWorkOrderDetail.block?.name]
-                    .filter(Boolean)
-                    .join(" · ") || "Work order details"}
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4">
-                <div className="flex flex-wrap gap-2">
-                  <Badge className={priorityColors[selectedWorkOrderDetail.maintenanceRequest.priority]}>
-                    {selectedWorkOrderDetail.maintenanceRequest.priority}
-                  </Badge>
-                  <Badge className={workOrderStatusColors[selectedWorkOrderDetail.status]}>
-                    {selectedWorkOrderDetail.status.replace("_", " ")}
-                  </Badge>
-                </div>
-                {selectedWorkOrderDetail.maintenanceRequest.description && (
-                  <p className="text-sm text-muted-foreground whitespace-pre-wrap">
-                    {selectedWorkOrderDetail.maintenanceRequest.description}
-                  </p>
-                )}
-                {selectedWorkOrderDetail.status !== "completed" &&
-                  selectedWorkOrderDetail.status !== "rejected" && (
-                  <div className="space-y-2">
-                    <Label>Completion checklist</Label>
-                    <Select
-                      value={
-                        (selectedWorkOrderDetail as any).completionChecklistId || "__none__"
-                      }
-                      onValueChange={(v) => {
-                        const next = v === "__none__" ? null : v;
-                        assignWorkOrderChecklistMutation.mutate({
-                          id: selectedWorkOrderDetail.id,
-                          completionChecklistId: next,
-                        });
-                        setSelectedWorkOrderDetail({
-                          ...selectedWorkOrderDetail,
-                          completionChecklistId: next,
-                        } as any);
-                      }}
-                    >
-                      <SelectTrigger data-testid="select-wo-detail-checklist">
-                        <SelectValue placeholder="None" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">None</SelectItem>
-                        {activeCompletionChecklists.map((c: any) => (
-                          <SelectItem key={c.id} value={c.id}>
-                            {c.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-                <WorkOrderCompletionChecklistPanel
-                  workOrderId={selectedWorkOrderDetail.id}
-                  readOnly={
-                    selectedWorkOrderDetail.status === "completed" ||
-                    selectedWorkOrderDetail.status === "rejected"
-                  }
-                />
-                {(() => {
-                  const sig = parseSignatureValue(
-                    (selectedWorkOrderDetail as any).customerSignatureJson,
-                  );
-                  if (!sig?.image) return null;
-                  return (
-                    <div className="space-y-2 rounded-md border p-3">
-                      <p className="text-sm font-medium">Customer signature</p>
-                      {sig.signedByName && (
-                        <p className="text-xs text-muted-foreground">{sig.signedByName}</p>
-                      )}
-                      <img
-                        src={sig.image}
-                        alt="Customer signature"
-                        className="w-full max-h-32 object-contain bg-white rounded border"
-                      />
-                    </div>
-                  );
-                })()}
-                <div className="space-y-2 rounded-md border p-3">
-                  <p className="text-sm font-medium">Quotes & invoices</p>
-                  <WorkOrderQuotesInvoicesPanel
-                    workOrderId={selectedWorkOrderDetail.id}
-                    onNavigateAway={() => setSelectedWorkOrderDetail(null)}
-                  />
-                </div>
-                <WorkOrderCertificatePanel
-                  workOrderId={selectedWorkOrderDetail.id}
-                  propertyId={selectedWorkOrderDetail.maintenanceRequest.propertyId}
-                  blockId={selectedWorkOrderDetail.maintenanceRequest.blockId}
-                />
-              </div>
-            </>
-          )}
+        <DialogContent className={cn(dialogContentBase, "max-w-lg")} data-testid="dialog-mr-discussion">
+          <DialogHeader>
+            <DialogTitle>Discussion</DialogTitle>
+            <DialogDescription>
+              {user?.role === "tenant"
+                ? "Messages with your maintenance team about this request."
+                : "Tips and updates with the tenant on this request."}
+            </DialogDescription>
+          </DialogHeader>
+          {discussionRequest ? (
+            <MaintenanceRequestDiscussion
+              requestId={discussionRequest.id}
+              apiBase={
+                user?.role === "tenant"
+                  ? `/api/tenant/maintenance-requests/${discussionRequest.id}/messages`
+                  : `/api/maintenance/${discussionRequest.id}/messages`
+              }
+              requestTitle={discussionRequest.title}
+            />
+          ) : null}
         </DialogContent>
       </Dialog>
 
@@ -2225,6 +2428,66 @@ export default function Maintenance() {
           workOrders.find((w: any) => w.id === completeWorkOrderId)?.customerSignatureJson
         }
       />
+
+      <Dialog
+        open={!!scheduleWorkOrder}
+        onOpenChange={(open) => {
+          if (!open) setScheduleWorkOrder(null);
+        }}
+      >
+        <DialogContent className={cn(dialogContentBase, "max-w-md")} data-testid="dialog-schedule-work-order">
+          <DialogHeader>
+            <DialogTitle>
+              {scheduleWorkOrder?.scheduledAt ? "Reschedule Job" : "Schedule Job"}
+            </DialogTitle>
+            <DialogDescription>
+              {scheduleWorkOrder?.maintenanceRequest?.title || "Set a visit time. Active tenants will be notified."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="schedule-at">Visit date and time</Label>
+              <Input
+                id="schedule-at"
+                type="datetime-local"
+                value={scheduleAtLocal}
+                onChange={(e) => setScheduleAtLocal(e.target.value)}
+                data-testid="input-schedule-at"
+              />
+              <p className="text-xs text-muted-foreground">
+                Active tenants at the property will receive email and in-app notice.
+              </p>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setScheduleWorkOrder(null)}
+                disabled={scheduleWorkOrderMutation.isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                data-testid="button-confirm-schedule"
+                disabled={scheduleWorkOrderMutation.isPending || !scheduleAtLocal}
+                onClick={() => {
+                  if (!scheduleWorkOrder || !scheduleAtLocal) return;
+                  const when = new Date(scheduleAtLocal);
+                  if (Number.isNaN(when.getTime())) {
+                    toast({ title: "Invalid date/time", variant: "destructive" });
+                    return;
+                  }
+                  scheduleWorkOrderMutation.mutate({
+                    id: scheduleWorkOrder.id,
+                    scheduledAt: when.toISOString(),
+                  });
+                }}
+              >
+                {scheduleWorkOrderMutation.isPending ? "Saving…" : "Confirm schedule"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Work Order Creation Dialog */}
       {selectedRequestForWorkOrder && (

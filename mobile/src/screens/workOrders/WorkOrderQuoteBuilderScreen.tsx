@@ -42,6 +42,7 @@ import {
   computeQuoteLine,
   computeQuoteTotals,
 } from '../../../../shared/maintenanceFinanceMath';
+import { useAuth } from '../../contexts/AuthContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import Card from '../../components/ui/Card';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
@@ -133,12 +134,18 @@ export default function WorkOrderQuoteBuilderScreen() {
   const route = useRoute<RouteProp<WorkOrdersStackParamList, 'WorkOrderQuoteBuilder'>>();
   const { workOrderId, quoteId: routeQuoteId } = route.params;
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const canEditRecipient =
+    user?.role === 'owner' || user?.role === 'maintenance_admin';
+  const canSendQuote = canEditRecipient || user?.role === 'contractor';
+  const canConvertQuote = canSendQuote;
 
   const [quoteId, setQuoteId] = useState<string | undefined>(routeQuoteId);
   const [bootError, setBootError] = useState<string | null>(null);
   const [booting, setBooting] = useState(!routeQuoteId);
   const bootStarted = useRef(false);
 
+  const [recipientUserId, setRecipientUserId] = useState('');
   const [recipientName, setRecipientName] = useState('');
   const [recipientEmail, setRecipientEmail] = useState('');
   const [notes, setNotes] = useState('');
@@ -156,9 +163,7 @@ export default function WorkOrderQuoteBuilderScreen() {
     (async () => {
       try {
         const list = await quotesService.listQuotes(workOrderId);
-        const draft = list.find(
-          (q) => q.status === 'draft' || q.status === 'owner_changes_requested',
-        );
+        const draft = list.find((q) => q.status === 'draft');
         if (draft) {
           setQuoteId(draft.id);
         } else {
@@ -179,9 +184,16 @@ export default function WorkOrderQuoteBuilderScreen() {
     enabled: !!quoteId,
   });
 
+  const candidatesQuery = useQuery({
+    queryKey: ['work-order-customer-candidates', workOrderId],
+    queryFn: () => quotesService.getCustomerCandidates(workOrderId),
+    enabled: !!workOrderId,
+  });
+
   useEffect(() => {
     const quote = quoteQuery.data;
     if (!quote || hydrated) return;
+    setRecipientUserId(quote.recipientUserId ?? '');
     setRecipientName(quote.recipientName ?? '');
     setRecipientEmail(quote.recipientEmail ?? '');
     setNotes(quote.notes ?? '');
@@ -301,12 +313,38 @@ export default function WorkOrderQuoteBuilderScreen() {
       }));
   }, [lines]);
 
+  const customerOptions = useMemo(
+    () =>
+      (candidatesQuery.data?.candidates ?? []).map((c) => ({
+        value: c.id,
+        label: c.email ? `${c.displayName} (${c.email})` : c.displayName,
+      })),
+    [candidatesQuery.data?.candidates],
+  );
+
+  const applyCustomer = useCallback(
+    (userId: string) => {
+      setRecipientUserId(userId);
+      const candidate = candidatesQuery.data?.candidates.find((c) => c.id === userId);
+      if (candidate) {
+        setRecipientName(candidate.displayName);
+        setRecipientEmail(candidate.email || '');
+      }
+    },
+    [candidatesQuery.data?.candidates],
+  );
+
   const saveMutation = useMutation({
     mutationFn: async () => {
       if (!quoteId) throw new Error('Quote not ready');
       await quotesService.patchQuote(workOrderId, quoteId, {
-        recipientName: recipientName.trim() || null,
-        recipientEmail: recipientEmail.trim() || null,
+        ...(canEditRecipient
+          ? {
+              recipientUserId: recipientUserId || null,
+              recipientName: recipientName.trim() || null,
+              recipientEmail: recipientEmail.trim() || null,
+            }
+          : {}),
         notes: notes.trim() || null,
       });
       return quotesService.putLines(workOrderId, quoteId, toWriteLines());
@@ -321,41 +359,104 @@ export default function WorkOrderQuoteBuilderScreen() {
     },
   });
 
-  const submitMutation = useMutation({
+  const sendMutation = useMutation({
     mutationFn: async () => {
       if (!quoteId) throw new Error('Quote not ready');
-      const named = toWriteLines();
-      if (named.length === 0) {
-        throw new Error('Add at least one named line before submitting');
+      const isResend = quoteQuery.data?.status === 'sent';
+      if (!isResend) {
+        const named = toWriteLines();
+        if (named.length === 0) {
+          throw new Error('Add at least one named line before sending');
+        }
+        if (!recipientName.trim() || !recipientEmail.trim()) {
+          throw new Error(
+            canEditRecipient
+              ? 'Select a customer with name and email before sending'
+              : 'An admin must set the customer before you can send',
+          );
+        }
+        await quotesService.patchQuote(workOrderId, quoteId, {
+          ...(canEditRecipient
+            ? {
+                recipientUserId: recipientUserId || null,
+                recipientName: recipientName.trim() || null,
+                recipientEmail: recipientEmail.trim() || null,
+              }
+            : {}),
+          notes: notes.trim() || null,
+        });
+        await quotesService.putLines(workOrderId, quoteId, named);
       }
-      await quotesService.patchQuote(workOrderId, quoteId, {
-        recipientName: recipientName.trim() || null,
-        recipientEmail: recipientEmail.trim() || null,
-        notes: notes.trim() || null,
-      });
-      await quotesService.putLines(workOrderId, quoteId, named);
-      return quotesService.submitQuote(workOrderId, quoteId);
+      return quotesService.sendQuote(workOrderId, quoteId);
     },
     onSuccess: (quote) => {
       queryClient.setQueryData(['work-order-quote', workOrderId, quoteId], quote);
       queryClient.invalidateQueries({ queryKey: ['work-order-quotes', workOrderId] });
       setHydrated(false);
-      Alert.alert('Submitted', 'Quotation submitted for owner approval', [
-        { text: 'OK', onPress: () => navigation.navigate('WorkOrderQuotes', { workOrderId }) },
-      ]);
+      const emailFailed = quote.emailSent === false;
+      Alert.alert(
+        emailFailed ? 'Link created — email failed' : 'Sent to customer',
+        emailFailed
+          ? quote.emailError || 'Share the public link manually if needed.'
+          : 'The customer received an email with a View & respond link.',
+        [
+          {
+            text: 'OK',
+            onPress: () => navigation.navigate('WorkOrderQuotes', { workOrderId }),
+          },
+        ],
+      );
     },
     onError: (err: Error) => {
-      Alert.alert('Submit failed', err.message || 'Please try again');
+      Alert.alert('Send failed', err.message || 'Please try again');
     },
   });
 
-  const handleSubmit = () => {
+  const convertMutation = useMutation({
+    mutationFn: async () => {
+      if (!quoteId) throw new Error('Quote not ready');
+      return quotesService.convertToInvoice(workOrderId, quoteId);
+    },
+    onSuccess: (invoice) => {
+      queryClient.invalidateQueries({ queryKey: ['work-order-quotes', workOrderId] });
+      queryClient.invalidateQueries({ queryKey: ['work-order-quote', workOrderId, quoteId] });
+      setHydrated(false);
+      Alert.alert(
+        'Invoice created',
+        invoice.invoiceReference
+          ? `Draft invoice ${invoice.invoiceReference} created.`
+          : 'Draft invoice created from this quotation.',
+        [
+          {
+            text: 'OK',
+            onPress: () => navigation.navigate('WorkOrderQuotes', { workOrderId }),
+          },
+        ],
+      );
+    },
+    onError: (err: Error) => {
+      Alert.alert('Convert failed', err.message || 'Please try again');
+    },
+  });
+
+  const handleSend = () => {
     Alert.alert(
-      'Submit for approval?',
-      'The owner will review this quotation. You can still edit if they request changes.',
+      'Send to customer?',
+      'The selected customer will receive an email with a secure link to view and respond.',
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Submit', onPress: () => submitMutation.mutate() },
+        { text: 'Send', onPress: () => sendMutation.mutate() },
+      ],
+    );
+  };
+
+  const handleConvert = () => {
+    Alert.alert(
+      'Convert to invoice?',
+      'This creates a draft invoice from the accepted quotation.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Convert', onPress: () => convertMutation.mutate() },
       ],
     );
   };
@@ -400,7 +501,12 @@ export default function WorkOrderQuoteBuilderScreen() {
   }
 
   const quote = quoteQuery.data;
-  const busy = saveMutation.isPending || submitMutation.isPending;
+  const busy =
+    saveMutation.isPending || sendMutation.isPending || convertMutation.isPending;
+  const showConvert =
+    canConvertQuote && quoteQuery.data?.status === 'accepted';
+  const showResend =
+    canSendQuote && quoteQuery.data?.status === 'sent';
   const statusText =
     MAINTENANCE_QUOTE_STATUS_LABELS[quote.status] || quote.status.replace(/_/g, ' ');
 
@@ -440,33 +546,58 @@ export default function WorkOrderQuoteBuilderScreen() {
       <ScrollView
         contentContainerStyle={[
           styles.scroll,
-          { paddingBottom: insets.bottom + (editable ? 140 : spacing[8]) },
+          {
+            paddingBottom:
+              insets.bottom +
+              (editable || showConvert || showResend ? 140 : spacing[8]),
+          },
         ]}
         keyboardShouldPersistTaps="handled"
       >
         {!editable ? (
           <Card style={styles.section}>
             <Text style={[styles.readOnlyBanner, { color: themeColors.text.secondary }]}>
-              This quotation is not editable on mobile. Approve, send, or convert on the web.
+              {showConvert
+                ? 'This quotation is accepted. You can convert it to an invoice below.'
+                : showResend
+                  ? 'Awaiting customer response. You can resend the email link below.'
+                  : 'This quotation is not editable while awaiting a customer response.'}
             </Text>
           </Card>
         ) : null}
 
         <Card style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: themeColors.text.primary }]}>Recipient</Text>
-          <Input
-            label="Name"
-            value={recipientName}
-            onChangeText={setRecipientName}
-            editable={editable && !busy}
-            placeholder="Recipient name"
-          />
+          <Text style={[styles.sectionTitle, { color: themeColors.text.primary }]}>Customer</Text>
+          {editable && canEditRecipient ? (
+            <View style={styles.fieldBlock}>
+              <Text style={[styles.fieldLabel, { color: themeColors.text.secondary }]}>
+                Customer
+              </Text>
+              <Select
+                value={recipientUserId || undefined}
+                options={customerOptions}
+                onValueChange={applyCustomer}
+                disabled={busy || candidatesQuery.isLoading}
+                placeholder={
+                  candidatesQuery.isLoading ? 'Loading…' : 'Select customer'
+                }
+                testID="select-quote-customer"
+              />
+              {!recipientUserId && recipientName ? (
+                <Text style={[styles.hint, { color: themeColors.text.muted }]}>
+                  Current: {recipientName}
+                </Text>
+              ) : null}
+            </View>
+          ) : (
+            <Input label="Customer" value={recipientName} editable={false} />
+          )}
           <Input
             label="Email"
             value={recipientEmail}
             onChangeText={setRecipientEmail}
-            editable={editable && !busy}
-            placeholder="recipient@example.com"
+            editable={editable && canEditRecipient && !busy}
+            placeholder="customer@example.com"
             keyboardType="email-address"
             autoCapitalize="none"
           />
@@ -617,7 +748,7 @@ export default function WorkOrderQuoteBuilderScreen() {
         </Card>
       </ScrollView>
 
-      {editable ? (
+      {editable || showConvert || showResend ? (
         <View
           style={[
             styles.footer,
@@ -628,19 +759,41 @@ export default function WorkOrderQuoteBuilderScreen() {
             },
           ]}
         >
-          <Button
-            title={saveMutation.isPending ? 'Saving…' : 'Save draft'}
-            variant="outline"
-            onPress={() => saveMutation.mutate()}
-            disabled={busy}
-            style={styles.footerBtn}
-          />
-          <Button
-            title={submitMutation.isPending ? 'Submitting…' : 'Submit for approval'}
-            onPress={handleSubmit}
-            disabled={busy}
-            style={styles.footerBtn}
-          />
+          {editable ? (
+            <>
+              <Button
+                title={saveMutation.isPending ? 'Saving…' : 'Save draft'}
+                variant="outline"
+                onPress={() => saveMutation.mutate()}
+                disabled={busy}
+                style={styles.footerBtn}
+              />
+              <Button
+                title={sendMutation.isPending ? 'Sending…' : 'Send to customer'}
+                onPress={handleSend}
+                disabled={busy}
+                style={styles.footerBtn}
+              />
+            </>
+          ) : null}
+          {showResend ? (
+            <Button
+              title={sendMutation.isPending ? 'Sending…' : 'Resend to customer'}
+              onPress={handleSend}
+              disabled={busy}
+              style={styles.footerBtn}
+            />
+          ) : null}
+          {showConvert ? (
+            <Button
+              title={
+                convertMutation.isPending ? 'Converting…' : 'Convert to invoice'
+              }
+              onPress={handleConvert}
+              disabled={busy}
+              style={styles.footerBtn}
+            />
+          ) : null}
         </View>
       ) : null}
 
@@ -801,9 +954,16 @@ const styles = StyleSheet.create({
     gap: spacing[3],
   },
   half: { flex: 1 },
+  fieldBlock: {
+    marginBottom: spacing[1],
+  },
   fieldLabel: {
     fontSize: getFontSize(13),
     marginBottom: spacing[1],
+  },
+  hint: {
+    fontSize: getFontSize(12),
+    marginTop: spacing[1],
   },
   lineTotal: {
     fontSize: getFontSize(13),

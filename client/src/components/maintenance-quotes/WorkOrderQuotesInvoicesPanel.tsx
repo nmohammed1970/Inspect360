@@ -54,7 +54,11 @@ export const WorkOrderQuotesInvoicesPanel = ({
   onNavigateAway,
 }: WorkOrderQuotesInvoicesPanelProps) => {
   const { user } = useAuth();
-  const isOwner = user?.role === "owner";
+  const canFinance =
+    user?.role === "owner" ||
+    user?.role === "maintenance_admin" ||
+    user?.role === "clerk" ||
+    user?.role === "contractor";
   const [, setLocation] = useLocation();
 
   const quotesQuery = useQuery<QuoteListItem[]>({
@@ -121,7 +125,7 @@ export const WorkOrderQuotesInvoicesPanel = ({
           <Plus className="h-3.5 w-3.5 mr-1.5" />
           New quotation
         </Button>
-        {isOwner && (
+        {canFinance && (
           <Button
             type="button"
             size="sm"

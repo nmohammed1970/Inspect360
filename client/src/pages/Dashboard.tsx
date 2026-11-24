@@ -38,6 +38,8 @@ import {
   Loader2,
   Banknote,
   LayoutDashboard,
+  MessageSquare,
+  UserRound,
 } from "lucide-react";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Label } from "@/components/ui/label";
@@ -280,6 +282,44 @@ export default function Dashboard() {
     refetchInterval: 60000, // Refresh every minute
   });
 
+  type MaintenanceInboxItem = {
+    id: string;
+    kind: "tenant_request" | "inspector_request" | "quote" | "tenant_message";
+    title: string;
+    subtitle: string;
+    createdAt: string;
+    href: string;
+    meta?: {
+      priority?: string | null;
+      quoteReference?: string | null;
+      source?: string | null;
+      messagePreview?: string | null;
+      status?: string | null;
+    };
+  };
+
+  const canSeeMaintenanceInbox =
+    maintenanceEnabled &&
+    (user?.role === "owner" || user?.role === "maintenance_admin");
+  const isMaintenanceAdmin = user?.role === "maintenance_admin";
+
+  const { data: maintenanceInbox, refetch: refetchInbox } = useQuery<{
+    items: MaintenanceInboxItem[];
+    count: number;
+  }>({
+    queryKey: ["/api/dashboard/maintenance-inbox", statsQueryParams],
+    queryFn: async () => {
+      const url = statsQueryParams
+        ? `/api/dashboard/maintenance-inbox?${statsQueryParams}`
+        : "/api/dashboard/maintenance-inbox";
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch maintenance inbox");
+      return res.json();
+    },
+    enabled: isAuthenticated && canSeeMaintenanceInbox,
+    refetchInterval: 60000,
+  });
+
   const { data: properties = [] } = useQuery<Property[]>({
     queryKey: ["/api/properties"],
     enabled: isAuthenticated && !featuresLocked,
@@ -496,7 +536,10 @@ export default function Dashboard() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => refetchStats()}
+                    onClick={() => {
+                      void refetchStats();
+                      if (canSeeMaintenanceInbox) void refetchInbox();
+                    }}
                     data-testid="button-refresh-stats"
                   >
                     <RefreshCw className="h-4 w-4" />
@@ -1074,12 +1117,114 @@ export default function Dashboard() {
       </div>
       )}
 
+      {/* New Requests feed — owner + maintenance_admin */}
+      {canSeeMaintenanceInbox && (
+        <Card
+          className="border-emerald-600/30 bg-emerald-50/40 dark:bg-emerald-950/20"
+          data-testid="panel-new-requests"
+        >
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between gap-3">
+              <CardTitle className="text-lg font-semibold flex items-center gap-2">
+                <Wrench className="h-5 w-5 text-emerald-700 dark:text-emerald-400" />
+                New Requests
+              </CardTitle>
+              <Badge
+                className="bg-emerald-600 text-white hover:bg-emerald-600"
+                data-testid="badge-new-requests-count"
+              >
+                {maintenanceInbox?.count ?? 0} items
+              </Badge>
+            </div>
+            <CardDescription>
+              New tenant and inspector requests, actionable quotes, and tenant discussion messages
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {(maintenanceInbox?.items?.length ?? 0) === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <CheckCircle2 className="h-8 w-8 mx-auto mb-2 text-green-500" />
+                <p>No new maintenance items</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {(maintenanceInbox?.items ?? []).map((item) => {
+                  const kindMeta =
+                    item.kind === "tenant_request"
+                      ? {
+                          label: "Tenant",
+                          icon: <UserRound className="h-4 w-4 text-sky-600" />,
+                          chip: "bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200",
+                        }
+                      : item.kind === "inspector_request"
+                        ? {
+                            label: "Inspector",
+                            icon: <ClipboardCheck className="h-4 w-4 text-violet-600" />,
+                            chip: "bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-200",
+                          }
+                        : item.kind === "quote"
+                          ? {
+                              label: "Quote",
+                              icon: <FileText className="h-4 w-4 text-amber-600" />,
+                              chip: "bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200",
+                            }
+                          : {
+                              label: "Message",
+                              icon: <MessageSquare className="h-4 w-4 text-emerald-600" />,
+                              chip: "bg-emerald-100 text-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-200",
+                            };
+                  return (
+                    <Link key={item.id} href={item.href}>
+                      <div
+                        className="flex items-center justify-between gap-3 p-3 rounded-lg border bg-background hover-elevate cursor-pointer"
+                        data-testid={`inbox-item-${item.id}`}
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center shrink-0">
+                            {kindMeta.icon}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2 mb-0.5">
+                              <Badge className={cn("text-[10px] px-1.5 py-0", kindMeta.chip)}>
+                                {kindMeta.label}
+                              </Badge>
+                              {item.meta?.priority ? (
+                                <Badge variant="outline" className="text-[10px] px-1.5 py-0 capitalize">
+                                  {item.meta.priority}
+                                </Badge>
+                              ) : null}
+                            </div>
+                            <p className="font-medium text-sm truncate">{item.title}</p>
+                            <p className="text-xs text-muted-foreground truncate">{item.subtitle}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-[11px] text-muted-foreground hidden sm:inline">
+                            {item.createdAt
+                              ? new Date(item.createdAt).toLocaleString(undefined, {
+                                  dateStyle: "medium",
+                                  timeStyle: "short",
+                                })
+                              : ""}
+                          </span>
+                          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                        </div>
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Main Content Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column - Alerts */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Alerts Tabs */}
-          {visibleWidgets.alerts && (
+          {/* Alerts Tabs — owners/compliance; maintenance_admin uses New Requests above */}
+          {visibleWidgets.alerts && !isMaintenanceAdmin && (
           <Card data-testid="panel-alerts-detail">
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">

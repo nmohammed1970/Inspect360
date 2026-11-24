@@ -12,9 +12,15 @@ import {
   assertQuoteTransition,
 } from "@shared/maintenanceQuoteConstants";
 import { computeQuoteLine } from "@shared/maintenanceFinanceMath";
-import { appendWorkOrderEvent, allocateDocumentNumber } from "./quoteLifecycle";
+import {
+  appendWorkOrderEvent,
+  allocateDocumentNumber,
+  resolveWorkOrderLocation,
+} from "./quoteLifecycle";
+import { copyQuoteAttachmentsToInvoice } from "./documentAttachments";
 
 export type DirectInvoiceRecipient = {
+  recipientUserId?: string | null;
   recipientContactId?: string | null;
   recipientName?: string | null;
   recipientEmail?: string | null;
@@ -33,15 +39,17 @@ export class InvoiceServiceError extends Error {
 export async function convertQuoteToInvoice(input: {
   quote: MaintenanceQuote;
   actorUserId: string;
+  actorRole?: string;
 }) {
-  const { quote, actorUserId } = input;
+  const { quote, actorUserId, actorRole } = input;
   if (quote.status !== "accepted") {
     throw new InvoiceServiceError(
       "Only customer-accepted quotes can be converted to an invoice",
       409,
     );
   }
-  assertQuoteTransition(quote.status, "converted", "owner");
+  const transitionActor = actorRole === "contractor" ? "staff" : "owner";
+  assertQuoteTransition(quote.status, "converted", transitionActor);
 
   const lines = await db
     .select()
@@ -55,6 +63,14 @@ export async function convertQuoteToInvoice(input: {
   );
   const invoiceReference = formatInvoiceReference(year, invoiceNumber);
 
+  let propertyId = quote.propertyId ?? null;
+  let blockId = quote.blockId ?? null;
+  if (!propertyId && !blockId) {
+    const location = await resolveWorkOrderLocation(quote.workOrderId);
+    propertyId = location.propertyId;
+    blockId = location.blockId;
+  }
+
   const result = await db.transaction(async (tx) => {
     const [invoice] = await tx
       .insert(maintenanceInvoices)
@@ -62,11 +78,14 @@ export async function convertQuoteToInvoice(input: {
         organizationId: quote.organizationId,
         workOrderId: quote.workOrderId,
         quoteId: quote.id,
+        propertyId,
+        blockId,
         status: "draft",
         invoiceNumber,
         invoiceReference,
         currency: quote.currency,
         recipientContactId: quote.recipientContactId,
+        recipientUserId: quote.recipientUserId,
         recipientName: quote.recipientName,
         recipientEmail: quote.recipientEmail,
         recipientPhone: quote.recipientPhone,
@@ -120,6 +139,13 @@ export async function convertQuoteToInvoice(input: {
     payload: { quoteId: quote.id, invoiceId: result.id },
   });
 
+  await copyQuoteAttachmentsToInvoice({
+    organizationId: quote.organizationId,
+    quoteId: quote.id,
+    invoiceId: result.id,
+    actorUserId,
+  });
+
   const invoiceLines = await db
     .select()
     .from(maintenanceInvoiceLines)
@@ -146,6 +172,7 @@ export async function createDirectInvoice(input: {
   const year = new Date().getFullYear();
   const { number: invoiceNumber } = await allocateDocumentNumber(organizationId, "invoice");
   const invoiceReference = formatInvoiceReference(year, invoiceNumber);
+  const location = await resolveWorkOrderLocation(workOrderId);
 
   const blank = computeQuoteLine({
     quantity: 1,
@@ -160,11 +187,14 @@ export async function createDirectInvoice(input: {
         organizationId,
         workOrderId,
         quoteId: null,
+        propertyId: location.propertyId,
+        blockId: location.blockId,
         status: "draft",
         invoiceNumber,
         invoiceReference,
         currency: currency as "GBP" | "USD" | "EUR" | "AED",
         recipientContactId: recipient?.recipientContactId ?? null,
+        recipientUserId: recipient?.recipientUserId ?? null,
         recipientName: recipient?.recipientName ?? null,
         recipientEmail: recipient?.recipientEmail ?? null,
         recipientPhone: recipient?.recipientPhone ?? null,

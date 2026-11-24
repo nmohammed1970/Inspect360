@@ -35,7 +35,7 @@ export function registerMaintenancePriceBookRoutes(app: Express) {
   const writeGuards = [
     isAuthenticated,
     requireCompanyModule("maintenance"),
-    requireRole("owner", "clerk"),
+    requireRole("owner", "clerk", "maintenance_admin"),
   ] as const;
 
   /** Read/search: any non-tenant with maintenance (quote autocomplete). */

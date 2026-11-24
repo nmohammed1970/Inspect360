@@ -3,7 +3,7 @@
 **Scope:** Starts at an **existing Work Order**. Request triage / WO creation out of scope.
 
 **Canonical flow:**  
-WO → draft quote → submit → owner approve → **secure-link** customer decision → convert to customer invoice → **record received payments**.
+WO → draft quote → **Send to customer** (secure-link email) → customer decision → convert to invoice → **record received payments**.
 
 ---
 
@@ -12,20 +12,19 @@ WO → draft quote → submit → owner approve → **secure-link** customer dec
 | ID | Decision |
 |---|---|
 | Entry point | Existing work order only |
-| OD-01 | Recipient = contact **or** manual snapshot |
-| OD-02 | Owner approve then customer accept (independent) |
+| OD-01 | Recipient = org user (owner / maintenance_admin) snapshot; admins may change |
+| OD-02 | **Superseded:** single-stage customer approval only (no separate owner approve before send) |
 | **OD-03** | **No offline/phone customer approval.** Decisions only via secure link. |
-| **OD-04** | **Hashed-token public quote link** (expire + revoke); no customer login |
+| **OD-04** | **Hashed-token public quote link** (expire + revoke); no customer login; email CTA View & respond |
 | **OD-06** | Quote gate for **newly created** WOs only; existing WOs not blocked; no historical backfill/auto-delete; protect WO/request delete when quotes/invoices exist |
 | **OD-07** | Currency = `organizations.preferred_currency`; snapshot on each quote/invoice; no per-document picker |
 | **OD-08** | **Per-line tax in quote builder** (preset %, Exempt, 0%/zero-rated, Other/custom %); store type/rate/label on line; no org-wide tax admin module |
 | Payments | Simple received-payment records only (not a finance system) |
-| Owner self-approve | Allowed; distinct audited action before send |
 
 ### OD-03 / OD-04 detail
 
 - Customer Accept / Decline / Request changes **only** on `/public/…` token page.  
-- Owner is notified (email/events) and may revise → resubmit → re-approve → resend.  
+- Staff notified (email/events) and may revise → resend.  
 - Tokens: store hash only; expiry; revoke on resend/decision.  
 - **No** `record-customer-decision` / offline override API or UI.
 

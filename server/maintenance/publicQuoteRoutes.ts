@@ -1,7 +1,6 @@
 import type { Express, Response } from "express";
 import { and, asc, eq } from "drizzle-orm";
 import { db } from "../db";
-import { storage } from "../storage";
 import {
   maintenanceQuoteLines,
   maintenanceQuotes,
@@ -20,6 +19,12 @@ import {
   loadPublicOrgBrand,
   loadPublicWorkContext,
 } from "./publicFinanceContext";
+import { resolveQuoteStaffNotifyRecipients } from "./resolveQuoteStaffNotifyRecipients";
+import {
+  notifyFinanceUsers,
+  quoteCustomerDecisionNotifyType,
+  quoteCustomerDecisionTitle,
+} from "./notifyFinanceUsers";
 
 
 async function loadPublicQuote(rawToken: string) {
@@ -182,29 +187,63 @@ export function registerPublicMaintenanceQuoteRoutes(app: Express) {
       }
 
       try {
-        const ownerUsers = await storage.getUsersByOrganization(quote.organizationId);
-        const owners = (ownerUsers || []).filter((u: any) => u.role === "owner" && u.email);
         const baseUrl = publicAppBaseUrl(req);
         const work = await loadPublicWorkContext(quote.workOrderId, quote.organizationId);
-        for (const owner of owners.slice(0, 5)) {
-          await sendQuoteCustomerResponseEmail({
-            to: owner.email,
-            organizationId: quote.organizationId,
+        const recipients = await resolveQuoteStaffNotifyRecipients(quote);
+
+        const emailPayload = {
+          organizationId: quote.organizationId,
+          workOrderId: quote.workOrderId,
+          quoteId: quote.id,
+          quoteReference: quote.quoteReference,
+          decision,
+          reason,
+          currency: quote.currency,
+          subtotalMinor: quote.subtotalMinor,
+          taxMinor: quote.taxMinor,
+          totalMinor: quote.totalMinor,
+          lines,
+          issueTitle: work?.issueTitle,
+          locationLabel: work?.locationLabel,
+          baseUrl,
+        } as const;
+
+        // Owners / maintenance admins (cap 5) + field staff (preparer, assignee, contractor)
+        const emailTargets = [
+          ...recipients.ownersAdmins.slice(0, 5),
+          ...recipients.fieldStaff,
+        ].filter((r) => !!(r.email || "").trim());
+
+        const emailed = new Set<string>();
+        for (const target of emailTargets) {
+          const to = target.email!.trim();
+          const key = to.toLowerCase();
+          if (emailed.has(key)) continue;
+          emailed.add(key);
+          await sendQuoteCustomerResponseEmail({ to, ...emailPayload });
+        }
+
+        const decisionLabel =
+          decision === "accept"
+            ? "accepted"
+            : decision === "decline"
+              ? "declined"
+              : "requested changes on";
+        await notifyFinanceUsers({
+          userIds: recipients.notifyUserIds,
+          organizationId: quote.organizationId,
+          type: quoteCustomerDecisionNotifyType(decision),
+          title: quoteCustomerDecisionTitle(decision),
+          message: `Customer ${decisionLabel} ${quote.quoteReference}${
+            work?.issueTitle ? ` — ${work.issueTitle}` : ""
+          }`,
+          data: {
             workOrderId: quote.workOrderId,
             quoteId: quote.id,
             quoteReference: quote.quoteReference,
             decision,
-            reason,
-            currency: quote.currency,
-            subtotalMinor: quote.subtotalMinor,
-            taxMinor: quote.taxMinor,
-            totalMinor: quote.totalMinor,
-            lines,
-            issueTitle: work?.issueTitle,
-            locationLabel: work?.locationLabel,
-            baseUrl,
-          });
-        }
+          },
+        });
       } catch (emailErr) {
         console.warn("[public-quote] notify failed:", emailErr);
       }

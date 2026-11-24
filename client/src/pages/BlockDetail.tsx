@@ -20,6 +20,7 @@ import { ObjectUploader, COMPLIANCE_DOCUMENT_ACCEPT } from "@/components/ObjectU
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useCompanyModules } from "@/hooks/useCompanyModules";
+import { SiteMaintenanceFinancePanel } from "@/components/maintenance-quotes/SiteMaintenanceFinancePanel";
 import { MapPreview } from "@/components/MapPreview";
 import { insertComplianceDocumentSchema } from "@shared/schema";
 import { LocaleDateInput } from "@/components/LocaleDateInput";
@@ -487,6 +488,12 @@ export default function BlockDetail() {
               <span>Compliance Documents</span>
             </TabsTrigger>
           )}
+          {maintenanceEnabled && (
+            <TabsTrigger value="quotes-invoices" data-testid="tab-quotes-invoices" className="shrink-0 gap-1.5">
+              <Wrench className="h-4 w-4 shrink-0" />
+              <span>Quotes &amp; invoices</span>
+            </TabsTrigger>
+          )}
         </TabsList>
 
         {/* Properties Tab */}
@@ -590,6 +597,18 @@ export default function BlockDetail() {
             entityId={blockId}
           />
         </TabsContent>
+
+        {maintenanceEnabled && blockId ? (
+          <TabsContent value="quotes-invoices" className="space-y-4">
+            <div className="space-y-1">
+              <h2 className="text-xl font-semibold">Quotes &amp; invoices</h2>
+              <p className="text-sm text-muted-foreground">
+                Quotations and invoices stamped to this block (including unit-level jobs).
+              </p>
+            </div>
+            <SiteMaintenanceFinancePanel scope="block" scopeId={blockId} />
+          </TabsContent>
+        ) : null}
 
         {/* Compliance Documents Tab */}
         <TabsContent value="compliance-schedule" className="space-y-6">

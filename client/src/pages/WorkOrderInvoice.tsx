@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
   MAINTENANCE_INVOICE_STATUS_LABELS,
@@ -41,6 +42,7 @@ import {
   blankQuoteLine,
   type EditableQuoteLine,
 } from "@/components/maintenance-quotes/QuoteLinesEditor";
+import { DocumentAttachmentsPanel } from "@/components/maintenance-quotes/DocumentAttachmentsPanel";
 import type {
   MaintenancePriceBookCategory,
   MaintenancePriceBookUnit,
@@ -55,6 +57,7 @@ type InvoiceDetail = {
   status: string;
   invoiceReference: string;
   currency: string;
+  recipientUserId?: string | null;
   recipientName: string | null;
   recipientEmail: string | null;
   recipientPhone: string | null;
@@ -103,6 +106,9 @@ export default function WorkOrderInvoice() {
   const invoiceId = params.invoiceId;
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const { user } = useAuth();
+  const canEditRecipient =
+    user?.role === "owner" || user?.role === "maintenance_admin";
 
   const { data: invoice, isLoading, error } = useQuery<InvoiceDetail>({
     queryKey: ["/api/work-orders", workOrderId, "invoices", invoiceId],
@@ -120,6 +126,7 @@ export default function WorkOrderInvoice() {
   });
 
   const editable = invoice?.status === "draft";
+  const [recipientUserId, setRecipientUserId] = useState("");
   const [recipientName, setRecipientName] = useState("");
   const [recipientEmail, setRecipientEmail] = useState("");
   const [recipientPhone, setRecipientPhone] = useState("");
@@ -128,6 +135,27 @@ export default function WorkOrderInvoice() {
   const [dueAt, setDueAt] = useState("");
   const [lines, setLines] = useState<EditableQuoteLine[]>([blankQuoteLine()]);
   const [hydrated, setHydrated] = useState<string | null>(null);
+
+  type CustomerCandidate = {
+    id: string;
+    displayName: string;
+    email: string | null;
+    phone: string | null;
+  };
+
+  const candidatesQuery = useQuery<{
+    candidates: CustomerCandidate[];
+  }>({
+    queryKey: ["/api/work-orders", workOrderId, "customer-candidates"],
+    queryFn: async () => {
+      const res = await fetch(`/api/work-orders/${workOrderId}/customer-candidates`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to load customers");
+      return res.json();
+    },
+    enabled: Boolean(workOrderId),
+  });
 
   const [payAmount, setPayAmount] = useState("");
   const [payDate, setPayDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -140,6 +168,7 @@ export default function WorkOrderInvoice() {
 
   useEffect(() => {
     if (!invoice || hydrated === invoice.id) return;
+    setRecipientUserId(invoice.recipientUserId || "");
     setRecipientName(invoice.recipientName || "");
     setRecipientEmail(invoice.recipientEmail || "");
     setRecipientPhone(invoice.recipientPhone || "");
@@ -166,9 +195,20 @@ export default function WorkOrderInvoice() {
     setHydrated(invoice.id);
   }, [invoice, hydrated]);
 
+  const applyCustomer = (userId: string) => {
+    setRecipientUserId(userId);
+    const candidate = candidatesQuery.data?.candidates.find((c) => c.id === userId);
+    if (candidate) {
+      setRecipientName(candidate.displayName);
+      setRecipientEmail(candidate.email || "");
+      setRecipientPhone(candidate.phone || "");
+    }
+  };
+
   const saveMutation = useMutation({
     mutationFn: async () => {
       await apiRequest("PATCH", `/api/work-orders/${workOrderId}/invoices/${invoiceId}`, {
+        recipientUserId: recipientUserId || null,
         recipientName: recipientName || null,
         recipientEmail: recipientEmail || null,
         recipientPhone: recipientPhone || null,
@@ -219,6 +259,12 @@ export default function WorkOrderInvoice() {
       setLastPublicLink(data.publicLink || null);
       queryClient.invalidateQueries({
         queryKey: ["/api/work-orders", workOrderId, "invoices", invoiceId],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["/api/maintenance-finance/pending-count"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["/api/maintenance-finance/tracking"],
       });
       if (data.emailSent === false) {
         toast({
@@ -458,17 +504,40 @@ export default function WorkOrderInvoice() {
             </CardHeader>
             <CardContent className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label>Name</Label>
-                <Input
-                  disabled={!editable}
-                  value={recipientName}
-                  onChange={(e) => setRecipientName(e.target.value)}
-                />
+                <Label>Customer</Label>
+                {editable && canEditRecipient ? (
+                  <Select
+                    value={recipientUserId || undefined}
+                    onValueChange={applyCustomer}
+                    disabled={candidatesQuery.isLoading}
+                  >
+                    <SelectTrigger data-testid="select-invoice-customer">
+                      <SelectValue
+                        placeholder={
+                          candidatesQuery.isLoading ? "Loading…" : "Select customer"
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(candidatesQuery.data?.candidates || []).map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.displayName}
+                          {c.email ? ` (${c.email})` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input value={recipientName} disabled />
+                )}
+                {canEditRecipient && !recipientUserId && recipientName ? (
+                  <p className="text-xs text-muted-foreground">Current: {recipientName}</p>
+                ) : null}
               </div>
               <div className="space-y-1.5">
                 <Label>Email</Label>
                 <Input
-                  disabled={!editable}
+                  disabled={!(editable && canEditRecipient)}
                   value={recipientEmail}
                   onChange={(e) => setRecipientEmail(e.target.value)}
                 />
@@ -476,7 +545,7 @@ export default function WorkOrderInvoice() {
               <div className="space-y-1.5">
                 <Label>Phone</Label>
                 <Input
-                  disabled={!editable}
+                  disabled={!(editable && canEditRecipient)}
                   value={recipientPhone}
                   onChange={(e) => setRecipientPhone(e.target.value)}
                 />
@@ -493,7 +562,7 @@ export default function WorkOrderInvoice() {
               <div className="space-y-1.5 sm:col-span-2">
                 <Label>Address</Label>
                 <Textarea
-                  disabled={!editable}
+                  disabled={!(editable && canEditRecipient)}
                   value={recipientAddress}
                   onChange={(e) => setRecipientAddress(e.target.value)}
                   rows={2}
@@ -525,6 +594,15 @@ export default function WorkOrderInvoice() {
               />
             </CardContent>
           </Card>
+
+          {workOrderId && invoiceId ? (
+            <DocumentAttachmentsPanel
+              workOrderId={workOrderId}
+              documentType="invoice"
+              documentId={invoiceId}
+              canEdit={editable}
+            />
+          ) : null}
         </div>
 
         <div className="space-y-4">

@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "crypto";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { db } from "../db";
+import { storage } from "../storage";
 import {
   maintenanceQuoteShareTokens,
   maintenanceQuotes,
@@ -13,6 +14,29 @@ import {
   assertQuoteTransition,
   type QuoteTransitionActor,
 } from "@shared/maintenanceQuoteConstants";
+
+/** Snapshot site (property) + block from WO → maintenance request. */
+export async function resolveWorkOrderLocation(
+  workOrderId: string,
+): Promise<{ propertyId: string | null; blockId: string | null }> {
+  const workOrder = await storage.getWorkOrder(workOrderId);
+  if (!workOrder) return { propertyId: null, blockId: null };
+
+  const request = await storage.getMaintenanceRequest(workOrder.maintenanceRequestId);
+  if (!request) return { propertyId: null, blockId: null };
+
+  let propertyId = request.propertyId || null;
+  let blockId = request.blockId || null;
+
+  if (propertyId) {
+    const property = await storage.getProperty(propertyId);
+    if (property?.blockId && !blockId) {
+      blockId = property.blockId;
+    }
+  }
+
+  return { propertyId, blockId };
+}
 
 export function hashShareToken(raw: string): string {
   return createHash("sha256").update(raw).digest("hex");

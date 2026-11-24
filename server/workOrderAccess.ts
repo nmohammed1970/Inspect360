@@ -17,9 +17,10 @@ export type WorkOrderAccessFields = {
   assignedToId?: string | null;
 };
 
-/** Org-wide list (owner/compliance) vs personal assignee list (clerk/contractor). */
+/** Org-wide list (owner/compliance/clerk) vs personal assignee list (contractor). */
 export function listScopeForUser(role: string | undefined | null): "org" | "assignee" {
-  if (role === "clerk" || role === "contractor") return "assignee";
+  // Demo: clerk sees org-wide work orders (same as owner/maintenance_admin).
+  if (role === "contractor") return "assignee";
   return "org";
 }
 
@@ -58,8 +59,8 @@ export function canAccessWorkOrder(
     return true;
   }
 
-  // Clerks and contractors: match by user id, linked contact id, or contractorId
-  if (identity.role === "clerk" || identity.role === "contractor") {
+  // Contractors: match by user id, linked contact id, or contractorId
+  if (identity.role === "contractor") {
     return isAssigneeMatch(identity, workOrder);
   }
 
@@ -74,10 +75,15 @@ export function isAllowedWorkOrderStatus(
   status: string,
 ): boolean {
   if (ASSIGNEE_STATUSES.includes(status as (typeof ASSIGNEE_STATUSES)[number])) {
-    return role === "owner" || role === "clerk" || role === "contractor";
+    return (
+      role === "owner" ||
+      role === "clerk" ||
+      role === "contractor" ||
+      role === "maintenance_admin"
+    );
   }
   if (OWNER_EXTRA_STATUSES.includes(status as (typeof OWNER_EXTRA_STATUSES)[number])) {
-    return role === "owner";
+    return role === "owner" || role === "maintenance_admin";
   }
   return false;
 }

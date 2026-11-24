@@ -303,6 +303,37 @@ export const tenantService = {
     return apiRequestJson<TenantMaintenanceRequest[]>('GET', '/api/tenant/maintenance-requests');
   },
 
+  getMaintenanceRequestMessages(requestId: string): Promise<
+    Array<{
+      id: string;
+      body: string;
+      authorUserId: string;
+      createdAt: string;
+      author?: {
+        id: string;
+        firstName?: string | null;
+        lastName?: string | null;
+        role?: string | null;
+      } | null;
+    }>
+  > {
+    return apiRequestJson('GET', `/api/tenant/maintenance-requests/${requestId}/messages`);
+  },
+
+  postMaintenanceRequestMessage(
+    requestId: string,
+    body: string,
+  ): Promise<{
+    id: string;
+    body: string;
+    authorUserId: string;
+    createdAt: string;
+  }> {
+    return apiRequestJson('POST', `/api/tenant/maintenance-requests/${requestId}/messages`, {
+      body,
+    });
+  },
+
   createMaintenanceRequest(payload: CreateTenantMaintenancePayload): Promise<TenantMaintenanceRequest> {
     return apiRequestJson<TenantMaintenanceRequest>('POST', '/api/tenant/maintenance-requests', payload);
   },

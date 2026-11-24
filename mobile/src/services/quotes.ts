@@ -25,6 +25,7 @@ export interface MaintenanceQuote {
   quoteReference: string;
   versionNumber: number;
   currency: string;
+  recipientUserId?: string | null;
   recipientName?: string | null;
   recipientEmail?: string | null;
   recipientPhone?: string | null;
@@ -92,6 +93,7 @@ export const quotesService = {
     workOrderId: string,
     quoteId: string,
     body: {
+      recipientUserId?: string | null;
       recipientName?: string | null;
       recipientEmail?: string | null;
       recipientPhone?: string | null;
@@ -107,6 +109,26 @@ export const quotesService = {
     );
   },
 
+  async getCustomerCandidates(workOrderId: string): Promise<{
+    candidates: Array<{
+      id: string;
+      displayName: string;
+      email: string | null;
+      phone: string | null;
+    }>;
+    defaultRecipient: {
+      recipientUserId: string | null;
+      recipientName: string | null;
+      recipientEmail: string | null;
+      recipientPhone: string | null;
+    } | null;
+  }> {
+    return apiRequestJson(
+      'GET',
+      `/api/work-orders/${workOrderId}/customer-candidates`,
+    );
+  },
+
   async putLines(
     workOrderId: string,
     quoteId: string,
@@ -119,10 +141,23 @@ export const quotesService = {
     );
   },
 
-  async submitQuote(workOrderId: string, quoteId: string): Promise<MaintenanceQuote> {
-    return apiRequestJson<MaintenanceQuote>(
+  async sendQuote(
+    workOrderId: string,
+    quoteId: string,
+  ): Promise<MaintenanceQuote & { publicLink?: string; emailSent?: boolean; emailError?: string | null }> {
+    return apiRequestJson(
       'POST',
-      `/api/work-orders/${workOrderId}/quotes/${quoteId}/submit`,
+      `/api/work-orders/${workOrderId}/quotes/${quoteId}/send`,
+    );
+  },
+
+  async convertToInvoice(
+    workOrderId: string,
+    quoteId: string,
+  ): Promise<{ id: string; invoiceReference?: string }> {
+    return apiRequestJson(
+      'POST',
+      `/api/work-orders/${workOrderId}/quotes/${quoteId}/convert-to-invoice`,
     );
   },
 

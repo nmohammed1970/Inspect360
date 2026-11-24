@@ -61,6 +61,7 @@ export default function InspectionDetail() {
 
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
+  const [editAssigneeKind, setEditAssigneeKind] = useState<"" | "team" | "tenant">("");
   const [showCompleteDialog, setShowCompleteDialog] = useState(false);
   const [showSendToTenantDialog, setShowSendToTenantDialog] = useState(false);
   const [pendingCompleteWithAI, setPendingCompleteWithAI] = useState(false);
@@ -298,6 +299,23 @@ export default function InspectionDetail() {
     queryKey: ["/api/users/clerks"],
   });
 
+  const { data: propertyTenants = [] } = useQuery<any[]>({
+    queryKey: ["/api/properties", inspection?.propertyId, "tenants"],
+    enabled: !!inspection?.propertyId && tenanciesEnabled,
+  });
+
+  const editTeamAssignees = clerks.map((c: any) => ({
+    ...c,
+    roleLabel: c.role === "contractor" ? "contractor" : "inspector",
+  }));
+  const editTenantAssignees = (propertyTenants || [])
+    .filter((t: any) => t.assignment?.isActive !== false)
+    .map((t: any) => ({
+      ...t,
+      role: "tenant",
+      roleLabel: "tenant",
+    }));
+
   const editFormSchema = z.object({
     type: z.enum(["check_in", "check_out", "routine", "maintenance", "esg_sustainability_inspection", "fire_hazard_assessment", "maintenance_inspection", "damage", "emergency", "safety_compliance", "compliance_regulatory", "pre_purchase", "specialized"]),
     scheduledDate: z.string().min(1, "Scheduled date is required"),
@@ -347,12 +365,18 @@ export default function InspectionDetail() {
   };
 
   const openEditDialog = () => {
+    const currentId = inspection?.inspectorId || "";
+    const isTenantAssignee = !!currentId && editTenantAssignees.some((t) => t.id === currentId);
+    const isTeamAssignee = !!currentId && editTeamAssignees.some((c) => c.id === currentId);
     editForm.reset({
       type: inspection?.type || "routine",
       scheduledDate: inspection?.scheduledDate ? new Date(inspection.scheduledDate).toISOString().split("T")[0] : "",
-      inspectorId: inspection?.inspectorId || "",
+      inspectorId: currentId,
       notes: inspection?.notes || "",
     });
+    setEditAssigneeKind(
+      isTenantAssignee ? "tenant" : isTeamAssignee || !inspection?.propertyId ? "team" : "",
+    );
     setShowEditDialog(true);
   };
 
@@ -736,32 +760,81 @@ export default function InspectionDetail() {
                 )}
               />
 
-              <FormField
-                control={editForm.control}
-                name="inspectorId"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{ASSIGNED_INVENTORY_CLERK_LABEL}</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value || ""}>
-                      <FormControl>
-                        <SelectTrigger data-testid="select-edit-clerk">
-                          <SelectValue placeholder="Select inventory clerk / inspector" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {clerks.map((clerk: any) => (
-                          <SelectItem key={clerk.id} value={clerk.id}>
-                            {clerk.firstName && clerk.lastName
-                              ? `${clerk.firstName} ${clerk.lastName}`
-                              : clerk.email || clerk.username}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              <div className="space-y-3 rounded-lg border border-border/70 p-3">
+                <div className="space-y-1.5">
+                  <FormLabel>Assign to</FormLabel>
+                  <Select
+                    value={editAssigneeKind || undefined}
+                    onValueChange={(value: "team" | "tenant") => {
+                      setEditAssigneeKind(value);
+                      editForm.setValue("inspectorId", "");
+                    }}
+                  >
+                    <SelectTrigger data-testid="select-edit-assignee-kind">
+                      <SelectValue placeholder="Choose role" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="team">Inspector / maintenance</SelectItem>
+                      {inspection?.propertyId && (
+                        <SelectItem
+                          value="tenant"
+                          disabled={editTenantAssignees.length === 0}
+                        >
+                          Tenant
+                          {editTenantAssignees.length === 0
+                            ? " (none on this property)"
+                            : ""}
+                        </SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {editAssigneeKind ? (
+                  <FormField
+                    control={editForm.control}
+                    name="inspectorId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>
+                          {editAssigneeKind === "tenant"
+                            ? "Select tenant"
+                            : "Select inspector / maintenance"}
+                        </FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value || ""}>
+                          <FormControl>
+                            <SelectTrigger data-testid="select-edit-clerk">
+                              <SelectValue
+                                placeholder={
+                                  editAssigneeKind === "tenant"
+                                    ? "Select tenant"
+                                    : "Select team member"
+                                }
+                              />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {(editAssigneeKind === "tenant"
+                              ? editTenantAssignees
+                              : editTeamAssignees
+                            ).map((assignee: any) => (
+                              <SelectItem key={assignee.id} value={assignee.id}>
+                                {assignee.firstName && assignee.lastName
+                                  ? `${assignee.firstName} ${assignee.lastName}`
+                                  : assignee.email || assignee.username}
+                                {assignee.roleLabel && editAssigneeKind === "team"
+                                  ? ` (${assignee.roleLabel})`
+                                  : ""}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                ) : null}
+              </div>
 
               <FormField
                 control={editForm.control}
