@@ -27,6 +27,7 @@ import {
 import { ChevronDown, ChevronLeft, ChevronRight, Save, CheckCircle2, AlertCircle, WifiOff, Cloud, Sparkles, Loader2, Plus, Minus, Images, ArrowRight, ClipboardList, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 import { pagePad } from "@/lib/responsive";
@@ -222,6 +223,9 @@ export default function InspectionCapture() {
   const { id } = useParams<{ id: string }>();
   const [, navigate] = useLocation();
   const { toast } = useToast();
+  const { user } = useAuth();
+  const isTenantPerformer = user?.role === "tenant";
+  const inspectionsListPath = isTenantPerformer ? "/tenant/inspections" : "/inspections";
   const [currentSectionIndex, setCurrentSectionIndex] = useState(0);
   const [captureMode, setCaptureMode] = useState<"sections" | "gallery">("sections");
   const [sectionGalleryScope, setSectionGalleryScope] = useState<{
@@ -2347,6 +2351,7 @@ export default function InspectionCapture() {
   });
 
   const shouldOfferTenantReview =
+    !isTenantPerformer &&
     tenanciesEnabled &&
     (inspection?.type === "check_in" || inspection?.type === "check_out") &&
     !!inspection?.propertyId;
@@ -2417,7 +2422,7 @@ export default function InspectionCapture() {
         title: "Inspection completed",
         description,
       });
-      navigate("/inspections");
+      navigate(inspectionsListPath);
     } catch {
       // Error toast handled by mutation
     } finally {
@@ -2473,7 +2478,7 @@ export default function InspectionCapture() {
             <p className="text-muted-foreground mb-6">
               The inspection you're looking for doesn't exist or has been removed.
             </p>
-            <Button onClick={() => navigate("/inspections")} data-testid="button-back-to-inspections">
+            <Button onClick={() => navigate(inspectionsListPath)} data-testid="button-back-to-inspections">
               Back to Inspections
             </Button>
           </CardContent>
@@ -2492,7 +2497,7 @@ export default function InspectionCapture() {
             <p className="text-muted-foreground mb-6">
               This inspection doesn't have a template structure to fill out.
             </p>
-            <Button onClick={() => navigate("/inspections")} data-testid="button-back-to-inspections">
+            <Button onClick={() => navigate(inspectionsListPath)} data-testid="button-back-to-inspections">
               Back to Inspections
             </Button>
           </CardContent>

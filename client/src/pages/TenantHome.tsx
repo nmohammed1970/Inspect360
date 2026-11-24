@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Building2, Home, Calendar, MapPin, FileText } from "lucide-react";
+import { Building2, Home, Calendar, MapPin, FileText, ClipboardCheck } from "lucide-react";
 import { Link } from "wouter";
 import { useLocale } from "@/contexts/LocaleContext";
 import {
@@ -14,6 +14,7 @@ import {
 import { ActionRequiredBanner } from "@/components/ActionRequiredBanner";
 import { cn } from "@/lib/utils";
 import { pagePad, textBreak, textTruncate } from "@/lib/responsive";
+import { formatInspectionType } from "@shared/inspectionLabels";
 
 export default function TenantHome() {
   const locale = useLocale();
@@ -33,6 +34,15 @@ export default function TenantHome() {
     refetchInterval: 60000,
     refetchOnWindowFocus: true,
   });
+
+  // Inspections assigned to this tenant as performer
+  const { data: assignedInspections = [] } = useQuery<any[]>({
+    queryKey: ["/api/inspections/my"],
+    staleTime: 0,
+  });
+  const assignedToComplete = assignedInspections.filter(
+    (i) => i.status === "scheduled" || i.status === "in_progress",
+  );
 
   // Check for reports that need signature (reports that are under review or awaiting signatures)
   const reportsNeedingSignature = comparisonReports.filter((report) => {
@@ -98,9 +108,42 @@ export default function TenantHome() {
         </p>
       </div>
 
-      {/* Action Required Banners - Inspection reviews and comparison reports */}
-      {(reportsNeedingSignature.length > 0 || pendingInspectionReviews.length > 0) && (
+      {/* Action Required Banners - assigned capture, reviews, comparison reports */}
+      {(assignedToComplete.length > 0 ||
+        reportsNeedingSignature.length > 0 ||
+        pendingInspectionReviews.length > 0) && (
         <div className="space-y-3">
+          {assignedToComplete.map((inspection) => {
+            const typeLabel =
+              inspection.templateName || formatInspectionType(inspection.type);
+            return (
+              <Link
+                key={`assign-${inspection.id}`}
+                href={`/tenant/inspections/${inspection.id}/capture`}
+              >
+                <div className="w-full rounded-lg border border-primary/40 bg-primary/5 p-4 cursor-pointer hover:bg-primary/10 transition-colors min-w-0">
+                  <div className="flex items-start gap-3 min-w-0">
+                    <div className="shrink-0 mt-0.5">
+                      <ClipboardCheck className="h-5 w-5 text-primary" />
+                    </div>
+                    <div className={cn("flex-1 space-y-1", textBreak)}>
+                      <h3 className="font-bold text-primary text-base leading-tight">
+                        Inspection assigned
+                      </h3>
+                      <p className="text-sm text-foreground/80 leading-relaxed">
+                        {typeLabel} is assigned to you
+                        {inspection.scheduledDate
+                          ? ` · scheduled ${locale.formatDate(new Date(inspection.scheduledDate))}`
+                          : ""}
+                        . Tap to open and complete it.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </Link>
+            );
+          })}
+
           {pendingInspectionReviews.map((inspection) => {
             const typeLabel =
               inspection.type === "check_out" ? "check-out" : "check-in";

@@ -79,6 +79,7 @@ import TenantRequests from "@/pages/TenantRequests";
 import TenantComparisonReports from "@/pages/TenantComparisonReports";
 import TenantComparisonReportDetail from "@/pages/TenantComparisonReportDetail";
 import TenantCheckInReview from "@/pages/TenantCheckInReview";
+import TenantInspections from "@/pages/TenantInspections";
 import TenantCommunity from "@/pages/TenantCommunity";
 import TenantProfile from "@/pages/TenantProfile";
 import CommunityModeration from "@/pages/CommunityModeration";
@@ -585,6 +586,8 @@ function AppContent() {
                   {showCommunity && <Route path="/tenant/community" component={TenantCommunity} />}
                   <Route path="/tenant/inspection-review/:id" component={TenantCheckInReview} />
                   <Route path="/tenant/check-in-review/:id" component={TenantCheckInReview} />
+                  <Route path="/tenant/inspections/:id/capture" component={InspectionCapture} />
+                  <Route path="/tenant/inspections" component={TenantInspections} />
                   <Route path="/tenant/profile" component={TenantProfile} />
                   <Route path="/dashboard" component={TenantHome} />
                   <Route component={NotFound} />
