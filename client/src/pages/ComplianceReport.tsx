@@ -39,6 +39,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { pagePad } from "@/lib/responsive";
 import { PageHeader } from "@/components/PageHeader";
+import { MetricSummaryCard } from "@/components/workspace";
 import { reportTableClass } from "@/components/data-table";
 import { cn } from "@/lib/utils";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
@@ -245,30 +246,34 @@ export default function ComplianceReport() {
 
       {/* Summary Statistics */}
       <div className="grid gap-3 sm:gap-4 grid-cols-2 md:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription className="text-xs sm:text-sm">Total Documents</CardDescription>
-            <CardTitle className="text-xl sm:text-2xl md:text-3xl" data-testid="stat-total-documents">{totalDocuments}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription className="text-xs sm:text-sm">Current</CardDescription>
-            <CardTitle className="text-xl sm:text-2xl md:text-3xl text-green-600" data-testid="stat-current">{currentDocuments}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription className="text-xs sm:text-sm">Expiring Soon</CardDescription>
-            <CardTitle className="text-xl sm:text-2xl md:text-3xl text-orange-600" data-testid="stat-expiring-soon">{expiringSoon}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription className="text-xs sm:text-sm">Expired</CardDescription>
-            <CardTitle className="text-xl sm:text-2xl md:text-3xl text-destructive" data-testid="stat-expired">{expired}</CardTitle>
-          </CardHeader>
-        </Card>
+        <MetricSummaryCard
+          value={totalDocuments}
+          valueTestId="stat-total-documents"
+          label="Total Documents"
+          tone="muted"
+          icon={ShieldCheck}
+        />
+        <MetricSummaryCard
+          value={currentDocuments}
+          valueTestId="stat-current"
+          label="Current"
+          tone="success"
+          icon={ShieldCheck}
+        />
+        <MetricSummaryCard
+          value={expiringSoon}
+          valueTestId="stat-expiring-soon"
+          label="Expiring Soon"
+          tone="warning"
+          icon={Calendar}
+        />
+        <MetricSummaryCard
+          value={expired}
+          valueTestId="stat-expired"
+          label="Expired"
+          tone="critical"
+          icon={AlertTriangle}
+        />
       </div>
 
       <FiltersSection headingId="compliance-report-filters-heading">

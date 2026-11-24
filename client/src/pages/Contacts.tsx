@@ -393,7 +393,6 @@ export default function Contacts() {
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
               <Button
-                variant="brand"
                 onClick={() => {
                   setEditingContact(null);
                   setPhoneValue("");
@@ -957,7 +956,7 @@ export default function Contacts() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
             {filteredContacts.map((contact) => (
-              <Card key={contact.id} className="hover-elevate" data-testid={`card-contact-${contact.id}`}>
+              <Card key={contact.id} className="rounded-lg border-border/80 shadow-sm" data-testid={`card-contact-${contact.id}`}>
                 <CardContent className="p-3 md:p-6 space-y-3 md:space-y-4">
                   <div className="flex items-start justify-between gap-2 md:gap-3">
                     <div className="flex items-center gap-2 md:gap-3 flex-1 min-w-0">

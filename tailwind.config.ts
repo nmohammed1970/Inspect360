@@ -9,8 +9,8 @@ export default {
         lg: ".5625rem", /* 9px */
         md: ".375rem", /* 6px */
         sm: ".1875rem", /* 3px */
-        button: "var(--radius-button)", /* 11px */
-        card: "var(--radius-card)", /* 12px */
+        button: "var(--radius-button)", /* 8px workspace */
+        card: "var(--radius-card)", /* 8px workspace */
         input: "var(--radius-input)", /* 8px */
       },
       boxShadow: {

@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils"
 
 const badgeVariants = cva(
   // Whitespace-nowrap: Badges should never wrap.
-  "whitespace-nowrap inline-flex items-center rounded-md border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+  "whitespace-nowrap inline-flex items-center border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
   {
     variants: {
       variant: {
@@ -22,9 +22,14 @@ const badgeVariants = cva(
           "border-transparent bg-info text-info-foreground shadow-xs",
         outline: " border [border-color:var(--badge-outline)] shadow-xs",
       },
+      shape: {
+        default: "rounded-md",
+        pill: "rounded-full",
+      },
     },
     defaultVariants: {
       variant: "default",
+      shape: "pill",
     },
   },
 )
@@ -33,9 +38,9 @@ export interface BadgeProps
   extends React.HTMLAttributes<HTMLDivElement>,
     VariantProps<typeof badgeVariants> {}
 
-function Badge({ className, variant, ...props }: BadgeProps) {
+function Badge({ className, variant, shape, ...props }: BadgeProps) {
   return (
-    <div className={cn(badgeVariants({ variant }), className)} {...props} />
+    <div className={cn(badgeVariants({ variant, shape }), className)} {...props} />
   );
 }
 

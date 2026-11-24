@@ -515,7 +515,7 @@ export default function BlockDetail() {
             <div className="grid gap-4">
               {properties.map((property) => (
                 <Link key={property.id} href={`/properties/${property.id}`}>
-                  <Card className="hover-elevate cursor-pointer" data-testid={`card-property-${property.id}`}>
+                  <Card className="rounded-lg border-border/80 shadow-sm cursor-pointer" data-testid={`card-property-${property.id}`}>
                     <CardHeader>
                       <div className="flex items-start justify-between">
                         <div>

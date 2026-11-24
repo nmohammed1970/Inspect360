@@ -10,15 +10,15 @@ type PageHeaderProps = {
   className?: string;
   /** Optional leading content (e.g. back link) rendered above the title row */
   leading?: ReactNode;
-  /** Optional icon shown in the teal well (Feedback-style header) */
+  /** Optional icon shown beside the title (quiet, no gradient well) */
   icon?: IconComponent;
   /** Optional test id on the title */
   titleTestId?: string;
 };
 
 /**
- * Shared page chrome — Feedback-style gradient banner with icon well.
- * Visual only — does not change routing or permissions.
+ * Shared workspace page chrome — flat title + muted subtitle + actions.
+ * Matches the HMO portfolio template (no gradient banner).
  */
 export function PageHeader({
   title,
@@ -30,37 +30,34 @@ export function PageHeader({
   titleTestId,
 }: PageHeaderProps) {
   return (
-    <div className={cn("space-y-3 min-w-0 mb-0", className)}>
+    <div className={cn("space-y-3 min-w-0 mb-1", className)}>
       {leading}
-      <div className="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-primary/10 via-background to-sky-50/60">
-        <div className="absolute inset-y-0 right-0 w-1/3 bg-[radial-gradient(ellipse_at_top_right,hsl(var(--primary)/0.18),transparent_70%)] pointer-events-none" />
-        <div className="relative p-5 sm:p-7 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex min-w-0 flex-1 items-start gap-3">
-            {Icon ? (
-              <div className="p-2.5 rounded-2xl bg-primary/15 shrink-0">
-                <Icon className="h-6 w-6 text-primary" aria-hidden />
-              </div>
-            ) : null}
-            <div className="min-w-0 flex-1">
-              <h1
-                className="text-2xl md:text-3xl font-bold tracking-tight font-heading text-foreground text-balance break-words"
-                data-testid={titleTestId}
-              >
-                {title}
-              </h1>
-              {description ? (
-                <p className="text-muted-foreground mt-1 text-sm sm:text-base max-w-2xl leading-relaxed text-pretty">
-                  {description}
-                </p>
-              ) : null}
-            </div>
-          </div>
-          {actions ? (
-            <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto lg:shrink-0 lg:justify-end">
-              {actions}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+        <div className="flex min-w-0 flex-1 items-start gap-3">
+          {Icon ? (
+            <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border/80 bg-card text-primary shadow-sm">
+              <Icon className="h-4.5 w-4.5 h-[18px] w-[18px]" aria-hidden />
             </div>
           ) : null}
+          <div className="min-w-0 flex-1">
+            <h1
+              className="text-xl font-bold tracking-tight font-heading text-foreground text-balance break-words md:text-2xl lg:text-[1.65rem]"
+              data-testid={titleTestId}
+            >
+              {title}
+            </h1>
+            {description ? (
+              <p className="mt-1 max-w-2xl text-sm leading-relaxed text-muted-foreground text-pretty">
+                {description}
+              </p>
+            ) : null}
+          </div>
         </div>
+        {actions ? (
+          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0 sm:justify-end">
+            {actions}
+          </div>
+        ) : null}
       </div>
     </div>
   );

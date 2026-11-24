@@ -1,9 +1,8 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import {
   AlertTriangle,
-  ArrowRight,
   Calendar,
   ClipboardList,
   Download,
@@ -17,7 +16,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -34,8 +32,21 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { PageHeader } from "@/components/PageHeader";
-import { FiltersSection } from "@/components/FiltersSection";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
+import {
+  MetricSummaryCard,
+  StatusPill,
+  type StatusPillTone,
+  PillFilterTabs,
+  FilterToolbar,
+  PortfolioDataTable,
+  PortfolioTableHeader,
+  PortfolioTableBody,
+  PortfolioTableRow,
+  PortfolioTableHead,
+  PortfolioTableCell,
+  OpenRowLink,
+} from "@/components/workspace";
 import { pagePad } from "@/lib/responsive";
 import { cn } from "@/lib/utils";
 import {
@@ -55,11 +66,18 @@ import {
   isUrgent,
   matchesQuick,
   needsVerify,
-  priorityPillClass,
   priorityStatus,
   sortProfiles,
   suggestedNextAction,
 } from "@/components/hmo/portfolioHelpers";
+
+const priorityTone: Record<string, StatusPillTone> = {
+  urgent: "urgent",
+  action: "action",
+  soon: "warning",
+  verify: "info",
+  clear: "success",
+};
 
 type DashboardPayload = {
   asOf: string;
@@ -71,46 +89,26 @@ type DashboardPayload = {
   profiles: PortfolioProfile[];
 };
 
-function StatusPill({
-  cls,
-  children,
-}: {
-  cls: keyof typeof priorityPillClass;
-  children: ReactNode;
-}) {
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-semibold",
-        priorityPillClass[cls],
-      )}
-    >
-      <i className="h-1.5 w-1.5 rounded-full bg-current" />
-      {children}
-    </span>
-  );
-}
-
 function LicenceCell({ p, asOf }: { p: PortfolioProfile; asOf: number }) {
   const evidence = String(p.licenceEvidenceStatus || "").toUpperCase();
   const status = String(p.licenceStatus || "").toUpperCase();
 
   if (status === "UNDER_REVIEW" || status === "DRAFT" || evidence === "UNKNOWN") {
     return (
-      <StatusPill cls="verify">
+      <StatusPill tone="info">
         {status === "UNDER_REVIEW" || status === "DRAFT" ? "Under review" : "Not on file"}
       </StatusPill>
     );
   }
   if (p.licenceEvidenceMissing && !p.expiryDate) {
-    return <StatusPill cls="verify">Not on file</StatusPill>;
+    return <StatusPill tone="info">Not on file</StatusPill>;
   }
   if (isLicenceExpired(p, asOf)) {
-    return <StatusPill cls="urgent">Expired record</StatusPill>;
+    return <StatusPill tone="urgent">Expired record</StatusPill>;
   }
   const d = daysUntil(p.expiryDate, asOf);
   if (d != null && d <= 30 && isLicenceVerified(p)) {
-    return <StatusPill cls="soon">Expires soon</StatusPill>;
+    return <StatusPill tone="warning">Expires soon</StatusPill>;
   }
   if (p.expiryDate) {
     return <span className="text-sm font-medium">{fmtShort(p.expiryDate)}</span>;
@@ -120,10 +118,10 @@ function LicenceCell({ p, asOf }: { p: PortfolioProfile; asOf: number }) {
 
 function InspectionCell({ p }: { p: PortfolioProfile }) {
   if (!p.lastHmoInspectionDate && !p.lastAssessedAt) {
-    return <StatusPill cls="verify">Not assessed</StatusPill>;
+    return <StatusPill tone="info">Not assessed</StatusPill>;
   }
   if (inspectionOverdue(p)) {
-    return <StatusPill cls="action">Overdue</StatusPill>;
+    return <StatusPill tone="action">Overdue</StatusPill>;
   }
   return (
     <span className="text-sm font-medium">
@@ -333,306 +331,215 @@ export default function HmoDashboard() {
           </p>
           )}
 
-          {/* Summary cards — same pattern as Compliance page */}
           <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 md:gap-4">
-            <Card
-              className={cn(
-                "cursor-pointer border-l-4 border-l-primary transition-colors hover:bg-muted/30",
-                quick === "all" && "ring-1 ring-primary/30 bg-primary/5",
-              )}
+            <MetricSummaryCard
+              value={kpiCounts.total}
+              valueTestId="stat-total-hmos"
+              label="HMOs in portfolio"
+              subLabel="Entire portfolio"
+              tone="primary"
+              icon={Home}
+              active={quick === "all"}
               onClick={() => setQuickAndScroll("all")}
-            >
-              <CardContent className="p-3 md:p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs md:text-sm font-medium text-muted-foreground">
-                      HMOs in portfolio
-                    </p>
-                    <p className="text-xl md:text-2xl font-bold" data-testid="stat-total-hmos">
-                      {kpiCounts.total}
-                    </p>
-                  </div>
-                  <div className="p-1.5 md:p-2 bg-primary/10 rounded-full">
-                    <Home className="h-4 w-4 md:h-5 md:w-5 text-primary" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card
-              className={cn(
-                "cursor-pointer border-l-4 border-l-destructive transition-colors hover:bg-muted/30",
-                quick === "action" && "ring-1 ring-destructive/30 bg-destructive/5",
-              )}
+            />
+            <MetricSummaryCard
+              value={kpiCounts.action}
+              valueTestId="stat-needs-attention"
+              label="Need action"
+              subLabel="Requires follow-up"
+              tone="action"
+              icon={ClipboardList}
+              active={quick === "action"}
               onClick={() => setQuickAndScroll("action")}
-            >
-              <CardContent className="p-3 md:p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs md:text-sm font-medium text-muted-foreground">
-                      Need action
-                    </p>
-                    <p
-                      className="text-xl md:text-2xl font-bold text-destructive"
-                      data-testid="stat-needs-attention"
-                    >
-                      {kpiCounts.action}
-                    </p>
-                  </div>
-                  <div className="p-1.5 md:p-2 bg-destructive/10 rounded-full">
-                    <ClipboardList className="h-4 w-4 md:h-5 md:w-5 text-destructive" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card
-              className={cn(
-                "cursor-pointer border-l-4 border-l-destructive transition-colors hover:bg-muted/30",
-                quick === "urgent" && "ring-1 ring-destructive/30 bg-destructive/5",
-              )}
+            />
+            <MetricSummaryCard
+              value={kpiCounts.urgent}
+              valueTestId="stat-non-compliant"
+              label="Urgent alerts"
+              subLabel="Immediate attention"
+              tone="critical"
+              icon={AlertTriangle}
+              active={quick === "urgent"}
               onClick={() => setQuickAndScroll("urgent")}
-            >
-              <CardContent className="p-3 md:p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs md:text-sm font-medium text-muted-foreground">
-                      Urgent alerts
-                    </p>
-                    <p
-                      className="text-xl md:text-2xl font-bold text-destructive"
-                      data-testid="stat-non-compliant"
-                    >
-                      {kpiCounts.urgent}
-                    </p>
-                  </div>
-                  <div className="p-1.5 md:p-2 bg-destructive/10 rounded-full">
-                    <AlertTriangle className="h-4 w-4 md:h-5 md:w-5 text-destructive" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card
-              className={cn(
-                "cursor-pointer border-l-4 border-l-yellow-500 transition-colors hover:bg-muted/30",
-                quick === "upcoming" && "ring-1 ring-yellow-500/40 bg-yellow-500/5",
-              )}
+            />
+            <MetricSummaryCard
+              value={kpiCounts.upcoming}
+              valueTestId="stat-renewals-due"
+              label="Upcoming deadlines"
+              subLabel={`Within ${windowDays} days`}
+              tone="warning"
+              icon={Calendar}
+              active={quick === "upcoming"}
               onClick={() => setQuickAndScroll("upcoming")}
-            >
-              <CardContent className="p-3 md:p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs md:text-sm font-medium text-muted-foreground">
-                      Upcoming deadlines
-                    </p>
-                    <p
-                      className="text-xl md:text-2xl font-bold text-yellow-600"
-                      data-testid="stat-renewals-due"
-                    >
-                      {kpiCounts.upcoming}
-                    </p>
-                    <p className="text-xs text-muted-foreground hidden md:block">
-                      Within {windowDays} days
-                    </p>
-                  </div>
-                  <div className="p-1.5 md:p-2 bg-yellow-500/10 rounded-full">
-                    <Calendar className="h-4 w-4 md:h-5 md:w-5 text-yellow-600" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card
-              className={cn(
-                "cursor-pointer border-l-4 border-l-sky-500 transition-colors hover:bg-muted/30",
-                quick === "verify" && "ring-1 ring-sky-500/40 bg-sky-500/5",
-              )}
+            />
+            <MetricSummaryCard
+              value={kpiCounts.verify}
+              valueTestId="stat-licence-evidence"
+              label="Data to verify"
+              subLabel="Licence / records"
+              tone="info"
+              icon={FileWarning}
+              active={quick === "verify"}
               onClick={() => setQuickAndScroll("verify")}
-            >
-              <CardContent className="p-3 md:p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs md:text-sm font-medium text-muted-foreground">
-                      Data to verify
-                    </p>
-                    <p
-                      className="text-xl md:text-2xl font-bold text-sky-700"
-                      data-testid="stat-licence-evidence"
-                    >
-                      {kpiCounts.verify}
-                    </p>
-                  </div>
-                  <div className="p-1.5 md:p-2 bg-sky-500/10 rounded-full">
-                    <FileWarning className="h-4 w-4 md:h-5 md:w-5 text-sky-700" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+            />
           </div>
 
-          <FiltersSection
-            headingId="hmo-filters-heading"
-            headingEnd={
+          <PillFilterTabs
+            value={quick}
+            onChange={(id) => setQuickAndScroll(id as QuickFilter)}
+            testIdPrefix="hmo-quick"
+            tabs={[
+              { id: "all", label: "All", count: kpiCounts.total },
+              { id: "action", label: "Action needed", count: kpiCounts.action },
+              { id: "urgent", label: "Urgent", count: kpiCounts.urgent },
+              { id: "upcoming", label: "Upcoming", count: kpiCounts.upcoming },
+              { id: "verify", label: "Verify", count: kpiCounts.verify },
+            ]}
+          />
+
+          <FilterToolbar
+            end={
               <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground whitespace-nowrap">
-                {filtered.length} shown
-              </span>
+                <span className="text-xs text-muted-foreground whitespace-nowrap">
+                  {filtered.length} shown
+                </span>
                 {hasActiveFilters && <ClearFiltersButton onClick={clearFilters} />}
               </div>
             }
           >
-            <div className="space-y-3">
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[1.6fr_1fr_1fr] lg:items-end">
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium">Search</Label>
-                  <div className="relative">
-                    <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      value={searchQ}
-                      onChange={(e) => setSearchQ(e.target.value)}
-                      placeholder="Search property, landlord, postcode…"
-                      className="pl-8"
-                      aria-label="Search HMO properties"
-                    />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium">Forward view</Label>
-                  <Select
-                    value={String(windowDays)}
-                    onValueChange={(v) => setWindowDays(Number(v))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="30">Next 30 days</SelectItem>
-                      <SelectItem value="60">Next 60 days</SelectItem>
-                      <SelectItem value="90">Next 90 days</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium">Sort</Label>
-                  <Select
-                    value={sortMode}
-                    onValueChange={(v) => setSortMode(v as SortMode)}
-                  >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                      <SelectItem value="priority">Priority first</SelectItem>
-                      <SelectItem value="due">Next deadline</SelectItem>
-                      <SelectItem value="name">Property A–Z</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    </div>
-                    </div>
-          </FiltersSection>
+            <div className="relative min-w-0 flex-1 sm:max-w-xs">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={searchQ}
+                onChange={(e) => setSearchQ(e.target.value)}
+                placeholder="Search property, landlord, postcode…"
+                className="h-9 pl-8"
+                aria-label="Search HMO properties"
+              />
+            </div>
+            <Select
+              value={String(windowDays)}
+              onValueChange={(v) => setWindowDays(Number(v))}
+            >
+              <SelectTrigger className="h-9 w-full sm:w-[10.5rem]">
+                <SelectValue placeholder="Forward view" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="30">Next 30 days</SelectItem>
+                <SelectItem value="60">Next 60 days</SelectItem>
+                <SelectItem value="90">Next 90 days</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select
+              value={sortMode}
+              onValueChange={(v) => setSortMode(v as SortMode)}
+            >
+              <SelectTrigger className="h-9 w-full sm:w-[10.5rem]">
+                <SelectValue placeholder="Sort" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="priority">Priority first</SelectItem>
+                <SelectItem value="due">Next deadline</SelectItem>
+                <SelectItem value="name">Property A–Z</SelectItem>
+              </SelectContent>
+            </Select>
+          </FilterToolbar>
 
           {/* Work grid */}
           <div
             id="hmo-work-grid"
             className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_304px]"
           >
-            <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
-              <div className="max-h-[586px] overflow-auto">
-                {filtered.length === 0 ? (
-                  <div className="m-3 rounded-xl border border-dashed px-4 py-10 text-center text-sm text-muted-foreground">
-                    No matching HMO properties. Try adjusting the filters or search term.
-                  </div>
-                ) : (
-                  <table className="w-full min-w-[880px] border-collapse text-left text-sm">
-                    <thead className="sticky top-0 z-[1] bg-muted/40">
-                      <tr>
-                        {[
-                          "Property",
-                          "Priority",
-                          "Licence",
-                          "Occupancy",
-                          "HMO inspection",
-                          "Alerts",
-                          "Next action",
-                          "",
-                        ].map((h) => (
-                          <th
-                            key={h || "open"}
-                            className="whitespace-nowrap border-b px-3 py-3 text-xs font-medium text-muted-foreground"
-                          >
-                            {h}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filtered.map((p) => {
-                        const status = priorityStatus(p, windowDays, asOf);
-                        const openCount = p.openFindingCount ?? p.alertCount ?? 0;
-                        const action = suggestedNextAction(p, asOf);
-                        return (
-                          <tr key={p.propertyId} className="hover:bg-muted/30">
-                            <td className="border-b px-3 py-3 align-middle">
-                              <Link
-                                href={`/properties/${p.propertyId}?tab=hmo`}
-                                className="font-normal text-foreground hover:underline"
-                              >
-                                {displayAddress(p)}
-                              </Link>
-                            </td>
-                            <td className="border-b px-3 py-3 align-middle">
-                              <StatusPill cls={status.cls}>{status.text}</StatusPill>
-                            </td>
-                            <td className="border-b px-3 py-3 align-middle">
-                              <LicenceCell p={p} asOf={asOf} />
-                            </td>
-                            <td className="border-b px-3 py-3 align-middle tabular-nums">
-                              <span
-                                className={cn(
-                                  "font-medium",
-                                  p.occupancyMismatch && "text-destructive",
-                                )}
-                              >
-                                {p.occupantsNow == null ? "?" : p.occupantsNow} /{" "}
-                                {p.maxPersons == null ? "?" : p.maxPersons}
-                              </span>
-                            </td>
-                            <td className="border-b px-3 py-3 align-middle">
-                              <InspectionCell p={p} />
-                            </td>
-                            <td className="border-b px-3 py-3 align-middle">
-                              <span
-                                className={cn(
-                                  "font-medium",
-                                  openCount ? "text-destructive" : "text-muted-foreground",
-                                )}
-                              >
-                                {openCount ? `${openCount} open` : "None open"}
-                              </span>
-                            </td>
-                            <td className="max-w-[200px] border-b px-3 py-3 align-middle">
-                              <span className="line-clamp-2 font-medium text-foreground">
-                                {action}
-                              </span>
-                            </td>
-                            <td className="border-b px-3 py-3 align-middle">
-                              <Link
-                                href={`/properties/${p.propertyId}?tab=hmo`}
-                                className="inline-flex items-center gap-0.5 whitespace-nowrap text-sm font-medium text-primary"
-                              >
-                                Open <ArrowRight className="h-3.5 w-3.5" />
-                              </Link>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                )}
-                  </div>
-            </section>
+            <div className="max-h-[586px] overflow-auto">
+              {filtered.length === 0 ? (
+                <div className="rounded-lg border border-dashed bg-card px-4 py-10 text-center text-sm text-muted-foreground">
+                  No matching HMO properties. Try adjusting the filters or search term.
+                </div>
+              ) : (
+                <PortfolioDataTable minWidth="880px">
+                  <PortfolioTableHeader className="sticky top-0 z-[1]">
+                    <PortfolioTableRow>
+                      {[
+                        "Property",
+                        "Priority",
+                        "Licence",
+                        "Occupancy",
+                        "HMO inspection",
+                        "Alerts",
+                        "Next action",
+                        "",
+                      ].map((h) => (
+                        <PortfolioTableHead key={h || "open"}>{h}</PortfolioTableHead>
+                      ))}
+                    </PortfolioTableRow>
+                  </PortfolioTableHeader>
+                  <PortfolioTableBody>
+                    {filtered.map((p) => {
+                      const status = priorityStatus(p, windowDays, asOf);
+                      const openCount = p.openFindingCount ?? p.alertCount ?? 0;
+                      const action = suggestedNextAction(p, asOf);
+                      return (
+                        <PortfolioTableRow key={p.propertyId}>
+                          <PortfolioTableCell>
+                            <Link
+                              href={`/properties/${p.propertyId}?tab=hmo`}
+                              className="font-medium text-foreground hover:underline"
+                            >
+                              {displayAddress(p)}
+                            </Link>
+                          </PortfolioTableCell>
+                          <PortfolioTableCell>
+                            <StatusPill tone={priorityTone[status.cls] || "default"}>
+                              {status.text}
+                            </StatusPill>
+                          </PortfolioTableCell>
+                          <PortfolioTableCell>
+                            <LicenceCell p={p} asOf={asOf} />
+                          </PortfolioTableCell>
+                          <PortfolioTableCell className="tabular-nums">
+                            <span
+                              className={cn(
+                                "font-medium",
+                                p.occupancyMismatch && "text-[color:var(--brand-critical)]",
+                              )}
+                            >
+                              {p.occupantsNow == null ? "?" : p.occupantsNow} /{" "}
+                              {p.maxPersons == null ? "?" : p.maxPersons}
+                            </span>
+                          </PortfolioTableCell>
+                          <PortfolioTableCell>
+                            <InspectionCell p={p} />
+                          </PortfolioTableCell>
+                          <PortfolioTableCell>
+                            <span
+                              className={cn(
+                                "font-medium",
+                                openCount
+                                  ? "text-[color:var(--brand-critical)]"
+                                  : "text-muted-foreground",
+                              )}
+                            >
+                              {openCount ? `${openCount} open` : "None open"}
+                            </span>
+                          </PortfolioTableCell>
+                          <PortfolioTableCell className="max-w-[200px]">
+                            <span className="line-clamp-2 font-medium text-foreground">
+                              {action}
+                            </span>
+                          </PortfolioTableCell>
+                          <PortfolioTableCell>
+                            <OpenRowLink
+                              href={`/properties/${p.propertyId}?tab=hmo`}
+                              testId={`hmo-open-${p.propertyId}`}
+                            />
+                          </PortfolioTableCell>
+                        </PortfolioTableRow>
+                      );
+                    })}
+                  </PortfolioTableBody>
+                </PortfolioDataTable>
+              )}
+            </div>
 
             <aside className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-1">
           <Card>
@@ -720,61 +627,62 @@ export default function HmoDashboard() {
             </span>
                       </div>
 
-          <div className="min-w-0 rounded-lg border border-[#d7e7e4] bg-gradient-to-b from-[#f7fcfb] to-white p-3 sm:p-5">
-            <div className="mb-4 flex items-start justify-between gap-3 border-b-2 border-[#00a99b] pb-3">
-                      <div className="min-w-0">
-                <p className="text-xs font-semibold tracking-wide text-[#00a99b]">
+          <div className="min-w-0 rounded-lg border border-border/80 bg-card p-3 sm:p-5">
+            <div className="mb-4 flex items-start justify-between gap-3 border-b border-border pb-3">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold tracking-wide text-primary">
                   INSPECT360 · HMO PORTFOLIO
                 </p>
-                <h3 className="text-lg font-bold text-slate-900 sm:text-xl">
+                <h3 className="text-lg font-bold text-foreground sm:text-xl">
                   HMO management report
                 </h3>
                 <p className="mt-1 text-sm text-muted-foreground">
                   {reportScope === "all" ? "Entire portfolio" : "Filtered portfolio selection"} ·{" "}
                   {reportRows.length} properties
                 </p>
-                      </div>
-                    </div>
+              </div>
+            </div>
 
             <div className="mb-4 grid grid-cols-2 gap-2 md:grid-cols-4">
-              {[
-                {
-                  n: reportRows.length,
-                  l: "HMOs in scope",
-                  tone: "text-[#00877a] bg-[#e8f8f3] border-[#b7e5dc]",
-                },
-                {
-                  n: reportRows.filter((p) => isAction(p, asOf)).length,
-                  l: "Requiring action",
-                  tone: "text-[#a56b16] bg-[#fff2de] border-[#f0d7a8]",
-                },
-                {
-                  n: reportRows.filter((p) => isUrgent(p)).length,
-                  l: "Urgent alerts",
-                  tone: "text-[#b93b4a] bg-[#fff0f1] border-[#f3c4ca]",
-                },
-                {
-                  n: reportRows.filter((p) => hasUpcoming(p, windowDays, asOf)).length,
-                  l: `Upcoming (${windowDays}d)`,
-                  tone: "text-[#856613] bg-[#fff8e8] border-[#efe0b0]",
-                },
-              ].map((s) => (
-                <div key={s.l} className={cn("rounded-md border p-2.5", s.tone)}>
-                  <strong className="block text-xl sm:text-2xl">{s.n}</strong>
-                  <small className="text-xs opacity-80">{s.l}</small>
-                </div>
-              ))}
+              <MetricSummaryCard
+                value={reportRows.length}
+                label="HMOs in scope"
+                tone="primary"
+                icon={Home}
+                className="p-3"
+              />
+              <MetricSummaryCard
+                value={reportRows.filter((p) => isAction(p, asOf)).length}
+                label="Requiring action"
+                tone="action"
+                icon={ClipboardList}
+                className="p-3"
+              />
+              <MetricSummaryCard
+                value={reportRows.filter((p) => isUrgent(p)).length}
+                label="Urgent alerts"
+                tone="critical"
+                icon={AlertTriangle}
+                className="p-3"
+              />
+              <MetricSummaryCard
+                value={reportRows.filter((p) => hasUpcoming(p, windowDays, asOf)).length}
+                label={`Upcoming (${windowDays}d)`}
+                tone="warning"
+                icon={Calendar}
+                className="p-3"
+              />
             </div>
 
             <div className="max-h-[min(40vh,360px)] overflow-auto -mx-1 px-1 sm:mx-0 sm:px-0">
               <table className="w-full min-w-[560px] border-collapse text-left text-sm">
                 <thead>
-                  <tr className="bg-[#f3faf8]">
+                  <tr className="bg-muted/40">
                     {["Property", "Authority", "Licence", "Inspection", "Alerts", "Priority"].map(
                       (h) => (
                         <th
                           key={h}
-                          className="border-b border-[#d7e7e4] px-2 py-2 text-xs font-semibold text-[#5b6b75]"
+                          className="border-b px-2 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
                         >
                           {h}
                         </th>
@@ -791,38 +699,40 @@ export default function HmoDashboard() {
                     const inspOverdue = inspectionOverdue(p);
                     const inspMissing = !p.lastHmoInspectionDate && !p.lastAssessedAt;
                     return (
-                      <tr key={p.propertyId} className="hover:bg-[#f7fcfb]">
-                        <td className="border-b border-[#eef2f5] px-1.5 py-2 font-medium text-slate-900">
+                      <tr key={p.propertyId} className="hover:bg-muted/30">
+                        <td className="border-b px-1.5 py-2 font-medium text-foreground">
                           {displayAddress(p)}
                         </td>
-                        <td className="border-b border-[#eef2f5] px-1.5 py-2 text-slate-700">
+                        <td className="border-b px-1.5 py-2 text-muted-foreground">
                           {displayCouncil(p) || "—"}
                         </td>
-                        <td className="border-b border-[#eef2f5] px-1.5 py-2">
+                        <td className="border-b px-1.5 py-2">
                           {p.expiryDate ? (
-                            <span className="text-slate-800">{fmtShort(p.expiryDate)}</span>
+                            <span>{fmtShort(p.expiryDate)}</span>
                           ) : licenceMissing ? (
-                            <StatusPill cls="verify">Not on file</StatusPill>
+                            <StatusPill tone="info">Not on file</StatusPill>
                           ) : (
                             "—"
                           )}
                         </td>
-                        <td className="border-b border-[#eef2f5] px-1.5 py-2">
+                        <td className="border-b px-1.5 py-2">
                           {inspOverdue ? (
-                            <StatusPill cls="action">Overdue</StatusPill>
+                            <StatusPill tone="action">Overdue</StatusPill>
                           ) : inspMissing ? (
-                            <StatusPill cls="verify">Not assessed</StatusPill>
+                            <StatusPill tone="info">Not assessed</StatusPill>
                           ) : (
-                            <span className="text-slate-800">
+                            <span>
                               {fmtShort(p.lastHmoInspectionDate || p.lastAssessedAt)}
                             </span>
                           )}
                         </td>
-                        <td className="border-b border-[#eef2f5] px-1.5 py-2">
+                        <td className="border-b px-1.5 py-2">
                           <span
                             className={cn(
                               "font-semibold",
-                              openCount > 0 ? "text-[#b93b4a]" : "text-muted-foreground",
+                              openCount > 0
+                                ? "text-[color:var(--brand-critical)]"
+                                : "text-muted-foreground",
                             )}
                           >
                             {openCount}
@@ -830,21 +740,25 @@ export default function HmoDashboard() {
                           <span
                             className={cn(
                               "ml-1 text-xs",
-                              urgent > 0 ? "font-medium text-[#b93b4a]" : "text-muted-foreground",
+                              urgent > 0
+                                ? "font-medium text-[color:var(--brand-critical)]"
+                                : "text-muted-foreground",
                             )}
                           >
                             ({urgent} urgent)
                           </span>
                         </td>
-                        <td className="border-b border-[#eef2f5] px-1.5 py-2">
-                          <StatusPill cls={status.cls}>{status.text}</StatusPill>
+                        <td className="border-b px-1.5 py-2">
+                          <StatusPill tone={priorityTone[status.cls] || "default"}>
+                            {status.text}
+                          </StatusPill>
                         </td>
                       </tr>
-                );
-              })}
+                    );
+                  })}
                   {reportRows.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="px-1.5 py-6 text-center text-[#8799a6]">
+                      <td colSpan={6} className="px-1.5 py-6 text-center text-muted-foreground">
                         No properties in the selected scope.
                       </td>
                     </tr>
@@ -864,10 +778,7 @@ export default function HmoDashboard() {
               <Download className="h-3.5 w-3.5" />
               Export CSV
             </Button>
-            <Button
-              className="w-full bg-[#00a99b] text-white hover:bg-[#008d84] sm:w-auto"
-              onClick={() => window.print()}
-            >
+            <Button className="w-full sm:w-auto" onClick={() => window.print()}>
               Print / Save as PDF
             </Button>
           </DialogFooter>

@@ -17,7 +17,6 @@ import {
   Search, 
   Settings,
   TrendingUp,
-  TrendingDown,
   Users,
   Wrench,
   Package,
@@ -47,6 +46,7 @@ import { pagePad } from "@/lib/responsive";
 import { cn } from "@/lib/utils";
 import { Link } from "wouter";
 import { PageHeader } from "@/components/PageHeader";
+import { MetricSummaryCard, type MetricDotTone } from "@/components/workspace";
 
 function formatInclusiveUtcDate(iso: string | null | undefined): string {
   if (!iso) return "the expiration date";
@@ -504,16 +504,10 @@ export default function Dashboard() {
                       (maintenanceEnabled ? (stats?.alerts.urgentMaintenance || 0) : 0) +
                       (rentalsEnabled ? (stats?.alerts.overdueRent || 0) : 0);
 
-  const getKpiColor = (value: number, thresholds: { good: number; warning: number }) => {
-    if (value >= thresholds.good) return "text-green-600 dark:text-green-400";
-    if (value >= thresholds.warning) return "text-yellow-600 dark:text-yellow-400";
-    return "text-red-600 dark:text-red-400";
-  };
-
-  const getKpiIcon = (value: number, thresholds: { good: number; warning: number }) => {
-    if (value >= thresholds.good) return <TrendingUp className="h-4 w-4 text-green-600 dark:text-green-400" />;
-    if (value >= thresholds.warning) return <Activity className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />;
-    return <TrendingDown className="h-4 w-4 text-red-600 dark:text-red-400" />;
+  const getKpiDot = (value: number, thresholds: { good: number; warning: number }): MetricDotTone => {
+    if (value >= thresholds.good) return "success";
+    if (value >= thresholds.warning) return "warning";
+    return "critical";
   };
 
   return (
@@ -714,7 +708,6 @@ export default function Dashboard() {
               <Button
                 onClick={handleExportDashboardPDF}
                 disabled={isExportingPDF}
-                variant="brand"
                 className="ml-auto"
                 data-testid="button-export-dashboard-pdf"
               >
@@ -830,7 +823,6 @@ export default function Dashboard() {
               <Button
                 onClick={handleExportDashboardPDF}
                 disabled={isExportingPDF}
-                variant="brand"
                 className="flex-1"
                 data-testid="button-export-dashboard-pdf-mobile"
               >
@@ -978,140 +970,79 @@ export default function Dashboard() {
 
       {/* KPI Cards Row */}
       {visibleWidgets.kpis && (
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4" data-testid="panel-kpis">
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 md:gap-4" data-testid="panel-kpis">
         {tenanciesEnabled && (
-          <UiTooltip>
-            <TooltipTrigger asChild>
-              <Card data-testid="kpi-occupancy">
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <Home className="h-4 w-4 text-muted-foreground" />
-                    {getKpiIcon(stats?.kpis?.occupancyRate ?? 0, { good: 90, warning: 75 })}
-                  </div>
-                  <p className={`text-2xl font-bold ${getKpiColor(stats?.kpis?.occupancyRate ?? 0, { good: 90, warning: 75 })}`}>
-                    {stats?.kpis?.occupancyRate ?? 0}%
-                  </p>
-                  <p className="text-xs text-muted-foreground">Occupancy Rate</p>
-                </CardContent>
-              </Card>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>Percentage of properties currently occupied</p>
-            </TooltipContent>
-          </UiTooltip>
+          <MetricSummaryCard
+            testId="kpi-occupancy"
+            value={`${stats?.kpis?.occupancyRate ?? 0}%`}
+            label="Occupancy Rate"
+            subLabel="Properties occupied"
+            tone={getKpiDot(stats?.kpis?.occupancyRate ?? 0, { good: 90, warning: 75 })}
+            icon={Home}
+          />
         )}
 
         {complianceEnabled && (
-          <UiTooltip>
-            <TooltipTrigger asChild>
-              <Link href="/compliance">
-                <Card className="hover-elevate cursor-pointer" data-testid="kpi-compliance">
-                  <CardContent className="p-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <ShieldAlert className="h-4 w-4 text-muted-foreground" />
-                      {getKpiIcon(stats?.kpis?.complianceRate ?? 0, { good: 50, warning: 50 })}
-                    </div>
-                    <p className={`text-2xl font-bold ${getKpiColor(stats?.kpis?.complianceRate ?? 0, { good: 50, warning: 50 })}`}>
-                      {stats?.kpis?.complianceRate ?? 0}%
-                    </p>
-                    <p className="text-xs text-muted-foreground">Compliance Rate</p>
-                  </CardContent>
-                </Card>
-              </Link>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>Share of compliance documents that are currently valid — click to view</p>
-            </TooltipContent>
-          </UiTooltip>
+          <Link href="/compliance" className="min-w-0">
+            <MetricSummaryCard
+              testId="kpi-compliance"
+              value={`${stats?.kpis?.complianceRate ?? 0}%`}
+              label="Compliance Rate"
+              subLabel="Valid documents"
+              tone={getKpiDot(stats?.kpis?.complianceRate ?? 0, { good: 50, warning: 50 })}
+              icon={ShieldAlert}
+              className="h-full"
+            />
+          </Link>
         )}
 
-        <UiTooltip>
-          <TooltipTrigger asChild>
-            <Link href="/inspections">
-              <Card className="hover-elevate cursor-pointer" data-testid="kpi-inspection-completion">
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
-                    {getKpiIcon(stats?.kpis?.inspectionCompletionRate ?? 0, { good: 90, warning: 70 })}
-                  </div>
-                  <p className={`text-2xl font-bold ${getKpiColor(stats?.kpis?.inspectionCompletionRate ?? 0, { good: 90, warning: 70 })}`}>
-                    {stats?.kpis?.inspectionCompletionRate ?? 0}%
-                  </p>
-                  <p className="text-xs text-muted-foreground">Inspection Rate (90d)</p>
-                </CardContent>
-              </Card>
-            </Link>
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>Inspections completed in the last 90 days — click to view</p>
-          </TooltipContent>
-        </UiTooltip>
+        <Link href="/inspections" className="min-w-0">
+          <MetricSummaryCard
+            testId="kpi-inspection-completion"
+            value={`${stats?.kpis?.inspectionCompletionRate ?? 0}%`}
+            label="Inspection Rate (90d)"
+            subLabel="Completed recently"
+            tone={getKpiDot(stats?.kpis?.inspectionCompletionRate ?? 0, { good: 90, warning: 70 })}
+            icon={CheckCircle2}
+            className="h-full"
+          />
+        </Link>
 
         {maintenanceEnabled && (
         <>
-        <UiTooltip>
-          <TooltipTrigger asChild>
-            <Link href="/maintenance">
-              <Card className="hover-elevate cursor-pointer" data-testid="kpi-resolution-time">
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <Timer className="h-4 w-4 text-muted-foreground" />
-                    {getKpiIcon(10 - (stats?.kpis?.avgMaintenanceResolutionDays ?? 0), { good: 5, warning: 0 })}
-                  </div>
-                  <p className="text-2xl font-bold">
-                    {stats?.kpis?.avgMaintenanceResolutionDays ?? 0}d
-                  </p>
-                  <p className="text-xs text-muted-foreground">Avg Resolution Time</p>
-                </CardContent>
-              </Card>
-            </Link>
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>Average days to close maintenance requests — click to view</p>
-          </TooltipContent>
-        </UiTooltip>
-
-        <UiTooltip>
-          <TooltipTrigger asChild>
-            <Link href="/maintenance?status=open">
-              <Card className="hover-elevate cursor-pointer" data-testid="kpi-open-maintenance">
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <Wrench className="h-4 w-4 text-muted-foreground" />
-                  </div>
-                  <p className="text-2xl font-bold">
-                    {stats?.kpis?.openMaintenanceCount ?? 0}
-                  </p>
-                  <p className="text-xs text-muted-foreground">Open Requests</p>
-                </CardContent>
-              </Card>
-            </Link>
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>Open maintenance requests awaiting action — click to view</p>
-          </TooltipContent>
-        </UiTooltip>
-
-        <UiTooltip>
-          <TooltipTrigger asChild>
-            <Link href="/maintenance?status=in_progress">
-              <Card className="hover-elevate cursor-pointer" data-testid="kpi-in-progress">
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <Activity className="h-4 w-4 text-muted-foreground" />
-                  </div>
-                  <p className="text-2xl font-bold">
-                    {stats?.kpis?.inProgressMaintenanceCount ?? 0}
-                  </p>
-                  <p className="text-xs text-muted-foreground">In Progress</p>
-                </CardContent>
-              </Card>
-            </Link>
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>Maintenance requests currently being worked on — click to view</p>
-          </TooltipContent>
-        </UiTooltip>
+          <Link href="/maintenance" className="min-w-0">
+            <MetricSummaryCard
+              testId="kpi-resolution-time"
+              value={`${stats?.kpis?.avgMaintenanceResolutionDays ?? 0}d`}
+              label="Avg Resolution Time"
+              subLabel="Days to close"
+              tone={getKpiDot(10 - (stats?.kpis?.avgMaintenanceResolutionDays ?? 0), { good: 5, warning: 0 })}
+              icon={Timer}
+              className="h-full"
+            />
+          </Link>
+          <Link href="/maintenance?status=open" className="min-w-0">
+            <MetricSummaryCard
+              testId="kpi-open-maintenance"
+              value={stats?.kpis?.openMaintenanceCount ?? 0}
+              label="Open Requests"
+              subLabel="Awaiting action"
+              tone="info"
+              icon={Wrench}
+              className="h-full"
+            />
+          </Link>
+          <Link href="/maintenance?status=in_progress" className="min-w-0">
+            <MetricSummaryCard
+              testId="kpi-in-progress"
+              value={stats?.kpis?.inProgressMaintenanceCount ?? 0}
+              label="In Progress"
+              subLabel="Being worked"
+              tone="primary"
+              icon={Activity}
+              className="h-full"
+            />
+          </Link>
         </>
         )}
       </div>
@@ -1120,13 +1051,13 @@ export default function Dashboard() {
       {/* New Requests feed — owner + maintenance_admin */}
       {canSeeMaintenanceInbox && (
         <Card
-          className="border-emerald-600/30 bg-emerald-50/40 dark:bg-emerald-950/20"
+          className="border-primary/25 bg-primary/[0.04]"
           data-testid="panel-new-requests"
         >
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between gap-3">
               <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                <Wrench className="h-5 w-5 text-emerald-700 dark:text-emerald-400" />
+                <Wrench className="h-5 w-5 text-primary" />
                 New Requests
               </CardTitle>
               <Badge

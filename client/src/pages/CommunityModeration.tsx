@@ -32,6 +32,7 @@ import { Link } from "wouter";
 import { cn } from "@/lib/utils";
 import { pagePad, dialogContentBase, dialogFooterSticky, cardGrid } from "@/lib/responsive";
 import { PageHeader } from "@/components/PageHeader";
+import { MetricSummaryCard } from "@/components/workspace";
 
 interface Block {
   id: string;
@@ -697,7 +698,7 @@ export default function CommunityModeration() {
               <p className="text-xs md:text-sm text-muted-foreground truncate">{currentGroup.blockName}</p>
             </div>
           </div>
-          <Button variant="brand" onClick={() => setShowCreateThread(true)} className="w-full sm:w-auto shrink-0" data-testid="button-new-thread">
+          <Button onClick={() => setShowCreateThread(true)} className="w-full sm:w-auto shrink-0" data-testid="button-new-thread">
             <Plus className="h-4 w-4 mr-2" />
             New Thread
           </Button>
@@ -720,7 +721,7 @@ export default function CommunityModeration() {
             {threads.map((thread) => (
               <Card 
                 key={thread.id} 
-                className="cursor-pointer hover-elevate"
+                className="cursor-pointer rounded-lg border-border/80 shadow-sm"
                 onClick={() => handleViewThread(thread.id)}
                 data-testid={`card-thread-${thread.id}`}
               >
@@ -832,7 +833,6 @@ export default function CommunityModeration() {
               Create Group
             </Button>
             <Button
-              variant="brand"
               onClick={() => {
                 setRulesText(currentRules?.rulesText || "");
                 setShowRulesEditor(true);
@@ -848,30 +848,38 @@ export default function CommunityModeration() {
       />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription className="text-xs md:text-sm">Pending Groups</CardDescription>
-            <CardTitle className="text-2xl md:text-3xl" data-testid="text-pending-count">{pendingCount.count}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription className="text-xs md:text-sm">Active Groups</CardDescription>
-            <CardTitle className="text-2xl md:text-3xl" data-testid="text-approved-count">{approvedGroups.length}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription className="text-xs md:text-sm">Open Flags</CardDescription>
-            <CardTitle className="text-2xl md:text-3xl" data-testid="text-flags-count">{unresolvedFlags.length}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription className="text-xs md:text-sm">Rules Version</CardDescription>
-            <CardTitle className="text-2xl md:text-3xl" data-testid="text-rules-version">{currentRules?.version || 0}</CardTitle>
-          </CardHeader>
-        </Card>
+        <MetricSummaryCard
+          value={pendingCount.count}
+          valueTestId="text-pending-count"
+          label="Pending Groups"
+          subLabel="Awaiting review"
+          tone="warning"
+          icon={Clock}
+        />
+        <MetricSummaryCard
+          value={approvedGroups.length}
+          valueTestId="text-approved-count"
+          label="Active Groups"
+          subLabel="Approved"
+          tone="success"
+          icon={Users}
+        />
+        <MetricSummaryCard
+          value={unresolvedFlags.length}
+          valueTestId="text-flags-count"
+          label="Open Flags"
+          subLabel="Needs moderation"
+          tone="critical"
+          icon={Flag}
+        />
+        <MetricSummaryCard
+          value={currentRules?.version || 0}
+          valueTestId="text-rules-version"
+          label="Rules Version"
+          subLabel="Community rules"
+          tone="primary"
+          icon={FileText}
+        />
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -914,7 +922,7 @@ export default function CommunityModeration() {
               <CardContent className="pt-6 text-center text-muted-foreground">
                 <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
                 <p>No community groups have been created yet.</p>
-                <Button variant="brand" className="mt-4" onClick={() => setShowCreateGroup(true)} data-testid="button-create-first-group">
+                <Button className="mt-4" onClick={() => setShowCreateGroup(true)} data-testid="button-create-first-group">
                   <Plus className="h-4 w-4 mr-2" />
                   Create First Group
                 </Button>
@@ -986,7 +994,7 @@ export default function CommunityModeration() {
                     {approvedGroups.map((group) => (
                       <Card 
                         key={group.id} 
-                        className="cursor-pointer hover-elevate overflow-hidden"
+                        className="cursor-pointer rounded-lg border-border/80 shadow-sm overflow-hidden"
                         onClick={() => handleViewGroup(group.id)}
                         data-testid={`card-approved-group-${group.id}`}
                       >

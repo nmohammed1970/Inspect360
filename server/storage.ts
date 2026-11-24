@@ -742,6 +742,7 @@ export interface IStorage {
   markNotificationAsRead(id: string): Promise<Notification>;
   markAllNotificationsAsRead(userId: string): Promise<void>;
   getUnreadNotificationCount(userId: string): Promise<number>;
+  deleteNotification(id: string, userId: string): Promise<boolean>;
 
   // Organization Trademark operations
   getOrganizationTrademarks(organizationId: string): Promise<OrganizationTrademark[]>;
@@ -4934,6 +4935,14 @@ export class DatabaseStorage implements IStorage {
       .from(notifications)
       .where(and(eq(notifications.userId, userId), eq(notifications.isRead, false)));
     return result[0]?.count || 0;
+  }
+
+  async deleteNotification(id: string, userId: string): Promise<boolean> {
+    const deleted = await db
+      .delete(notifications)
+      .where(and(eq(notifications.id, id), eq(notifications.userId, userId)))
+      .returning({ id: notifications.id });
+    return deleted.length > 0;
   }
 
   // Organization Trademark operations

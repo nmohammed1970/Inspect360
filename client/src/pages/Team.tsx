@@ -496,7 +496,7 @@ export default function Team() {
         title="Team Management"
         description="Manage your team members and their profiles"
         actions={
-          <Button variant="brand" onClick={handleOpenCreate} data-testid="button-create-team-member">
+          <Button onClick={handleOpenCreate} data-testid="button-create-team-member">
             <Plus className="mr-2 h-5 w-5" />
             Add Team Member
           </Button>
@@ -677,7 +677,7 @@ export default function Team() {
       <div className="grid gap-6">
         {filteredTeamMembers.length > 0 ? (
           filteredTeamMembers.map((member) => (
-            <Card key={member.id} className="hover-elevate" data-testid={`card-team-member-${member.id}`}>
+            <Card key={member.id} className="rounded-lg border-border/80 shadow-sm" data-testid={`card-team-member-${member.id}`}>
               <CardContent className="p-6">
                 <div className="flex items-start gap-6">
                   {/* Avatar */}
@@ -813,7 +813,7 @@ export default function Team() {
                   <p className="text-muted-foreground mb-4">
                     Add your first team member to get started
                   </p>
-                  <Button variant="brand" onClick={handleOpenCreate}>
+                  <Button onClick={handleOpenCreate}>
                     <Plus className="mr-2 h-4 w-4" />
                     Add Team Member
                   </Button>
@@ -1279,7 +1279,6 @@ export default function Team() {
               Cancel
             </Button>
             <Button
-              variant="brand"
               onClick={handleSubmit}
               disabled={createMutation.isPending || updateMutation.isPending}
               data-testid="button-submit"

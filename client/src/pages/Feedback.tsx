@@ -90,7 +90,7 @@ export default function FeedbackPage() {
               </div>
             ) : rows.length === 0 ? (
               <div className="text-center py-10 px-4 space-y-3">
-                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-muted">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-lg bg-muted">
                   <Inbox className="h-6 w-6 text-muted-foreground" />
                 </div>
                 <p className="text-muted-foreground text-sm">You have not submitted any feedback yet.</p>

@@ -287,7 +287,7 @@ export default function ComparisonReports() {
         actions={
         <Dialog open={isDialogOpen} onOpenChange={handleDialogOpenChange}>
           <DialogTrigger asChild>
-            <Button variant="brand" className="w-full sm:w-auto shrink-0" data-testid="button-generate-report">
+            <Button className="w-full sm:w-auto shrink-0" data-testid="button-generate-report">
               <Plus className="w-4 h-4 mr-2" />
               Generate Report
             </Button>
@@ -365,7 +365,6 @@ export default function ComparisonReports() {
               )}
 
               <Button
-                variant="brand"
                 className="w-full"
                 onClick={() => generateReportMutation.mutate()}
                 disabled={!selectedPropertyId || !selectedCheckInId || !selectedCheckOutId || generateReportMutation.isPending}
@@ -448,7 +447,7 @@ export default function ComparisonReports() {
             <p className="text-muted-foreground text-center max-w-md mb-4">
               Generate comparison reports to analyze check-in vs check-out inspections with AI-powered cost estimation.
             </p>
-            <Button variant="brand" onClick={() => setIsDialogOpen(true)} data-testid="button-generate-first">
+            <Button onClick={() => setIsDialogOpen(true)} data-testid="button-generate-first">
               <Plus className="w-4 h-4 mr-2" />
               Generate Your First Report
             </Button>
@@ -463,7 +462,7 @@ export default function ComparisonReports() {
             return (
               <Card 
                 key={report.id} 
-                className="hover-elevate transition-all duration-150"
+                className="rounded-lg border-border/80 shadow-sm transition-all duration-150"
                 data-testid={`card-report-${report.id}`}
               >
                 <CardContent className="p-4 md:p-6">
@@ -501,7 +500,7 @@ export default function ComparisonReports() {
                           <User className="w-3 h-3 md:w-4 md:h-4 text-muted-foreground shrink-0" />
                           <span className="text-muted-foreground">Operator:</span>
                           {report.operatorSignature ? (
-                            <Badge variant="outline" className="text-green-600 border-green-600 text-xs">
+                            <Badge variant="outline" className="border-[color:var(--brand-success)]/30 text-[color:var(--brand-success)] text-xs">
                               Signed
                             </Badge>
                           ) : (
@@ -512,7 +511,7 @@ export default function ComparisonReports() {
                           <User className="w-3 h-3 md:w-4 md:h-4 text-muted-foreground shrink-0" />
                           <span className="text-muted-foreground">Tenant:</span>
                           {report.tenantSignature ? (
-                            <Badge variant="outline" className="text-green-600 border-green-600 text-xs">
+                            <Badge variant="outline" className="border-[color:var(--brand-success)]/30 text-[color:var(--brand-success)] text-xs">
                               Signed
                             </Badge>
                           ) : (

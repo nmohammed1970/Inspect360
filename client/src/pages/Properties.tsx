@@ -223,7 +223,6 @@ export default function Properties() {
         }
         actions={
           <Button
-            variant="brand"
             data-testid="button-create-property"
             onClick={handleOpenCreate}
           >
@@ -339,7 +338,7 @@ export default function Properties() {
           {filteredProperties.map((property: any) => {
             const propertyBlock = blocks.find((b: any) => b.id === property.blockId);
             return (
-              <Card key={property.id} className="hover-elevate flex h-full flex-col" data-testid={`card-property-${property.id}`}>
+              <Card key={property.id} className="flex h-full flex-col rounded-lg border-border/80 shadow-sm" data-testid={`card-property-${property.id}`}>
                 <Link href={`/properties/${property.id}`} className="flex flex-1 flex-col min-h-0">
                   <CardHeader className="cursor-pointer">
                     <CardTitle className="flex items-center justify-between gap-2">

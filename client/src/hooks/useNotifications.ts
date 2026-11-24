@@ -105,6 +105,19 @@ export function useNotifications() {
     },
   });
 
+  const deleteNotificationMutation = useMutation({
+    mutationFn: async (notificationId: string) => {
+      const res = await apiRequest("DELETE", `/api/notifications/${notificationId}`);
+      return await res.json();
+    },
+    onSuccess: (_data, notificationId) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications/unread-count"] });
+      setPopupNotification((prev) => (prev?.id === notificationId ? null : prev));
+      setDismissedNotificationIds((prev) => new Set(prev).add(notificationId));
+    },
+  });
+
   // WebSocket connection
   useEffect(() => {
     if (!isAuthenticated || !user) {
@@ -296,6 +309,8 @@ export function useNotifications() {
     handleClosePopup,
     handleViewNotification,
     markAsRead: markAsReadMutation.mutate,
+    deleteNotification: deleteNotificationMutation.mutate,
+    isDeletingNotification: deleteNotificationMutation.isPending,
   };
 }
 

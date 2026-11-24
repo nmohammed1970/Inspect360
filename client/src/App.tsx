@@ -96,6 +96,8 @@ import HmoDashboard from "@/pages/HmoDashboard";
 import HmoRulesReview from "@/pages/HmoRulesReview";
 import { Loader2 } from "lucide-react";
 import { UserProfileMenu } from "@/components/UserProfileMenu";
+import { StaffBreadcrumbs } from "@/components/workspace/StaffBreadcrumbs";
+import { HeaderNotifications } from "@/components/workspace/HeaderNotifications";
 import { TenantProfileMenu } from "@/components/TenantProfileMenu";
 import { AIChatbot } from "@/components/AIChatbot";
 import { IvyChatbot } from "@/components/IvyChatbot";
@@ -653,9 +655,23 @@ function AppContent() {
         <div className="flex h-screen w-full min-w-0">
           <AppSidebar />
           <div className="flex flex-col flex-1 min-w-0">
-            <header className="flex items-center justify-between gap-2 px-3 py-2.5 sm:px-4 sm:py-3 border-b bg-card/95 backdrop-blur-sm shrink-0 min-w-0 z-10">
+            <header className="flex items-center gap-2 px-3 py-2.5 sm:px-4 sm:py-3 border-b bg-card/95 backdrop-blur-sm shrink-0 min-w-0 z-10">
               <SidebarTrigger data-testid="button-sidebar-toggle" className="shrink-0" />
-              <UserProfileMenu />
+              <StaffBreadcrumbs />
+              <div className="flex-1 min-w-0" />
+              <div className="flex items-center gap-0.5 sm:gap-1 shrink-0">
+                <a
+                  href="https://inspect360.ai"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="hidden sm:inline-flex h-9 items-center px-2.5 text-sm text-muted-foreground hover:text-foreground rounded-md hover:bg-muted/60"
+                  data-testid="link-header-help"
+                >
+                  Help
+                </a>
+                <HeaderNotifications />
+                <UserProfileMenu />
+              </div>
             </header>
             <main className="flex-1 overflow-auto bg-mist/40 dark:bg-background min-w-0">
               <Switch>
