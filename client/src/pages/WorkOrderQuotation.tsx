@@ -155,7 +155,8 @@ export default function WorkOrderQuotation() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { user } = useAuth();
-  const isOwner = user?.role === "owner";
+  const isOwner =
+    user?.role === "owner" || user?.role === "maintenance_admin";
   const [decisionOpen, setDecisionOpen] = useState<"reject" | "request_changes" | null>(null);
   const [decisionReason, setDecisionReason] = useState("");
   const [lastPublicLink, setLastPublicLink] = useState<string | null>(null);

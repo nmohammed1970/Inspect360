@@ -630,7 +630,9 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
         transitionOrThrow(
           quote.status,
           "pending_owner_approval",
-          req.user.role === "owner" ? "owner" : "staff",
+          req.user.role === "owner" || req.user.role === "maintenance_admin"
+            ? "owner"
+            : "staff",
         );
 
         const [updated] = await db
@@ -663,7 +665,7 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
   app.post(
     "/api/work-orders/:workOrderId/quotes/:quoteId/owner-decision",
     ...quoteGuards,
-    requireRole("owner"),
+    requireRole("owner", "maintenance_admin"),
     async (req: any, res: Response) => {
       try {
         const organizationId = orgId(req);
@@ -764,7 +766,7 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
   app.post(
     "/api/work-orders/:workOrderId/quotes/:quoteId/send",
     ...quoteGuards,
-    requireRole("owner"),
+    requireRole("owner", "maintenance_admin"),
     async (req: any, res: Response) => {
       try {
         const organizationId = orgId(req);
@@ -882,7 +884,7 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
   app.post(
     "/api/work-orders/:workOrderId/quotes/:quoteId/resend",
     ...quoteGuards,
-    requireRole("owner"),
+    requireRole("owner", "maintenance_admin"),
     async (req: any, res: Response) => {
       // Alias of send (handles status === sent).
       try {
@@ -1224,7 +1226,7 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
   app.post(
     "/api/work-orders/:workOrderId/quotes/:quoteId/convert-to-invoice",
     ...quoteGuards,
-    requireRole("owner"),
+    requireRole("owner", "maintenance_admin"),
     async (req: any, res: Response) => {
       try {
         const { convertQuoteToInvoice } = await import("./invoiceService");

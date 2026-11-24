@@ -74,10 +74,15 @@ export function isAllowedWorkOrderStatus(
   status: string,
 ): boolean {
   if (ASSIGNEE_STATUSES.includes(status as (typeof ASSIGNEE_STATUSES)[number])) {
-    return role === "owner" || role === "clerk" || role === "contractor";
+    return (
+      role === "owner" ||
+      role === "clerk" ||
+      role === "contractor" ||
+      role === "maintenance_admin"
+    );
   }
   if (OWNER_EXTRA_STATUSES.includes(status as (typeof OWNER_EXTRA_STATUSES)[number])) {
-    return role === "owner";
+    return role === "owner" || role === "maintenance_admin";
   }
   return false;
 }

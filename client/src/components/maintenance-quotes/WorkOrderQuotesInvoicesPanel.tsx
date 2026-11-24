@@ -54,7 +54,8 @@ export const WorkOrderQuotesInvoicesPanel = ({
   onNavigateAway,
 }: WorkOrderQuotesInvoicesPanelProps) => {
   const { user } = useAuth();
-  const isOwner = user?.role === "owner";
+  const isOwner =
+    user?.role === "owner" || user?.role === "maintenance_admin";
   const [, setLocation] = useLocation();
 
   const quotesQuery = useQuery<QuoteListItem[]>({

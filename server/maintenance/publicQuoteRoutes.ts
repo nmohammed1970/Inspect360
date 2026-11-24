@@ -183,7 +183,10 @@ export function registerPublicMaintenanceQuoteRoutes(app: Express) {
 
       try {
         const ownerUsers = await storage.getUsersByOrganization(quote.organizationId);
-        const owners = (ownerUsers || []).filter((u: any) => u.role === "owner" && u.email);
+        const owners = (ownerUsers || []).filter(
+          (u: any) =>
+            (u.role === "owner" || u.role === "maintenance_admin") && u.email,
+        );
         const baseUrl = publicAppBaseUrl(req);
         const work = await loadPublicWorkContext(quote.workOrderId, quote.organizationId);
         for (const owner of owners.slice(0, 5)) {

@@ -125,19 +125,19 @@ export function AppSidebar() {
       title: "Maintenance",
       url: "/maintenance",
       icon: Wrench,
-      roles: ["owner", "clerk", "tenant", "contractor"],
+      roles: ["owner", "clerk", "tenant", "contractor", "maintenance_admin"],
     },
     {
       title: "Work Orders",
       url: "/analytics",
       icon: BarChart3,
-      roles: ["owner"],
+      roles: ["owner", "maintenance_admin"],
     },
     {
       title: "Quotes & Invoicing",
       url: "/maintenance/finance",
       icon: FileText,
-      roles: ["owner", "clerk", "contractor"],
+      roles: ["owner", "clerk", "contractor", "maintenance_admin"],
     },
     {
       title: "My Work Orders",
@@ -267,7 +267,9 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        {user?.role !== "clerk" && user?.role !== "contractor" && (
+        {user?.role !== "clerk" &&
+          user?.role !== "contractor" &&
+          user?.role !== "maintenance_admin" && (
           <SidebarGroup>
             <SidebarGroupContent>
               <SidebarMenu>

@@ -297,7 +297,7 @@ export default function Team() {
     }
     
     // Validate role (tenant is not allowed - tenants are managed in Contacts)
-    const validRoles = ["owner", "clerk", "compliance", "contractor"];
+    const validRoles = ["owner", "clerk", "compliance", "contractor", "maintenance_admin"];
     if (!validRoles.includes(role)) {
       toast({
         variant: "destructive",
@@ -548,6 +548,7 @@ export default function Team() {
                   <SelectItem value="clerk">{getTeamRoleDisplayLabel("clerk")}</SelectItem>
                   <SelectItem value="compliance">{getTeamRoleDisplayLabel("compliance")}</SelectItem>
                   <SelectItem value="contractor">{getTeamRoleDisplayLabel("contractor")}</SelectItem>
+                  <SelectItem value="maintenance_admin">{getTeamRoleDisplayLabel("maintenance_admin")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -629,6 +630,7 @@ export default function Team() {
                     <SelectItem value="clerk">{getTeamRoleDisplayLabel("clerk")}</SelectItem>
                     <SelectItem value="compliance">{getTeamRoleDisplayLabel("compliance")}</SelectItem>
                     <SelectItem value="contractor">{getTeamRoleDisplayLabel("contractor")}</SelectItem>
+                    <SelectItem value="maintenance_admin">{getTeamRoleDisplayLabel("maintenance_admin")}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -783,6 +785,8 @@ export default function Team() {
                         <SelectItem value="owner">{getTeamRoleDisplayLabel("owner")}</SelectItem>
                         <SelectItem value="clerk">{getTeamRoleDisplayLabel("clerk")}</SelectItem>
                         <SelectItem value="compliance">{getTeamRoleDisplayLabel("compliance")}</SelectItem>
+                        <SelectItem value="contractor">{getTeamRoleDisplayLabel("contractor")}</SelectItem>
+                        <SelectItem value="maintenance_admin">{getTeamRoleDisplayLabel("maintenance_admin")}</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -939,6 +943,7 @@ export default function Team() {
                     <SelectItem value="clerk">{getTeamRoleDisplayLabel("clerk")}</SelectItem>
                     <SelectItem value="compliance">{getTeamRoleDisplayLabel("compliance")}</SelectItem>
                     <SelectItem value="contractor">{getTeamRoleDisplayLabel("contractor")}</SelectItem>
+                    <SelectItem value="maintenance_admin">{getTeamRoleDisplayLabel("maintenance_admin")}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

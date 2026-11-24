@@ -21,7 +21,7 @@ export function registerMaintenanceFinanceRoutes(app: Express) {
     isAuthenticated,
     requireCompanyModule("maintenance"),
     rejectTenant,
-    requireRole("owner"),
+    requireRole("owner", "maintenance_admin"),
   ] as const;
 
   const staffGuards = [
@@ -60,7 +60,8 @@ export function registerMaintenanceFinanceRoutes(app: Express) {
     async (req: any, res: Response) => {
       try {
         const organizationId = req.user.organizationId as string;
-        const isOwner = req.user.role === "owner";
+        const isOwner =
+          req.user.role === "owner" || req.user.role === "maintenance_admin";
 
         const [
           pendingOwnerApproval,

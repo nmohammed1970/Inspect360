@@ -88,7 +88,8 @@ function whenLabel(iso?: string | null): string {
 
 export default function MaintenanceFinance() {
   const { user } = useAuth();
-  const isOwner = user?.role === "owner";
+  const isOwner =
+    user?.role === "owner" || user?.role === "maintenance_admin";
   const [, setLocation] = useLocation();
 
   const trackingQuery = useQuery<FinanceTracking>({

@@ -15245,6 +15245,20 @@ ${optionalNotes || "No details provided."}`;
         dueDate: dueDate ? new Date(dueDate) : null,
       });
 
+      void import("./maintenance/notifyMaintenanceAdmins").then(({ notifyMaintenanceAdminsOfNewRequest }) =>
+        notifyMaintenanceAdminsOfNewRequest({
+          organizationId: request.organizationId,
+          requestId: request.id,
+          title: request.title,
+          priority: request.priority,
+          description: request.description,
+          propertyId: request.propertyId,
+          blockId: request.blockId,
+          reportedByUserId: request.reportedBy,
+          source: request.source,
+        }),
+      );
+
       res.json(request);
     } catch (error) {
       console.error("Error creating maintenance request:", error);
@@ -15331,6 +15345,20 @@ ${optionalNotes || "No details provided."}`;
         inspectionEntryId: inspectionEntryId || null,
       });
 
+      void import("./maintenance/notifyMaintenanceAdmins").then(({ notifyMaintenanceAdminsOfNewRequest }) =>
+        notifyMaintenanceAdminsOfNewRequest({
+          organizationId: request.organizationId,
+          requestId: request.id,
+          title: request.title,
+          priority: request.priority,
+          description: request.description,
+          propertyId: request.propertyId,
+          blockId: request.blockId,
+          reportedByUserId: request.reportedBy,
+          source: request.source,
+        }),
+      );
+
       res.json(request);
     } catch (error) {
       console.error("Error creating quick-add maintenance request:", error);
@@ -15411,7 +15439,7 @@ ${optionalNotes || "No details provided."}`;
     }
   });
 
-  app.delete("/api/maintenance/:id", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk"), async (req: any, res) => {
+  app.delete("/api/maintenance/:id", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk", "maintenance_admin"), async (req: any, res) => {
     try {
       const { id } = req.params;
       const user = await storage.getUser(req.user.id);
@@ -17567,7 +17595,7 @@ ${optionalNotes || "No details provided."}`;
     return identity;
   }
 
-  app.post("/api/work-orders", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "contractor"), async (req: any, res) => {
+  app.post("/api/work-orders", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "contractor", "maintenance_admin"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -17997,7 +18025,7 @@ ${optionalNotes || "No details provided."}`;
     },
   );
 
-  app.patch("/api/work-orders/:id/cost", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "contractor"), async (req: any, res) => {
+  app.patch("/api/work-orders/:id/cost", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "contractor", "maintenance_admin"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -18023,7 +18051,7 @@ ${optionalNotes || "No details provided."}`;
     }
   });
 
-  app.delete("/api/work-orders/:id", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk"), async (req: any, res) => {
+  app.delete("/api/work-orders/:id", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk", "maintenance_admin"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) {
@@ -18061,7 +18089,7 @@ ${optionalNotes || "No details provided."}`;
     }
   });
 
-  app.patch("/api/work-orders/:id", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk", "contractor"), async (req: any, res) => {
+  app.patch("/api/work-orders/:id", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk", "contractor", "maintenance_admin"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) return res.status(403).json({ error: "No organization found" });
@@ -18164,7 +18192,7 @@ ${optionalNotes || "No details provided."}`;
     }
   });
 
-  app.get("/api/work-orders/:id/certificates", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk", "contractor", "compliance"), async (req: any, res) => {
+  app.get("/api/work-orders/:id/certificates", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk", "contractor", "compliance", "maintenance_admin"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) return res.status(403).json({ error: "No organization found" });
@@ -18181,7 +18209,7 @@ ${optionalNotes || "No details provided."}`;
     }
   });
 
-  app.post("/api/work-orders/:id/certificates", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk", "contractor"), async (req: any, res) => {
+  app.post("/api/work-orders/:id/certificates", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk", "contractor", "maintenance_admin"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) return res.status(403).json({ error: "No organization found" });
@@ -18206,7 +18234,7 @@ ${optionalNotes || "No details provided."}`;
     }
   });
 
-  app.post("/api/work-orders/:id/certificates/:certId/analyse", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk", "contractor"), async (req: any, res) => {
+  app.post("/api/work-orders/:id/certificates/:certId/analyse", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk", "contractor", "maintenance_admin"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) return res.status(403).json({ error: "No organization found" });
@@ -18228,7 +18256,7 @@ ${optionalNotes || "No details provided."}`;
     }
   });
 
-  app.post("/api/work-orders/:id/certificates/:certId/confirm", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk", "contractor", "compliance"), async (req: any, res) => {
+  app.post("/api/work-orders/:id/certificates/:certId/confirm", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk", "contractor", "compliance", "maintenance_admin"), async (req: any, res) => {
     try {
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) return res.status(403).json({ error: "No organization found" });
@@ -18804,7 +18832,7 @@ ${optionalNotes || "No details provided."}`;
   });
 
   // Add tag to maintenance request
-  app.post("/api/maintenance/:requestId/tags/:tagId", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk", "contractor"), async (req: any, res) => {
+  app.post("/api/maintenance/:requestId/tags/:tagId", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk", "contractor", "maintenance_admin"), async (req: any, res) => {
     try {
       await storage.addTagToMaintenanceRequest(req.params.requestId, req.params.tagId);
       res.json({ success: true });
@@ -32651,6 +32679,20 @@ You can help the tenant with:
         await storage.updateTenantMaintenanceChat(chat.id, {
           maintenanceRequestId: maintenanceRequest.id,
         });
+
+        void import("./maintenance/notifyMaintenanceAdmins").then(({ notifyMaintenanceAdminsOfNewRequest }) =>
+          notifyMaintenanceAdminsOfNewRequest({
+            organizationId: maintenanceRequest.organizationId,
+            requestId: maintenanceRequest.id,
+            title: maintenanceRequest.title,
+            priority: maintenanceRequest.priority,
+            description: maintenanceRequest.description,
+            propertyId: maintenanceRequest.propertyId,
+            blockId: maintenanceRequest.blockId,
+            reportedByUserId: maintenanceRequest.reportedBy,
+            source: maintenanceRequest.source,
+          }),
+        );
       }
 
       res.json({ chatId: chat.id, userMessage, assistantMessage });
@@ -32713,7 +32755,22 @@ You can help the tenant with:
         organizationId: user.organizationId,
         photoUrls,
         aiSuggestedFixes,
+        source: "tenant_portal",
       });
+
+      void import("./maintenance/notifyMaintenanceAdmins").then(({ notifyMaintenanceAdminsOfNewRequest }) =>
+        notifyMaintenanceAdminsOfNewRequest({
+          organizationId: maintenanceRequest.organizationId,
+          requestId: maintenanceRequest.id,
+          title: maintenanceRequest.title,
+          priority: maintenanceRequest.priority,
+          description: maintenanceRequest.description,
+          propertyId: maintenanceRequest.propertyId,
+          blockId: maintenanceRequest.blockId,
+          reportedByUserId: maintenanceRequest.reportedBy,
+          source: maintenanceRequest.source,
+        }),
+      );
 
       await storage.updateTenantMaintenanceChat(chatId, {
         maintenanceRequestId: maintenanceRequest.id,
@@ -32805,6 +32862,20 @@ You can help the tenant with:
         aiSuggestedFixes,
         source: "tenant_portal",
       });
+
+      void import("./maintenance/notifyMaintenanceAdmins").then(({ notifyMaintenanceAdminsOfNewRequest }) =>
+        notifyMaintenanceAdminsOfNewRequest({
+          organizationId: maintenanceRequest.organizationId,
+          requestId: maintenanceRequest.id,
+          title: maintenanceRequest.title,
+          priority: maintenanceRequest.priority,
+          description: maintenanceRequest.description,
+          propertyId: maintenanceRequest.propertyId,
+          blockId: maintenanceRequest.blockId,
+          reportedByUserId: maintenanceRequest.reportedBy,
+          source: maintenanceRequest.source,
+        }),
+      );
 
       res.status(201).json(maintenanceRequest);
     } catch (error) {

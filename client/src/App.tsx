@@ -116,6 +116,10 @@ function isFieldStaffRole(role: string | undefined): boolean {
   return role === "clerk" || role === "contractor";
 }
 
+function isMaintenanceAdminRole(role: string | undefined): boolean {
+  return role === "maintenance_admin";
+}
+
 function AppContent() {
   // Always call hooks at the top level
   const { isAuthenticated, user, logoutMutation, isLoading } = useAuth();
@@ -647,7 +651,49 @@ function AppContent() {
             </header>
             <main className="flex-1 overflow-auto bg-mist/40 dark:bg-background min-w-0">
               <Switch>
-                {isFieldStaffRole(user?.role) ? (
+                {isMaintenanceAdminRole(user?.role) ? (
+                  <>
+                    <Route path="/">
+                      {() => <FieldRoleRedirect to="/maintenance" />}
+                    </Route>
+                    <Route path="/dashboard">
+                      {() => <FieldRoleRedirect to="/maintenance" />}
+                    </Route>
+                    <Route path="/settings">
+                      {() => <FieldRoleRedirect to="/maintenance" />}
+                    </Route>
+                    <Route path="/billing">
+                      {() => <FieldRoleRedirect to="/maintenance" />}
+                    </Route>
+                    <Route path="/inspections">
+                      {() => <FieldRoleRedirect to="/maintenance" />}
+                    </Route>
+                    <Route path="/properties">
+                      {() => <FieldRoleRedirect to="/maintenance" />}
+                    </Route>
+                    <Route path="/compliance">
+                      {() => <FieldRoleRedirect to="/maintenance" />}
+                    </Route>
+                    <Route path="/hmo">
+                      {() => <FieldRoleRedirect to="/maintenance" />}
+                    </Route>
+                    <Route path="/reports">
+                      {() => <FieldRoleRedirect to="/maintenance" />}
+                    </Route>
+                    <Route path="/asset-inventory">
+                      {() => <FieldRoleRedirect to="/maintenance" />}
+                    </Route>
+                    <Route path="/community-moderation">
+                      {() => <FieldRoleRedirect to="/maintenance" />}
+                    </Route>
+                    <Route path="/feedback">
+                      {() => <FieldRoleRedirect to="/maintenance" />}
+                    </Route>
+                    <Route path="/comparisons">
+                      {() => <FieldRoleRedirect to="/maintenance" />}
+                    </Route>
+                  </>
+                ) : isFieldStaffRole(user?.role) ? (
                   <>
                     <Route path="/">
                       {() => <FieldRoleRedirect to="/inspections" />}

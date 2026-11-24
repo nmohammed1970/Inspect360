@@ -30,7 +30,7 @@ export const sessions = pgTable(
 );
 
 // Enums
-export const userRoleEnum = pgEnum("user_role", ["owner", "clerk", "compliance", "tenant", "contractor"]);
+export const userRoleEnum = pgEnum("user_role", ["owner", "clerk", "compliance", "tenant", "contractor", "maintenance_admin"]);
 export const inspectionStatusEnum = pgEnum("inspection_status", ["scheduled", "in_progress", "completed", "reviewed"]);
 export const inspectionTypeEnum = pgEnum("inspection_type", ["check_in", "check_out", "routine", "maintenance", "esg_sustainability_inspection", "fire_hazard_assessment", "maintenance_inspection", "damage", "emergency", "safety_compliance", "compliance_regulatory", "pre_purchase", "specialized"]);
 export const complianceStatusEnum = pgEnum("compliance_status", ["current", "expiring_soon", "expired"]);
@@ -2684,7 +2684,7 @@ export const createTeamMemberSchema = z.object({
   lastName: z.string().min(1).max(255).optional(),
   username: z.string().min(3, "Username must be at least 3 characters").max(100),
   password: z.string().min(MIN_PASSWORD_LENGTH, `Password must be at least ${MIN_PASSWORD_LENGTH} characters`),
-  role: z.enum(["owner", "clerk", "compliance", "contractor", "tenant"]), // Include tenant for tenant user creation
+  role: z.enum(["owner", "clerk", "compliance", "contractor", "tenant", "maintenance_admin"]), // Include tenant for tenant user creation
   phone: z.string().max(50).optional(),
   address: z.union([
     z.object({
@@ -2721,11 +2721,11 @@ export const updateTeamMemberSchema = z.object({
   education: z.string().optional(),
   profileImageUrl: z.union([z.string().url(), z.string().startsWith("/objects/"), z.literal("")]).optional(),
   certificateUrls: z.array(z.union([z.string().url(), z.string().startsWith("/objects/"), z.literal("")])).optional(),
-  role: z.enum(["owner", "clerk", "compliance", "contractor"]).optional(), // Tenants managed via Contacts
+  role: z.enum(["owner", "clerk", "compliance", "contractor", "maintenance_admin"]).optional(), // Tenants managed via Contacts
 });
 
 export const updateUserRoleSchema = z.object({
-  role: z.enum(["owner", "clerk", "compliance", "contractor"]), // Tenants managed via Contacts
+  role: z.enum(["owner", "clerk", "compliance", "contractor", "maintenance_admin"]), // Tenants managed via Contacts
 });
 
 export const updateUserStatusSchema = z.object({

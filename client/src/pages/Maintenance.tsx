@@ -229,8 +229,12 @@ export default function Maintenance() {
 
   // Inspectors (clerk) must not see work orders in the inspector portal.
   const canSeeWorkOrders =
-    user?.role === "owner" || user?.role === "contractor";
+    user?.role === "owner" ||
+    user?.role === "contractor" ||
+    user?.role === "maintenance_admin";
   const isAssigneeRole = user?.role === "contractor";
+  const isMaintenanceManager =
+    user?.role === "owner" || user?.role === "maintenance_admin";
   const tabFromUrl = new URLSearchParams(searchParams).get("tab");
   const defaultWorkOrdersTab =
     tabFromUrl === "work-orders" || (isAssigneeRole && tabFromUrl !== "requests");
@@ -270,7 +274,7 @@ export default function Maintenance() {
   // Fetch organization clerks (for assignment)
   const { data: clerks = [] } = useQuery<User[]>({
     queryKey: ["/api/users/clerks"],
-    enabled: user?.role === "owner" && isMaintenanceEnabled !== false,
+    enabled: isMaintenanceManager && isMaintenanceEnabled !== false,
   });
 
   // Fetch work orders (owners: org-wide; clerks/contractors: assignee-scoped by API)
@@ -282,7 +286,7 @@ export default function Maintenance() {
   // Fetch teams for work order assignment
   const { data: teams = [] } = useQuery<any[]>({
     queryKey: ["/api/teams"],
-    enabled: user?.role === "owner" && isMaintenanceEnabled !== false,
+    enabled: isMaintenanceManager && isMaintenanceEnabled !== false,
   });
 
   // Work order creation mutation
@@ -1707,8 +1711,12 @@ export default function Maintenance() {
                 const linkedWorkOrder = workOrders.find(
                   (wo) => wo.maintenanceRequest?.id === request.id,
                 );
-                const canManage = user?.role === "owner" || user?.role === "clerk";
-                const canOwnerAct = user?.role === "owner" && request.status !== "completed";
+                const canManage =
+                  user?.role === "owner" ||
+                  user?.role === "clerk" ||
+                  user?.role === "maintenance_admin";
+                const canOwnerAct =
+                  isMaintenanceManager && request.status !== "completed";
                 const isHmoFinding =
                   request.source === "hmo_finding" ||
                   (request.aiAnalysisJson as any)?.source === "hmo_finding";
@@ -2060,7 +2068,9 @@ export default function Maintenance() {
                               </CardDescription>
                             </div>
                             <div className="flex items-center gap-1 shrink-0">
-                              {(user?.role === "owner" || user?.role === "clerk") && (
+                              {(user?.role === "owner" ||
+                                user?.role === "clerk" ||
+                                user?.role === "maintenance_admin") && (
                                 <Button
                                   size="icon"
                                   variant="ghost"
