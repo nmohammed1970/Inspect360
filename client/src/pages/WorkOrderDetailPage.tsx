@@ -94,9 +94,12 @@ const WorkOrderDetailPage = () => {
   const padRef = useRef<SignatureCanvas>(null);
 
   const canFieldAct =
-    user?.role === "contractor" || user?.role === "maintenance_admin";
+    user?.role === "clerk" ||
+    user?.role === "contractor" ||
+    user?.role === "maintenance_admin";
   const canScheduleWorkOrder =
     user?.role === "owner" ||
+    user?.role === "clerk" ||
     user?.role === "contractor" ||
     user?.role === "maintenance_admin";
   const canVisitAct = (status?: string | null) => status !== "quote_required";

@@ -216,14 +216,17 @@ export default function Maintenance() {
   });
   const activeCompletionChecklists = completionChecklists.filter((c: any) => c.isActive !== false);
 
-  // Inspectors (clerk) must not see work orders in the inspector portal.
+  // Demo: clerks can see org-wide work orders alongside field/admin roles.
   const canSeeWorkOrders =
     user?.role === "owner" ||
+    user?.role === "clerk" ||
     user?.role === "contractor" ||
     user?.role === "maintenance_admin";
   const isAssigneeRole = user?.role === "contractor";
   const canFieldAct =
-    user?.role === "contractor" || user?.role === "maintenance_admin";
+    user?.role === "clerk" ||
+    user?.role === "contractor" ||
+    user?.role === "maintenance_admin";
   const isMaintenanceManager =
     user?.role === "owner" || user?.role === "maintenance_admin";
   const tabFromUrl = new URLSearchParams(searchParams).get("tab");
@@ -314,6 +317,7 @@ export default function Maintenance() {
 
   const canScheduleWorkOrder =
     user?.role === "owner" ||
+    user?.role === "clerk" ||
     user?.role === "contractor" ||
     user?.role === "maintenance_admin";
 

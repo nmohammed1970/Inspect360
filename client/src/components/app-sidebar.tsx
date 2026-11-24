@@ -167,8 +167,8 @@ export function AppSidebar() {
       title: "My Work Orders",
       url: "/maintenance?tab=work-orders",
       icon: Clipboard,
-      // Inspectors (clerk) stay on inspections; contractors keep assignee work orders.
-      roles: ["contractor"],
+      // Field staff (contractor + clerk) land on work orders.
+      roles: ["contractor", "clerk"],
     },
     {
       title: "Reports",

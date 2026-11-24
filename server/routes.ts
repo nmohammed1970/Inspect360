@@ -17847,7 +17847,7 @@ ${optionalNotes || "No details provided."}`;
     "/api/work-orders/:id/schedule",
     isAuthenticated,
     requireCompanyModule("maintenance"),
-    requireRole("owner", "contractor", "maintenance_admin"),
+    requireRole("owner", "clerk", "contractor", "maintenance_admin"),
     async (req: any, res) => {
       try {
         const userId = req.user.id;
@@ -17954,7 +17954,7 @@ ${optionalNotes || "No details provided."}`;
     "/api/work-orders/:id/arrive",
     isAuthenticated,
     requireCompanyModule("maintenance"),
-    requireRole("owner", "contractor", "maintenance_admin"),
+    requireRole("owner", "clerk", "contractor", "maintenance_admin"),
     async (req: any, res) => {
       try {
         const userId = req.user.id;

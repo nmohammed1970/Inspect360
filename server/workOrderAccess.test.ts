@@ -81,7 +81,7 @@ const clerkWithContactIdentity = buildWorkOrderIdentity({
 // --- listScopeForUser ---
 assert(listScopeForUser("owner") === "org", "owner uses org scope");
 assert(listScopeForUser("compliance") === "org", "compliance uses org scope");
-assert(listScopeForUser("clerk") === "assignee", "clerk uses assignee scope");
+assert(listScopeForUser("clerk") === "org", "clerk uses org-wide scope");
 assert(listScopeForUser("contractor") === "assignee", "contractor uses assignee scope");
 
 // --- contactIdsForUser ---
