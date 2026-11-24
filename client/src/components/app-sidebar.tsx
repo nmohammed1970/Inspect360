@@ -6,7 +6,6 @@ import {
   LayoutDashboard,
   Settings,
   Wrench,
-  Users,
   Boxes,
   Clipboard,
   Package,
@@ -23,6 +22,7 @@ import {
   SidebarContent,
   SidebarGroup,
   SidebarGroupContent,
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuBadge,
@@ -90,18 +90,19 @@ export function AppSidebar() {
   });
   const financePendingCount = financePending?.count ?? 0;
 
-  const mainMenuItems = [
+  type MenuItem = {
+    title: string;
+    url: string;
+    icon: typeof LayoutDashboard;
+    roles: string[];
+  };
+
+  const workspaceItems: MenuItem[] = [
     {
       title: "Dashboard",
       url: "/dashboard",
       icon: LayoutDashboard,
       roles: ["owner", "compliance", "tenant", "maintenance_admin"],
-    },
-    {
-      title: "Contacts",
-      url: "/contacts",
-      icon: Contact,
-      roles: ["owner", "compliance"],
     },
     {
       title: "Blocks",
@@ -134,7 +135,7 @@ export function AppSidebar() {
       roles: ["owner", "compliance"],
     },
     {
-      title: "HMO Compliance",
+      title: "HMO portfolio",
       url: "/hmo",
       icon: Shield,
       roles: ["owner", "compliance", "clerk"],
@@ -167,20 +168,28 @@ export function AppSidebar() {
       title: "My Work Orders",
       url: "/maintenance?tab=work-orders",
       icon: Clipboard,
-      // Field staff (contractor + clerk) land on work orders.
       roles: ["contractor", "clerk"],
-    },
-    {
-      title: "Reports",
-      url: "/reports",
-      icon: FileBarChart,
-      roles: ["owner", "compliance"],
     },
     {
       title: "Asset Inventory",
       url: "/asset-inventory",
       icon: Package,
       roles: ["owner", "clerk", "compliance", "contractor"],
+    },
+  ];
+
+  const managementItems: MenuItem[] = [
+    {
+      title: "Contacts",
+      url: "/contacts",
+      icon: Contact,
+      roles: ["owner", "compliance"],
+    },
+    {
+      title: "Reports",
+      url: "/reports",
+      icon: FileBarChart,
+      roles: ["owner", "compliance"],
     },
     {
       title: "Community",
@@ -202,21 +211,25 @@ export function AppSidebar() {
     },
   ];
 
-  const filteredMainMenu = mainMenuItems.filter((item) => {
-    if (!item.roles.includes(user?.role || "")) return false;
-    if (item.url === "/compliance" && !complianceEnabled) return false;
-    if (item.url === "/hmo" && !hmoComplianceEnabled) return false;
-    if (item.url === "/community-moderation" && !tenanciesEnabled) return false;
-    if (
-      !maintenanceEnabled &&
-      (item.url === "/maintenance" ||
-        item.url === "/analytics" ||
-        item.url.startsWith("/maintenance"))
-    ) {
-      return false;
-    }
-    return true;
-  });
+  const filterMenu = (items: MenuItem[]) =>
+    items.filter((item) => {
+      if (!item.roles.includes(user?.role || "")) return false;
+      if (item.url === "/compliance" && !complianceEnabled) return false;
+      if (item.url === "/hmo" && !hmoComplianceEnabled) return false;
+      if (item.url === "/community-moderation" && !tenanciesEnabled) return false;
+      if (
+        !maintenanceEnabled &&
+        (item.url === "/maintenance" ||
+          item.url === "/analytics" ||
+          item.url.startsWith("/maintenance"))
+      ) {
+        return false;
+      }
+      return true;
+    });
+
+  const filteredWorkspace = filterMenu(workspaceItems);
+  const filteredManagement = filterMenu(managementItems);
 
   // Dynamic active state styling based on organization's brand color
   const getActiveStyle = (isActive: boolean) => {
@@ -228,6 +241,57 @@ export function AppSidebar() {
       };
     }
     return undefined; // Fall back to CSS class
+  };
+
+  const renderMenuItem = (item: MenuItem) => {
+    const pathOnly = item.url.split("?")[0];
+    const isActive =
+      location === item.url ||
+      location === pathOnly ||
+      (pathOnly !== "/" && location.startsWith(pathOnly + "/"));
+    const itemLocked = !!entitlement?.locked && isLockedAppPath(pathOnly);
+    const handleClick = (event: { preventDefault: () => void }) => {
+      if (
+        itemLocked &&
+        (entitlement?.code === "TRIAL_EXPIRED" || entitlement?.code === "CREDITS_EXPIRED")
+      ) {
+        event.preventDefault();
+        notifyEntitlementLock(entitlement.code);
+        return;
+      }
+      if (isMobile) setOpenMobile(false);
+    };
+    const showFinanceBadge =
+      item.url === "/maintenance/finance" && financePendingCount > 0;
+
+    return (
+      <SidebarMenuItem key={item.title}>
+        <SidebarMenuButton
+          asChild
+          data-active={isActive}
+          className={
+            !organization?.brandingPrimaryColor
+              ? "gap-2.5 data-[active=true]:bg-primary/10 data-[active=true]:text-foreground data-[active=true]:shadow-[inset_3px_0_0_0_hsl(var(--primary))]"
+              : "gap-2.5"
+          }
+          style={getActiveStyle(isActive)}
+          data-testid={`link-${item.title.toLowerCase().replace(/\s+/g, "-")}`}
+        >
+          <Link href={item.url} onClick={handleClick} className={itemLocked ? "opacity-50" : undefined}>
+            <item.icon className="w-4 h-4 shrink-0" />
+            <span className="truncate font-medium">{item.title}</span>
+          </Link>
+        </SidebarMenuButton>
+        {showFinanceBadge ? (
+          <SidebarMenuBadge
+            className="bg-primary text-primary-foreground"
+            data-testid="badge-finance-pending"
+          >
+            {financePendingCount > 99 ? "99+" : financePendingCount}
+          </SidebarMenuBadge>
+        ) : null}
+      </SidebarMenuItem>
+    );
   };
 
   return (
@@ -249,94 +313,58 @@ export function AppSidebar() {
           />
         </div>
       </SidebarHeader>
-      <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {filteredMainMenu.map((item) => {
-                const isActive = location === item.url;
-                const itemLocked = !!entitlement?.locked && isLockedAppPath(item.url);
-                const handleClick = (event: { preventDefault: () => void }) => {
-                  if (itemLocked && (entitlement?.code === "TRIAL_EXPIRED" || entitlement?.code === "CREDITS_EXPIRED")) {
-                    event.preventDefault();
-                    notifyEntitlementLock(entitlement.code);
-                    return;
-                  }
-                  if (isMobile) {
-                    setOpenMobile(false);
-                  }
-                };
-                const showFinanceBadge =
-                  item.url === "/maintenance/finance" && financePendingCount > 0;
-
-                return (
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton
-                      asChild
-                      data-active={isActive}
-                      className={
-                        !organization?.brandingPrimaryColor
-                          ? "gap-2.5 data-[active=true]:bg-primary/10 data-[active=true]:text-foreground data-[active=true]:shadow-[inset_3px_0_0_0_hsl(var(--primary))]"
-                          : "gap-2.5"
-                      }
-                      style={getActiveStyle(isActive)}
-                      data-testid={`link-${item.title.toLowerCase().replace(/\s+/g, '-')}`}
-                    >
-                      <Link href={item.url} onClick={handleClick} className={itemLocked ? "opacity-50" : undefined}>
-                        <item.icon className="w-4 h-4 shrink-0" />
-                        <span className="truncate font-medium">{item.title}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                    {showFinanceBadge ? (
-                      <SidebarMenuBadge
-                        className="bg-emerald-600 text-white"
-                        data-testid="badge-finance-pending"
-                      >
-                        {financePendingCount > 99 ? "99+" : financePendingCount}
-                      </SidebarMenuBadge>
-                    ) : null}
-                  </SidebarMenuItem>
-                );
-              })}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        {user?.role !== "clerk" &&
-          user?.role !== "contractor" &&
-          user?.role !== "maintenance_admin" && (
-          <SidebarGroup>
+      <SidebarContent className="gap-1">
+        {filteredWorkspace.length > 0 && (
+          <SidebarGroup className="py-1">
+            <SidebarGroupLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              Workspace
+            </SidebarGroupLabel>
             <SidebarGroupContent>
-              <SidebarMenu>
-                {(() => {
-                  const isActive = location.startsWith("/settings");
-                  const handleClick = () => {
-                    // Close sidebar on mobile when navigation item is clicked
-                    if (isMobile) {
-                      setOpenMobile(false);
-                    }
-                  };
-                  return (
+              <SidebarMenu className="gap-0.5">
+                {filteredWorkspace.map((item) => renderMenuItem(item))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
+
+        {(filteredManagement.length > 0 ||
+          (user?.role !== "clerk" &&
+            user?.role !== "contractor" &&
+            user?.role !== "maintenance_admin")) && (
+          <SidebarGroup className="py-1">
+            <SidebarGroupLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              Management
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu className="gap-0.5">
+                {filteredManagement.map((item) => renderMenuItem(item))}
+                {user?.role !== "clerk" &&
+                  user?.role !== "contractor" &&
+                  user?.role !== "maintenance_admin" && (
                     <SidebarMenuItem>
                       <SidebarMenuButton
                         asChild
-                        data-active={isActive}
+                        data-active={location.startsWith("/settings")}
                         className={
                           !organization?.brandingPrimaryColor
                             ? "gap-2.5 data-[active=true]:bg-primary/10 data-[active=true]:text-foreground data-[active=true]:shadow-[inset_3px_0_0_0_hsl(var(--primary))]"
                             : "gap-2.5"
                         }
-                        style={getActiveStyle(isActive)}
+                        style={getActiveStyle(location.startsWith("/settings"))}
                         data-testid="link-settings"
                       >
-                        <Link href="/settings" onClick={handleClick}>
-                          <Settings className="w-4 h-4" />
-                          <span className="font-medium">Settings</span>
+                        <Link
+                          href="/settings"
+                          onClick={() => {
+                            if (isMobile) setOpenMobile(false);
+                          }}
+                        >
+                          <Settings className="w-4 h-4 shrink-0" />
+                          <span className="truncate font-medium">Settings</span>
                         </Link>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
-                  );
-                })()}
+                  )}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>

@@ -657,7 +657,7 @@ export default function Settings() {
         <div className="flex-1 min-w-0">
           {activeSection === 'branding' && (
             <div className="space-y-6">
-              <Card className="border-2 rounded-2xl bg-card/80 backdrop-blur-xl shadow-lg">
+              <Card className="rounded-lg border border-border/80 bg-card shadow-sm">
                 <CardHeader>
                   <CardTitle className="text-2xl">Company Branding</CardTitle>
                   <CardDescription className="mt-2">
@@ -956,7 +956,6 @@ export default function Settings() {
                             <div className="flex flex-wrap gap-2">
                               <Button
                                 type="button"
-                                variant="brand"
                                 disabled={
                                   extractBrandColorsMutation.isPending ||
                                   !brandingWebsite.trim()
@@ -1173,7 +1172,6 @@ export default function Settings() {
 
                       <div className="border-t border-border pt-6">
                         <Button
-                          variant="brand"
                           onClick={() => updateBrandingMutation.mutate()}
                           disabled={updateBrandingMutation.isPending}
                           data-testid="button-save-branding"
@@ -1190,7 +1188,7 @@ export default function Settings() {
 
           {activeSection === 'internal-modules' && (
             <div className="space-y-6">
-              <Card className="border-2 rounded-2xl bg-card/80 backdrop-blur-xl shadow-lg">
+              <Card className="rounded-lg border border-border/80 bg-card shadow-sm">
                 <CardHeader>
                   <CardTitle className="text-2xl">Internal Modules</CardTitle>
                   <CardDescription className="mt-2">
@@ -1218,7 +1216,7 @@ export default function Settings() {
 
           {activeSection === 'categories' && (
             <div className="space-y-6">
-              <Card className="border-2 rounded-2xl bg-card/80 backdrop-blur-xl shadow-lg">
+              <Card className="rounded-lg border border-border/80 bg-card shadow-sm">
                 <CardHeader>
                   <div className="flex items-center justify-between">
                     <div>
@@ -1229,7 +1227,7 @@ export default function Settings() {
                     </div>
                     <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
                       <DialogTrigger asChild>
-                        <Button variant="brand" className="gap-2" data-testid="button-create-category">
+                        <Button className="gap-2" data-testid="button-create-category">
                           <Plus className="w-4 h-4" />
                           Add Category
                         </Button>
@@ -1283,7 +1281,7 @@ export default function Settings() {
                               )}
                             />
                             <DialogFooter>
-                              <Button variant="brand" type="submit" disabled={createMutation.isPending} data-testid="button-submit-category">
+                              <Button type="submit" disabled={createMutation.isPending} data-testid="button-submit-category">
                                 {createMutation.isPending ? "Creating..." : "Create Category"}
                               </Button>
                             </DialogFooter>
@@ -1309,7 +1307,7 @@ export default function Settings() {
                       {categories
                         .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
                         .map((category) => (
-                          <Card key={category.id} className="bg-muted/30 hover-elevate" data-testid={`category-card-${category.id}`}>
+                          <Card key={category.id} className="rounded-lg border-border/80 bg-muted/30 shadow-sm" data-testid={`category-card-${category.id}`}>
                             <CardContent className="p-4">
                               <div className="flex items-center justify-between">
                                 <div className="flex-1">
@@ -1375,7 +1373,7 @@ export default function Settings() {
                                             )}
                                           />
                                           <DialogFooter>
-                                            <Button variant="brand" type="submit" disabled={updateMutation.isPending} data-testid="button-update-category">
+                                            <Button type="submit" disabled={updateMutation.isPending} data-testid="button-update-category">
                                               {updateMutation.isPending ? "Updating..." : "Update Category"}
                                             </Button>
                                           </DialogFooter>
@@ -1548,7 +1546,7 @@ function TenantPortalConfiguration({
 
   return (
     <div className="space-y-6">
-      <Card className="border-2 rounded-2xl bg-card/80 backdrop-blur-xl shadow-lg">
+      <Card className="rounded-lg border border-border/80 bg-card shadow-sm">
         <CardHeader>
           <CardTitle className="text-2xl">Tenant Portal Configuration</CardTitle>
           <CardDescription className="mt-2">
@@ -1652,7 +1650,6 @@ function TenantPortalConfiguration({
 
           <div className="border-t border-border pt-6">
             <Button
-              variant="brand"
               onClick={() => updateTenantPortalConfigMutation.mutate()}
               disabled={updateTenantPortalConfigMutation.isPending}
               data-testid="button-save-tenant-portal-config"
@@ -1841,9 +1838,9 @@ function ComplianceDocumentsPanel() {
     if (daysUntilExpiry < 0) {
       return <Badge variant="destructive">Expired</Badge>;
     } else if (daysUntilExpiry <= 30) {
-      return <Badge variant="outline" className="border-yellow-500 text-yellow-600">Due Soon</Badge>;
+      return <Badge variant="outline" className="border-[color:var(--brand-warning)]/40 text-[color:var(--brand-slate)]">Due Soon</Badge>;
     } else {
-      return <Badge variant="outline" className="border-green-500 text-green-600">Current</Badge>;
+      return <Badge variant="outline" className="border-[color:var(--brand-success)]/30 text-[color:var(--brand-success)]">Current</Badge>;
     }
   };
 
@@ -1888,7 +1885,7 @@ function ComplianceDocumentsPanel() {
 
   return (
     <>
-    <Card className="border-2 rounded-2xl bg-card/80 backdrop-blur-xl shadow-lg">
+    <Card className="rounded-lg border border-border/80 bg-card shadow-sm">
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>
@@ -1899,7 +1896,7 @@ function ComplianceDocumentsPanel() {
           </div>
           <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
             <DialogTrigger asChild>
-              <Button variant="brand" className="gap-2">
+              <Button className="gap-2">
                 <Plus className="w-4 h-4" />
                 Upload Document
               </Button>
@@ -1998,7 +1995,7 @@ function ComplianceDocumentsPanel() {
                     </div>
                   </div>
                   <DialogFooter>
-                    <Button variant="brand" type="submit" disabled={uploadMutation.isPending || uploadedFiles.length === 0}>
+                    <Button type="submit" disabled={uploadMutation.isPending || uploadedFiles.length === 0}>
                       {uploadMutation.isPending ? "Uploading..." : "Upload Document"}
                     </Button>
                   </DialogFooter>
@@ -2107,7 +2104,7 @@ function ComplianceDocumentsPanel() {
                                 )}
                               />
                               <DialogFooter>
-                                <Button variant="brand" type="submit" disabled={updateMutation.isPending}>
+                                <Button type="submit" disabled={updateMutation.isPending}>
                                   {updateMutation.isPending ? "Updating..." : "Update Document"}
                                 </Button>
                               </DialogFooter>
@@ -2215,7 +2212,7 @@ function LateRentNotificationSettings() {
   }
 
   return (
-    <Card className="border-2 rounded-2xl bg-card/80 backdrop-blur-xl shadow-lg">
+    <Card className="rounded-lg border border-border/80 bg-card shadow-sm">
       <CardHeader>
         <CardTitle className="text-2xl">Late Rent Notification</CardTitle>
         <CardDescription className="mt-2">
@@ -2295,7 +2292,7 @@ function LateRentNotificationSettings() {
         ))}
 
         <div className="flex justify-end">
-          <Button variant="brand" onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} data-testid="button-save-rent-settings">
+          <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} data-testid="button-save-rent-settings">
             {saveMutation.isPending ? "Saving..." : "Save settings"}
           </Button>
         </div>
@@ -2408,7 +2405,7 @@ function TenantSmsNotificationSettings() {
   }
 
   return (
-    <Card className="border-2 rounded-2xl bg-card/80 backdrop-blur-xl shadow-lg">
+    <Card className="rounded-lg border border-border/80 bg-card shadow-sm">
       <CardHeader>
         <CardTitle className="text-2xl">Tenant SMS Notifications</CardTitle>
         <CardDescription className="mt-2">
@@ -2494,7 +2491,6 @@ function TenantSmsNotificationSettings() {
 
         <div className="flex justify-end">
           <Button
-            variant="brand"
             onClick={() => saveMutation.mutate()}
             disabled={saveMutation.isPending}
             data-testid="button-save-sms-templates"

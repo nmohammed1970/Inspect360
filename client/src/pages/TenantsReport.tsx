@@ -28,8 +28,11 @@ import {
   Loader2,
   Building2,
   Home,
+  Calendar,
+  Banknote,
   X
 } from "lucide-react";
+import { MetricSummaryCard } from "@/components/workspace";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Link } from "wouter";
 import { format, differenceInDays } from "date-fns";
@@ -217,30 +220,34 @@ export default function TenantsReport() {
 
       {/* Summary Statistics */}
       <div className="grid gap-3 sm:gap-4 grid-cols-2 md:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription className="text-xs sm:text-sm">Total Tenants</CardDescription>
-            <CardTitle className="text-xl sm:text-2xl md:text-3xl" data-testid="stat-total-tenants">{totalTenants}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription className="text-xs sm:text-sm">Active</CardDescription>
-            <CardTitle className="text-xl sm:text-2xl md:text-3xl text-green-600" data-testid="stat-active">{activeTenants}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription className="text-xs sm:text-sm">Expiring Soon</CardDescription>
-            <CardTitle className="text-xl sm:text-2xl md:text-3xl text-orange-600" data-testid="stat-expiring">{expiringSoon}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription className="text-xs sm:text-sm">Total Monthly Rent</CardDescription>
-            <CardTitle className="text-lg sm:text-xl md:text-2xl lg:text-3xl" data-testid="stat-monthly-rent">£{totalMonthlyRent.toLocaleString()}</CardTitle>
-          </CardHeader>
-        </Card>
+        <MetricSummaryCard
+          value={totalTenants}
+          valueTestId="stat-total-tenants"
+          label="Total Tenants"
+          tone="muted"
+          icon={Users}
+        />
+        <MetricSummaryCard
+          value={activeTenants}
+          valueTestId="stat-active"
+          label="Active"
+          tone="success"
+          icon={Home}
+        />
+        <MetricSummaryCard
+          value={expiringSoon}
+          valueTestId="stat-expiring"
+          label="Expiring Soon"
+          tone="warning"
+          icon={Calendar}
+        />
+        <MetricSummaryCard
+          value={`£${totalMonthlyRent.toLocaleString()}`}
+          valueTestId="stat-monthly-rent"
+          label="Total Monthly Rent"
+          tone="primary"
+          icon={Banknote}
+        />
       </div>
 
       <FiltersSection headingId="tenants-report-filters-heading">

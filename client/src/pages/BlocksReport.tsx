@@ -22,8 +22,10 @@ import {
   Loader2,
   Home,
   Users,
-  Search
+  Search,
+  Percent
 } from "lucide-react";
+import { MetricSummaryCard } from "@/components/workspace";
 import { Link } from "wouter";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
@@ -208,43 +210,33 @@ export default function BlocksReport() {
 
       {/* Summary Statistics */}
       <div className="grid gap-3 sm:gap-4 grid-cols-2 md:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-2 sm:pb-3">
-            <CardDescription className="text-xs sm:text-sm">Total Blocks</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="text-xl sm:text-2xl font-bold">{filteredBlocks.length}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2 sm:pb-3">
-            <CardDescription className="text-xs sm:text-sm">Total Properties</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="text-xl sm:text-2xl font-bold">{totalProperties}</div>
-          </CardContent>
-        </Card>
+        <MetricSummaryCard
+          value={filteredBlocks.length}
+          label="Total Blocks"
+          tone="muted"
+          icon={Building2}
+        />
+        <MetricSummaryCard
+          value={totalProperties}
+          label="Total Properties"
+          tone="primary"
+          icon={Home}
+        />
         {tenanciesEnabled && (
-        <Card>
-          <CardHeader className="pb-2 sm:pb-3">
-            <CardDescription className="text-xs sm:text-sm">Avg Occupancy Rate</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="text-xl sm:text-2xl font-bold">{avgOccupancyRate}%</div>
-          </CardContent>
-        </Card>
+          <MetricSummaryCard
+            value={`${avgOccupancyRate}%`}
+            label="Avg Occupancy Rate"
+            tone="info"
+            icon={Percent}
+          />
         )}
         {tenanciesEnabled && (
-        <Card>
-          <CardHeader className="pb-2 sm:pb-3">
-            <CardDescription className="text-xs sm:text-sm">Total Tenants</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="text-xl sm:text-2xl font-bold">
-              {tenantAssignments.filter(a => a.status === "active").length}
-            </div>
-          </CardContent>
-        </Card>
+          <MetricSummaryCard
+            value={tenantAssignments.filter((a) => a.status === "active").length}
+            label="Total Tenants"
+            tone="success"
+            icon={Users}
+          />
         )}
       </div>
 

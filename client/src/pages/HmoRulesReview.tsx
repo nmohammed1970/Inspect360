@@ -62,17 +62,37 @@ function classificationLabel(value: string | null | undefined): string {
 function statusMeta(status: string | null | undefined): { label: string; className: string } {
   switch (status) {
     case "APPROVED":
-      return { label: "Approved", className: "border-green-300 bg-green-50 text-green-800" };
+      return {
+        label: "Approved",
+        className:
+          "border-[color:var(--brand-success)]/30 bg-[color:var(--brand-success)]/10 text-[color:var(--brand-success)]",
+      };
     case "DRAFT":
-      return { label: "Draft", className: "border-amber-300 bg-amber-50 text-amber-900" };
+      return {
+        label: "Draft",
+        className:
+          "border-[color:var(--brand-warning)]/40 bg-[color:var(--brand-warning)]/15 text-[color:var(--brand-slate)]",
+      };
     case "ANALYST_QUEUE":
-      return { label: "Needs review", className: "border-sky-300 bg-sky-50 text-sky-900" };
+      return {
+        label: "Needs review",
+        className:
+          "border-[color:var(--brand-info)]/30 bg-[color:var(--brand-info)]/10 text-[color:var(--brand-info)]",
+      };
     case "SOURCE_NOT_VERIFIED":
-      return { label: "Source not verified", className: "border-rose-300 bg-rose-50 text-rose-800" };
+      return {
+        label: "Source not verified",
+        className:
+          "border-[color:var(--brand-critical)]/30 bg-[color:var(--brand-critical)]/10 text-[color:var(--brand-critical)]",
+      };
     case "INFORMATIONAL":
-      return { label: "Informational", className: "border-slate-300 bg-slate-50 text-slate-700" };
+      return { label: "Informational", className: "border-border bg-muted text-muted-foreground" };
     case "ACTIVE":
-      return { label: "Active", className: "border-green-300 bg-green-50 text-green-800" };
+      return {
+        label: "Active",
+        className:
+          "border-[color:var(--brand-success)]/30 bg-[color:var(--brand-success)]/10 text-[color:var(--brand-success)]",
+      };
     default:
       return {
         label: status?.replace(/_/g, " ") || "Unknown",

@@ -32,6 +32,7 @@ import { FiltersSection } from "@/components/FiltersSection";
 import { LocaleDateInput } from "@/components/LocaleDateInput";
 import { pagePad } from "@/lib/responsive";
 import { PageHeader } from "@/components/PageHeader";
+import { MetricSummaryCard } from "@/components/workspace";
 
 // Default document types (fallback if no custom types exist)
 const DEFAULT_DOCUMENT_TYPES = [
@@ -671,7 +672,7 @@ export default function Compliance() {
         actions={
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
-            <Button variant="brand" className="w-full sm:w-auto shrink-0" data-testid="button-upload-document">
+            <Button className="w-full sm:w-auto shrink-0" data-testid="button-upload-document">
               <Upload className="w-4 h-4 mr-2" />
               <span className="hidden sm:inline">Upload Document</span>
               <span className="sm:hidden">Upload</span>
@@ -1022,7 +1023,7 @@ export default function Compliance() {
                     </ObjectUploader>
                     {uploadedFiles.length > 0 && !isUploading && (
                       <div className="space-y-1">
-                        <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
+                        <div className="flex items-center gap-2 text-sm text-[color:var(--brand-success)]">
                           <Check className="h-4 w-4" />
                           <span>{uploadedFiles.length} document(s) ready to submit</span>
                         </div>
@@ -1092,7 +1093,6 @@ export default function Compliance() {
                   </Button>
                   <Button
                     type="submit"
-                    variant="brand"
                     className="w-full sm:w-auto"
                     disabled={
                       uploadMutation.isPending ||
@@ -1494,68 +1494,44 @@ export default function Compliance() {
 
       {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
-        <Card className="border-l-4 border-l-destructive">
-          <CardContent className="p-3 md:p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs md:text-sm font-medium text-muted-foreground">Overdue</p>
-                <p className="text-xl md:text-2xl font-bold text-destructive" data-testid="stat-overdue">{expiredDocs.length}</p>
-              </div>
-              <div className="p-1.5 md:p-2 bg-destructive/10 rounded-full">
-                <AlertTriangle className="h-4 w-4 md:h-5 md:w-5 text-destructive" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-l-4 border-l-yellow-500">
-          <CardContent className="p-3 md:p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs md:text-sm font-medium text-muted-foreground">Due Soon</p>
-                <p className="text-xl md:text-2xl font-bold text-yellow-600" data-testid="stat-due-soon">{dueSoonDocs.length}</p>
-                <p className="text-xs text-muted-foreground hidden md:block">Within 30 days</p>
-              </div>
-              <div className="p-1.5 md:p-2 bg-yellow-500/10 rounded-full">
-                <Calendar className="h-4 w-4 md:h-5 md:w-5 text-yellow-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-l-4 border-l-green-500">
-          <CardContent className="p-3 md:p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs md:text-sm font-medium text-muted-foreground">Valid</p>
-                <p className="text-xl md:text-2xl font-bold text-green-600" data-testid="stat-valid">{validDocs.length}</p>
-              </div>
-              <div className="p-1.5 md:p-2 bg-green-500/10 rounded-full">
-                <Check className="h-4 w-4 md:h-5 md:w-5 text-green-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-3 md:p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs md:text-sm font-medium text-muted-foreground">Total Documents</p>
-                <p className="text-xl md:text-2xl font-bold" data-testid="stat-total">{filteredAndSortedDocs.length}</p>
-              </div>
-              <div className="p-1.5 md:p-2 bg-primary/10 rounded-full">
-                <FileText className="h-4 w-4 md:h-5 md:w-5 text-primary" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <MetricSummaryCard
+          value={expiredDocs.length}
+          valueTestId="stat-overdue"
+          label="Overdue"
+          subLabel="Expired documents"
+          tone="critical"
+          icon={AlertTriangle}
+        />
+        <MetricSummaryCard
+          value={dueSoonDocs.length}
+          valueTestId="stat-due-soon"
+          label="Due Soon"
+          subLabel="Within 30 days"
+          tone="warning"
+          icon={Calendar}
+        />
+        <MetricSummaryCard
+          value={validDocs.length}
+          valueTestId="stat-valid"
+          label="Valid"
+          subLabel="Currently compliant"
+          tone="success"
+          icon={Check}
+        />
+        <MetricSummaryCard
+          value={filteredAndSortedDocs.length}
+          valueTestId="stat-total"
+          label="Total Documents"
+          subLabel="In current view"
+          tone="primary"
+          icon={FileText}
+        />
       </div>
 
       {filteredExpiringDocs.length > 0 && (
-        <Alert className="border-yellow-500 bg-yellow-50 dark:bg-yellow-950">
-          <AlertTriangle className="h-4 w-4 text-yellow-600" />
-          <AlertDescription className="text-yellow-800 dark:text-yellow-200">
+        <Alert className="border-[color:var(--brand-warning)]/40 bg-[color:var(--brand-warning)]/10">
+          <AlertTriangle className="h-4 w-4 text-[color:var(--brand-warning)]" />
+          <AlertDescription className="text-[color:var(--brand-slate)]">
             <span className="font-semibold">{filteredExpiringDocs.length} document(s)</span> expiring within 90 days. Please renew them soon.
           </AlertDescription>
         </Alert>
@@ -1860,7 +1836,7 @@ function DocumentCard({
   );
 
   return (
-    <Card className="hover-elevate" data-testid={`card-document-${doc.id}`}>
+    <Card className="rounded-lg border-border/80 shadow-sm" data-testid={`card-document-${doc.id}`}>
       <CardHeader className="p-4 md:p-6">
         <div className="flex flex-col gap-4">
           <div className="flex-1 space-y-2">

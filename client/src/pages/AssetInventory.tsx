@@ -731,7 +731,7 @@ export default function AssetInventory() {
         actions={
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
-              <Button variant="brand" onClick={() => handleOpenDialog()} data-testid="button-add-asset">
+              <Button onClick={() => handleOpenDialog()} data-testid="button-add-asset">
                 <Plus className="w-4 h-4 mr-2" />
                 Add Asset
               </Button>
@@ -1352,7 +1352,7 @@ export default function AssetInventory() {
                 : "Get started by adding your first asset"}
             </p>
             {!searchTerm && filterCategory === "all" && filterCondition === "all" && filterPropertyBlock === "all" && filterSpecificLocation === "all" && (
-              <Button variant="brand" onClick={() => handleOpenDialog()} data-testid="button-add-first-asset">
+              <Button onClick={() => handleOpenDialog()} data-testid="button-add-first-asset">
                 <Plus className="w-4 h-4 mr-2" />
                 Add Your First Asset
               </Button>
@@ -1362,7 +1362,7 @@ export default function AssetInventory() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredAssets.map((asset) => (
-            <Card key={asset.id} className="hover-elevate" data-testid={`card-asset-${asset.id}`}>
+            <Card key={asset.id} className="rounded-lg border-border/80 shadow-sm" data-testid={`card-asset-${asset.id}`}>
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1 min-w-0">

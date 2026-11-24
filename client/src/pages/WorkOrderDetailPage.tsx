@@ -64,18 +64,18 @@ interface WorkOrderDetail {
 }
 
 const workOrderStatusColors: Record<string, string> = {
-  assigned: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300",
-  in_progress: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300",
-  waiting_parts: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300",
-  completed: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300",
-  rejected: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300",
+  assigned: "bg-[color:var(--brand-info)]/10 text-[color:var(--brand-info)]",
+  in_progress: "bg-[color:var(--brand-warning)]/15 text-[color:var(--brand-slate)]",
+  waiting_parts: "bg-[color:var(--brand-warning)]/15 text-[color:var(--brand-slate)]",
+  completed: "bg-[color:var(--brand-success)]/10 text-[color:var(--brand-success)]",
+  rejected: "bg-[color:var(--brand-critical)]/10 text-[color:var(--brand-critical)]",
 };
 
 const priorityColors: Record<string, string> = {
-  low: "bg-gray-100 text-gray-800",
-  medium: "bg-blue-100 text-blue-800",
-  high: "bg-orange-100 text-orange-800",
-  urgent: "bg-red-100 text-red-800",
+  low: "bg-muted text-muted-foreground",
+  medium: "bg-[color:var(--brand-info)]/10 text-[color:var(--brand-info)]",
+  high: "bg-[color:var(--brand-warning)]/15 text-[color:var(--brand-slate)]",
+  urgent: "bg-[color:var(--brand-critical)]/10 text-[color:var(--brand-critical)]",
 };
 
 const WorkOrderDetailPage = () => {
@@ -406,7 +406,7 @@ const WorkOrderDetailPage = () => {
         )}
 
         {workOrder.arrivedAt && (
-          <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm dark:border-emerald-900 dark:bg-emerald-950/40">
+          <div className="rounded-md border border-primary/25 bg-primary/[0.04] p-3 text-sm">
             <p className="font-medium">Arrived on site</p>
             <p className="text-muted-foreground">
               {new Date(workOrder.arrivedAt).toLocaleString(undefined, {

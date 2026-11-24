@@ -327,7 +327,7 @@ export default function Blocks() {
         title="Blocks & Buildings"
         description="Manage your property complexes and building blocks"
         actions={
-          <Button variant="brand" onClick={handleOpenCreate} data-testid="button-create-block">
+          <Button onClick={handleOpenCreate} data-testid="button-create-block">
             <Plus className="mr-2 h-5 w-5" />
             New Block
           </Button>
@@ -447,7 +447,7 @@ export default function Blocks() {
       ) : (
         <div className={cardGridComfortable}>
           {filteredBlocks.map((block) => (
-            <Card key={block.id} data-testid={`card-block-${block.id}`} className="clean-card card-hover-lift overflow-hidden flex h-full flex-col">
+            <Card key={block.id} data-testid={`card-block-${block.id}`} className="overflow-hidden flex h-full flex-col rounded-lg border-border/80 shadow-sm">
               <CardHeader className="pb-4">
                 <div className="flex items-start justify-between gap-2">
                   <Link href={`/blocks/${block.id}`} className="flex-1 min-w-0">

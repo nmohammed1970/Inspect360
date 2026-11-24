@@ -630,7 +630,6 @@ export default function Inspections() {
                 <span className="inline-block">
                   <DialogTrigger asChild>
                     <Button 
-                      variant="brand"
                       data-testid="button-create-inspection" 
                       disabled={!hasCredits}
                       onClick={(e) => {
@@ -1359,7 +1358,7 @@ export default function Inspections() {
       ) : (
         <div className={cardGrid}>
           {filteredInspections.map((inspection: any) => (
-            <Card key={inspection.id} className="hover-elevate flex flex-col" data-testid={`card-inspection-${inspection.id}`}>
+            <Card key={inspection.id} className="flex flex-col rounded-lg border-border/80 shadow-sm" data-testid={`card-inspection-${inspection.id}`}>
               <CardHeader>
                 <div className="flex justify-between items-start gap-2">
                   <CardTitle className="text-lg">
@@ -1386,10 +1385,8 @@ export default function Inspections() {
                             variant="outline" 
                             className={
                               effectiveStatus === "approved" 
-                                ? "border-green-500 text-green-600 text-xs"
-                                : effectiveStatus === "disputed"
-                                ? "border-orange-500 text-orange-600 text-xs"
-                                : "border-orange-500 text-orange-600 text-xs"
+                                ? "border-[color:var(--brand-success)]/30 text-[color:var(--brand-success)] text-xs"
+                                : "border-[color:var(--brand-warning)]/40 text-[color:var(--brand-slate)] text-xs"
                             }
                           >
                             {effectiveStatus === "approved" && "Tenant Approved"}
@@ -1449,7 +1446,6 @@ export default function Inspections() {
                 <div className="flex gap-2 flex-wrap mt-auto">
                   {inspection.templateSnapshotJson && inspection.status !== "completed" && (
                     <Button
-                      variant="brand"
                       size="sm"
                       className="flex-1 min-h-9"
                       onClick={() => navigate(`/inspections/${inspection.id}/capture`)}

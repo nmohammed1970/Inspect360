@@ -15494,6 +15494,9 @@ ${optionalNotes || "No details provided."}`;
   // 4. /api/maintenance (least specific - no ID)
   const { registerMaintenancePriceBookRoutes } = await import("./maintenance/priceBookRoutes");
   registerMaintenancePriceBookRoutes(app);
+  // Literal paths under /api/maintenance/* must register BEFORE /api/maintenance/:id
+  const { registerMaintenanceJobFeedbackRoutes } = await import("./maintenance/jobFeedbackRoutes");
+  registerMaintenanceJobFeedbackRoutes(app);
 
   // Get single maintenance request by ID - comes AFTER /tags route but BEFORE /maintenance route
   console.log('[Routes] About to register GET /api/maintenance/:id route');
@@ -15508,9 +15511,21 @@ ${optionalNotes || "No details provided."}`;
       console.log(`[GET /api/maintenance/:id] Rejecting because URL contains /tags`);
       return res.status(404).json({ message: "Not found" });
     }
+
+    const { id } = req.params;
+    // Reserved literal segments (registered as concrete routes above) must never be treated as request IDs
+    const reservedMaintenanceIds = new Set([
+      "job-feedback",
+      "price-book-items",
+      "finance",
+      "feedback",
+    ]);
+    if (reservedMaintenanceIds.has(id) || !/^[0-9a-f-]{36}$/i.test(id)) {
+      console.log(`[GET /api/maintenance/:id] Rejecting non-UUID / reserved id: ${id}`);
+      return res.status(404).json({ message: "Maintenance request not found" });
+    }
     
     try {
-      const { id } = req.params;
       console.log(`[GET /api/maintenance/:id] Route matched - Fetching maintenance request: ${id}`);
       
       const user = await storage.getUser(req.user.id);
@@ -21740,8 +21755,6 @@ ${optionalNotes || "No details provided."}`;
   registerMaintenanceQuoteRoutes(app);
   const { registerPublicMaintenanceQuoteRoutes } = await import("./maintenance/publicQuoteRoutes");
   registerPublicMaintenanceQuoteRoutes(app);
-  const { registerMaintenanceJobFeedbackRoutes } = await import("./maintenance/jobFeedbackRoutes");
-  registerMaintenanceJobFeedbackRoutes(app);
   const { registerMaintenanceInvoiceRoutes } = await import("./maintenance/invoiceRoutes");
   registerMaintenanceInvoiceRoutes(app);
   const { registerMaintenanceFinanceRoutes } = await import("./maintenance/financeRoutes");
@@ -37211,6 +37224,28 @@ Recommendation: Obtain quotes from local contractors for ${itemDescription}.`;
     } catch (error: any) {
       console.error("Error marking all notifications as read:", error);
       res.status(500).json({ message: "Failed to mark all notifications as read" });
+    }
+  });
+
+  // Delete a notification (must belong to current user)
+  app.delete("/api/notifications/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const notificationId = req.params.id;
+
+      const removed = await storage.deleteNotification(notificationId, userId);
+      if (!removed) {
+        return res.status(404).json({ message: "Notification not found" });
+      }
+
+      const unreadCount = await storage.getUnreadNotificationCount(userId);
+      const { updateUnreadCount } = await import("./websocket");
+      updateUnreadCount(userId, unreadCount);
+
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error deleting notification:", error);
+      res.status(500).json({ message: "Failed to delete notification" });
     }
   });
 

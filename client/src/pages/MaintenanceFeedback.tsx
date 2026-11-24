@@ -53,7 +53,7 @@ const MaintenanceFeedback = () => {
       const res = await fetch("/api/maintenance/job-feedback", { credentials: "include" });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || "Failed to load feedback");
+        throw new Error(body.error || body.message || "Failed to load feedback");
       }
       return res.json();
     },

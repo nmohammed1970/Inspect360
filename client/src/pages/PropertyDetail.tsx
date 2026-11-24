@@ -681,7 +681,6 @@ export default function PropertyDetail() {
             </Button>
           </Link>
           <Button
-            variant="brand"
             className="gap-2"
             onClick={() => setEditDialogOpen(true)}
             data-testid="button-edit-property"
@@ -918,7 +917,7 @@ export default function PropertyDetail() {
             <div className="space-y-4">
               {inspections.map((inspection) => (
                 <Link key={inspection.id} href={`/inspections/${inspection.id}`}>
-                  <Card className="hover-elevate cursor-pointer" data-testid={`card-inspection-${inspection.id}`}>
+                  <Card className="rounded-lg border-border/80 shadow-sm cursor-pointer" data-testid={`card-inspection-${inspection.id}`}>
                     <CardHeader>
                       <div className="flex items-start justify-between gap-4">
                         <div className="space-y-2 flex-1">
@@ -1001,7 +1000,7 @@ export default function PropertyDetail() {
                 <Link key={tenant.id} href={`/tenants/${tenant.id}`}>
                   <Card 
                     data-testid={`card-tenant-${tenant.id}`} 
-                    className="hover-elevate cursor-pointer"
+                    className="rounded-lg border-border/80 shadow-sm cursor-pointer"
                   >
                     <CardHeader>
                       <div className="flex items-start gap-3">
@@ -1056,7 +1055,7 @@ export default function PropertyDetail() {
                 <Card 
                   key={item.id} 
                   data-testid={`card-inventory-${item.id}`}
-                  className="hover-elevate cursor-pointer"
+                  className="rounded-lg border-border/80 shadow-sm cursor-pointer"
                   onClick={() => {
                     const fullAsset = fullAssetInventory.find(asset => asset.id === item.id);
                     if (fullAsset) {
@@ -1199,7 +1198,7 @@ export default function PropertyDetail() {
                                   </>
                                 ) : (
                                   <>
-                                    <CheckCircle2 className="h-3 w-3 text-green-600" />
+                                    <CheckCircle2 className="h-3 w-3 text-[color:var(--brand-success)]" />
                                     <span className="text-muted-foreground">
                                       Expires: {new Date(expiryDate).toLocaleDateString()}
                                     </span>
@@ -1250,7 +1249,7 @@ export default function PropertyDetail() {
             <div className="space-y-3">
               {maintenance.map((request) => (
                 <Link key={request.id} href={`/maintenance/${request.id}`}>
-                  <Card className="hover-elevate cursor-pointer" data-testid={`card-maintenance-${request.id}`}>
+                  <Card className="rounded-lg border-border/80 shadow-sm cursor-pointer" data-testid={`card-maintenance-${request.id}`}>
                     <CardHeader>
                       <div className="flex items-start justify-between gap-4">
                         <div className="space-y-2 flex-1">
