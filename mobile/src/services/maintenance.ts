@@ -15,6 +15,7 @@ export interface WorkOrder {
   status: string;
   slaDue?: string | null;
   scheduledAt?: string | null;
+  arrivedAt?: string | null;
   authorisationStatus?: string | null;
   costEstimate?: number | null;
   costActual?: number | null;
@@ -193,6 +194,10 @@ export const maintenanceService = {
     scheduledAt: string,
   ): Promise<WorkOrder & { notified?: number; emailed?: number; warning?: string }> {
     return apiRequestJson('POST', `/api/work-orders/${id}/schedule`, { scheduledAt });
+  },
+
+  async arriveOnSite(id: string): Promise<WorkOrder> {
+    return apiRequestJson('POST', `/api/work-orders/${id}/arrive`);
   },
 
   async getWorkOrderCompletionChecklist(workOrderId: string): Promise<{

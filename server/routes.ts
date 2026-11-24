@@ -17945,6 +17945,78 @@ ${optionalNotes || "No details provided."}`;
     },
   );
 
+  app.post(
+    "/api/work-orders/:id/arrive",
+    isAuthenticated,
+    requireCompanyModule("maintenance"),
+    requireRole("owner", "contractor", "maintenance_admin"),
+    async (req: any, res) => {
+      try {
+        const userId = req.user.id;
+        const user = await storage.getUser(userId);
+        if (!user?.organizationId) {
+          return res.status(403).json({ error: "No organization found" });
+        }
+
+        const workOrder = await storage.getWorkOrder(req.params.id);
+        if (!workOrder) {
+          return res.status(404).json({ error: "Work order not found" });
+        }
+
+        if (!(await assertWorkOrderAccess(user as any, workOrder))) {
+          return res.status(403).json({ error: "Access denied" });
+        }
+
+        if ((workOrder as any).authorisationStatus !== "authorised") {
+          return res.status(409).json({
+            error: "A customer-accepted quotation is required before marking arrival",
+            code: "QUOTE_AUTHORISATION_REQUIRED",
+          });
+        }
+
+        if (workOrder.status === "completed" || workOrder.status === "rejected") {
+          return res.status(409).json({
+            error: "Cannot mark arrival on a completed or rejected work order",
+          });
+        }
+
+        // Idempotent: already arrived — return existing stamp, no second event
+        if ((workOrder as any).arrivedAt) {
+          return res.json(workOrder);
+        }
+
+        const arrivedAt = new Date();
+        const updates: Record<string, unknown> = {
+          arrivedAt,
+          updatedAt: arrivedAt,
+        };
+        if (workOrder.status === "assigned") {
+          updates.status = "in_progress";
+        }
+
+        const updated = await storage.updateWorkOrder(workOrder.id, updates as any);
+
+        const { appendWorkOrderEvent } = await import("./maintenance/quoteLifecycle");
+        await appendWorkOrderEvent({
+          organizationId: user.organizationId,
+          workOrderId: workOrder.id,
+          eventType: "arrived_on_site",
+          actorUserId: userId,
+          payload: {
+            arrivedAt: arrivedAt.toISOString(),
+            previousStatus: workOrder.status,
+            status: updated.status,
+          },
+        });
+
+        res.json(updated);
+      } catch (error) {
+        console.error("Error marking work order arrival:", error);
+        res.status(500).json({ error: "Failed to mark arrival on site" });
+      }
+    },
+  );
+
   app.patch("/api/work-orders/:id/status", isAuthenticated, requireCompanyModule("maintenance"), async (req: any, res) => {
     try {
       const userId = req.user.id;

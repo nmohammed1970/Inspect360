@@ -2607,6 +2607,7 @@ export class DatabaseStorage implements IStorage {
       status: workOrders.status,
       slaDue: workOrders.slaDue,
       scheduledAt: workOrders.scheduledAt,
+      arrivedAt: workOrders.arrivedAt,
       costEstimate: workOrders.costEstimate,
       costActual: workOrders.costActual,
       variationNotes: workOrders.variationNotes,

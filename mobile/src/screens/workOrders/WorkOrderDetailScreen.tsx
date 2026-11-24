@@ -232,6 +232,18 @@ export default function WorkOrderDetailScreen() {
     },
   });
 
+  const arriveMutation = useMutation({
+    mutationFn: () => maintenanceService.arriveOnSite(workOrderId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/work-orders'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/work-orders', workOrderId] });
+      Alert.alert('On site', 'Arrival recorded');
+    },
+    onError: (error: any) => {
+      Alert.alert('Error', error?.message || 'Failed to mark arrival');
+    },
+  });
+
   const openScheduleModal = () => {
     const existing = parseSlaDate(query.data?.scheduledAt);
     const base = existing && existing.getTime() >= Date.now() - 60_000 ? existing : new Date();
@@ -423,6 +435,15 @@ export default function WorkOrderDetailScreen() {
         minute: '2-digit',
       })
     : null;
+  const arrivedLabel = wo.arrivedAt
+    ? new Date(wo.arrivedAt).toLocaleString(undefined, {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      })
+    : null;
   const overdue = isOverdue(wo.slaDue, wo.status);
   const isAuthorised = wo.authorisationStatus === 'authorised';
   const softStatusBg = isDark ? status.color + '33' : status.softBg;
@@ -434,7 +455,15 @@ export default function WorkOrderDetailScreen() {
     ? `${wo.contractor.firstName || ''} ${wo.contractor.lastName || ''}`.trim()
     : '';
   const description = wo.maintenanceRequest?.description?.trim() || '';
-  const showScheduleSection = !!(location || due || scheduledLabel || (canSchedule && !editing));
+  const canArrive =
+    canSchedule && isAuthorised && !isTerminal(wo.status) && !wo.arrivedAt;
+  const showScheduleSection = !!(
+    location ||
+    due ||
+    scheduledLabel ||
+    arrivedLabel ||
+    (canSchedule && !editing)
+  );
 
   const InfoRow = ({
     icon,
@@ -608,9 +637,16 @@ export default function WorkOrderDetailScreen() {
                   value={scheduledLabel}
                 />
               )}
+              {!!arrivedLabel && (
+                <InfoRow
+                  icon={<MapPin size={16} color="#059669" />}
+                  label="Arrived on site"
+                  value={arrivedLabel}
+                />
+              )}
             </View>
             {canSchedule && !isTerminal(wo.status) && isAuthorised ? (
-              <View style={{ marginTop: spacing[3] }}>
+              <View style={{ marginTop: spacing[3], gap: spacing[2] }}>
                 <Button
                   title={
                     scheduleMutation.isPending
@@ -620,9 +656,30 @@ export default function WorkOrderDetailScreen() {
                         : 'Schedule Job'
                   }
                   onPress={openScheduleModal}
-                  disabled={scheduleMutation.isPending}
+                  disabled={scheduleMutation.isPending || arriveMutation.isPending}
                   icon={<Calendar size={16} color="#fff" />}
                 />
+                {canArrive ? (
+                  <Button
+                    title={arriveMutation.isPending ? 'Recording…' : 'Arrived on Site'}
+                    variant="outline"
+                    onPress={() => {
+                      Alert.alert(
+                        'Arrived on Site',
+                        'Confirm you have reached the property?',
+                        [
+                          { text: 'Cancel', style: 'cancel' },
+                          {
+                            text: 'Confirm',
+                            onPress: () => arriveMutation.mutate(),
+                          },
+                        ],
+                      );
+                    }}
+                    disabled={arriveMutation.isPending || scheduleMutation.isPending}
+                    icon={<MapPin size={16} color={themeColors.primary.DEFAULT} />}
+                  />
+                ) : null}
               </View>
             ) : null}
             {canSchedule &&

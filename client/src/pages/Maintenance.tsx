@@ -102,6 +102,7 @@ interface WorkOrder {
   status: string;
   slaDue?: string | null;
   scheduledAt?: string | null;
+  arrivedAt?: string | null;
   authorisationStatus?: string | null;
   costEstimate?: number | null;
   costActual?: number | null;
@@ -370,6 +371,31 @@ export default function Maintenance() {
       toast({
         title: "Failed to schedule job",
         description: e?.message || "Failed to schedule job",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const arriveOnSiteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("POST", `/api/work-orders/${id}/arrive`);
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/work-orders"] });
+      if (selectedWorkOrderDetail && data?.id === selectedWorkOrderDetail.id) {
+        setSelectedWorkOrderDetail({
+          ...selectedWorkOrderDetail,
+          arrivedAt: data.arrivedAt ?? selectedWorkOrderDetail.arrivedAt,
+          status: data.status ?? selectedWorkOrderDetail.status,
+        });
+      }
+      toast({ title: "Arrived on site", description: "Arrival recorded" });
+    },
+    onError: (e: any) => {
+      toast({
+        title: "Failed to mark arrival",
+        description: e?.message || "Failed to mark arrival",
         variant: "destructive",
       });
     },
@@ -1945,9 +1971,19 @@ export default function Maintenance() {
                         {canOwnerAct && isWorkOrdersEnabled && (
                           linkedWorkOrder ? (
                             <Button
-                              variant="outline"
+                              variant={
+                                linkedWorkOrder.status === "completed" ||
+                                linkedWorkOrder.status === "rejected"
+                                  ? "outline"
+                                  : "default"
+                              }
                               size="sm"
-                              className="h-8 rounded-full px-3 text-xs"
+                              className={cn(
+                                "h-8 rounded-full px-3 text-xs",
+                                linkedWorkOrder.status !== "completed" &&
+                                  linkedWorkOrder.status !== "rejected" &&
+                                  "bg-emerald-600 text-white hover:bg-emerald-700",
+                              )}
                               onClick={() => {
                                 setSelectedWorkOrderDetail(linkedWorkOrder);
                                 setActiveTab("work-orders");
@@ -2218,6 +2254,21 @@ export default function Maintenance() {
                               </div>
                             )}
 
+                            {workOrder.arrivedAt && (
+                              <div className="flex items-center gap-2 text-sm">
+                                <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                                <div>
+                                  <p className="font-medium">Arrived on site</p>
+                                  <p className="text-muted-foreground">
+                                    {new Date(workOrder.arrivedAt).toLocaleString(undefined, {
+                                      dateStyle: "medium",
+                                      timeStyle: "short",
+                                    })}
+                                  </p>
+                                </div>
+                              </div>
+                            )}
+
                             {(workOrder.costEstimate || workOrder.costActual) && (
                               <div className="flex items-center gap-2 text-sm">
                                 <span className="h-4 w-4 text-muted-foreground flex items-center justify-center font-semibold shrink-0">£</span>
@@ -2298,6 +2349,23 @@ export default function Maintenance() {
                             {canScheduleWorkOrder &&
                               workOrder.status !== "completed" &&
                               workOrder.status !== "rejected" &&
+                              workOrder.authorisationStatus === "authorised" &&
+                              !workOrder.arrivedAt && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8"
+                                  disabled={arriveOnSiteMutation.isPending}
+                                  onClick={() => arriveOnSiteMutation.mutate(workOrder.id)}
+                                  data-testid={`button-arrive-work-order-${workOrder.id}`}
+                                >
+                                  <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+                                  {arriveOnSiteMutation.isPending ? "Recording…" : "Arrived on Site"}
+                                </Button>
+                              )}
+                            {canScheduleWorkOrder &&
+                              workOrder.status !== "completed" &&
+                              workOrder.status !== "rejected" &&
                               workOrder.authorisationStatus === "quote_required" && (
                                 <span className="text-xs text-muted-foreground self-center">
                                   Accept quotation before scheduling
@@ -2359,20 +2427,49 @@ export default function Maintenance() {
                     </p>
                   </div>
                 )}
-                {canScheduleWorkOrder &&
-                  selectedWorkOrderDetail.status !== "completed" &&
-                  selectedWorkOrderDetail.status !== "rejected" &&
-                  selectedWorkOrderDetail.authorisationStatus === "authorised" && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => openScheduleDialog(selectedWorkOrderDetail)}
-                      data-testid="button-schedule-work-order-detail"
-                    >
-                      <Calendar className="w-3.5 h-3.5 mr-1.5" />
-                      {selectedWorkOrderDetail.scheduledAt ? "Reschedule" : "Schedule Job"}
-                    </Button>
-                  )}
+                {selectedWorkOrderDetail.arrivedAt && (
+                  <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm dark:border-emerald-900 dark:bg-emerald-950/40">
+                    <p className="font-medium">Arrived on site</p>
+                    <p className="text-muted-foreground">
+                      {new Date(selectedWorkOrderDetail.arrivedAt).toLocaleString(undefined, {
+                        dateStyle: "full",
+                        timeStyle: "short",
+                      })}
+                    </p>
+                  </div>
+                )}
+                <div className="flex flex-wrap gap-2">
+                  {canScheduleWorkOrder &&
+                    selectedWorkOrderDetail.status !== "completed" &&
+                    selectedWorkOrderDetail.status !== "rejected" &&
+                    selectedWorkOrderDetail.authorisationStatus === "authorised" && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => openScheduleDialog(selectedWorkOrderDetail)}
+                        data-testid="button-schedule-work-order-detail"
+                      >
+                        <Calendar className="w-3.5 h-3.5 mr-1.5" />
+                        {selectedWorkOrderDetail.scheduledAt ? "Reschedule" : "Schedule Job"}
+                      </Button>
+                    )}
+                  {canScheduleWorkOrder &&
+                    selectedWorkOrderDetail.status !== "completed" &&
+                    selectedWorkOrderDetail.status !== "rejected" &&
+                    selectedWorkOrderDetail.authorisationStatus === "authorised" &&
+                    !selectedWorkOrderDetail.arrivedAt && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={arriveOnSiteMutation.isPending}
+                        onClick={() => arriveOnSiteMutation.mutate(selectedWorkOrderDetail.id)}
+                        data-testid="button-arrive-work-order-detail"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+                        {arriveOnSiteMutation.isPending ? "Recording…" : "Arrived on Site"}
+                      </Button>
+                    )}
+                </div>
                 {canScheduleWorkOrder &&
                   selectedWorkOrderDetail.status !== "completed" &&
                   selectedWorkOrderDetail.status !== "rejected" &&
