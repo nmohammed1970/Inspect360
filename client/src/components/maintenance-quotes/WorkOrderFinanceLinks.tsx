@@ -81,8 +81,11 @@ function pickOpenInvoice(invoices: InvoiceListItem[]): InvoiceListItem | null {
 
 export const WorkOrderFinanceLinks = ({ workOrderId }: WorkOrderFinanceLinksProps) => {
   const { user } = useAuth();
-  const isOwner =
-    user?.role === "owner" || user?.role === "maintenance_admin";
+  const canFinance =
+    user?.role === "owner" ||
+    user?.role === "maintenance_admin" ||
+    user?.role === "clerk" ||
+    user?.role === "contractor";
   const [, setLocation] = useLocation();
 
   const quotesQuery = useQuery<QuoteListItem[]>({
@@ -160,7 +163,7 @@ export const WorkOrderFinanceLinks = ({ workOrderId }: WorkOrderFinanceLinksProp
           </Button>
         ) : null}
 
-        {isOwner &&
+        {canFinance &&
           (invoices.length === 0 ? (
             <Button
               size="sm"

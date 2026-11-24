@@ -17600,7 +17600,7 @@ ${optionalNotes || "No details provided."}`;
     return identity;
   }
 
-  app.post("/api/work-orders", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "contractor", "maintenance_admin"), async (req: any, res) => {
+  app.post("/api/work-orders", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk", "contractor", "maintenance_admin"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -18228,7 +18228,7 @@ ${optionalNotes || "No details provided."}`;
     },
   );
 
-  app.patch("/api/work-orders/:id/cost", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "contractor", "maintenance_admin"), async (req: any, res) => {
+  app.patch("/api/work-orders/:id/cost", isAuthenticated, requireCompanyModule("maintenance"), requireRole("owner", "clerk", "contractor", "maintenance_admin"), async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);

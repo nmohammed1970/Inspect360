@@ -239,22 +239,12 @@ export default function Maintenance() {
   useEffect(() => {
     if (tabFromUrl === "work-orders" && canSeeWorkOrders) {
       setActiveTab("work-orders");
-      return;
-    }
-    if (tabFromUrl === "work-orders" && !canSeeWorkOrders) {
+    } else if (tabFromUrl === "work-orders" && !canSeeWorkOrders) {
       setActiveTab("requests");
-      return;
-    }
-    if (tabFromUrl === "requests") {
+    } else if (tabFromUrl === "requests") {
       setActiveTab("requests");
-      return;
     }
-    // Auth often loads after first paint — field roles should land on Work Orders.
-    if (canSeeWorkOrders && canFieldAct && tabFromUrl !== "requests") {
-      setActiveTab("work-orders");
-      navigate("/maintenance?tab=work-orders", { replace: true });
-    }
-  }, [tabFromUrl, canSeeWorkOrders, canFieldAct, navigate]);
+  }, [tabFromUrl, canSeeWorkOrders]);
 
   // Fetch maintenance requests
   const { data: requests = [], isLoading } = useQuery<MaintenanceRequestWithDetails[]>({

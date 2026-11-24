@@ -58,7 +58,10 @@ function rejectTenant(req: any, res: Response, next: NextFunction) {
 }
 
 const guards = [isAuthenticated, requireCompanyModule("maintenance"), rejectTenant] as const;
-const ownerGuards = [...guards, requireRole("owner", "maintenance_admin")] as const;
+const ownerGuards = [
+  ...guards,
+  requireRole("owner", "maintenance_admin", "clerk", "contractor"),
+] as const;
 
 function hashToken(raw: string) {
   return createHash("sha256").update(raw).digest("hex");
