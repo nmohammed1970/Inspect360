@@ -42,6 +42,7 @@ import {
   blankQuoteLine,
   type EditableQuoteLine,
 } from "@/components/maintenance-quotes/QuoteLinesEditor";
+import { DocumentAttachmentsPanel } from "@/components/maintenance-quotes/DocumentAttachmentsPanel";
 import type {
   MaintenancePriceBookCategory,
   MaintenancePriceBookUnit,
@@ -587,6 +588,15 @@ export default function WorkOrderInvoice() {
               />
             </CardContent>
           </Card>
+
+          {workOrderId && invoiceId ? (
+            <DocumentAttachmentsPanel
+              workOrderId={workOrderId}
+              documentType="invoice"
+              documentId={invoiceId}
+              canEdit={editable}
+            />
+          ) : null}
         </div>
 
         <div className="space-y-4">

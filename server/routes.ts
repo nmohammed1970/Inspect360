@@ -21409,6 +21409,10 @@ ${optionalNotes || "No details provided."}`;
   registerMaintenanceInvoiceRoutes(app);
   const { registerMaintenanceFinanceRoutes } = await import("./maintenance/financeRoutes");
   registerMaintenanceFinanceRoutes(app);
+  const { registerMaintenanceDocumentAttachmentRoutes } = await import(
+    "./maintenance/documentAttachmentRoutes"
+  );
+  registerMaintenanceDocumentAttachmentRoutes(app);
 
   // Admin Login
   app.post("/api/admin/login", async (req, res) => {

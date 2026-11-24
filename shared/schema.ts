@@ -1689,6 +1689,32 @@ export const maintenanceInvoicePayments = pgTable(
 
 export type MaintenanceInvoicePayment = typeof maintenanceInvoicePayments.$inferSelect;
 
+/** File attachments for quotes/invoices (shared storage keys across convert). */
+export const maintenanceDocumentAttachments = pgTable(
+  "maintenance_document_attachments",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    organizationId: varchar("organization_id").notNull(),
+    quoteId: varchar("quote_id"),
+    invoiceId: varchar("invoice_id"),
+    storageKey: text("storage_key").notNull(),
+    fileName: varchar("file_name").notNull(),
+    mimeType: varchar("mime_type"),
+    fileSizeBytes: integer("file_size_bytes"),
+    uploadedByUserId: varchar("uploaded_by_user_id").notNull(),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [
+    index("maintenance_doc_attachments_org_idx").on(table.organizationId),
+    index("maintenance_doc_attachments_quote_idx").on(table.quoteId),
+    index("maintenance_doc_attachments_invoice_idx").on(table.invoiceId),
+    index("maintenance_doc_attachments_storage_idx").on(table.storageKey),
+  ],
+);
+
+export type MaintenanceDocumentAttachment =
+  typeof maintenanceDocumentAttachments.$inferSelect;
+
 // Tenant Maintenance Chat Conversations (AI Chatbot for preventative maintenance)
 export const tenantMaintenanceChats = pgTable("tenant_maintenance_chats", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

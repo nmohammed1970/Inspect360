@@ -17,6 +17,7 @@ import {
   allocateDocumentNumber,
   resolveWorkOrderLocation,
 } from "./quoteLifecycle";
+import { copyQuoteAttachmentsToInvoice } from "./documentAttachments";
 
 export type DirectInvoiceRecipient = {
   recipientUserId?: string | null;
@@ -136,6 +137,13 @@ export async function convertQuoteToInvoice(input: {
     eventType: "quote_converted_to_invoice",
     actorUserId,
     payload: { quoteId: quote.id, invoiceId: result.id },
+  });
+
+  await copyQuoteAttachmentsToInvoice({
+    organizationId: quote.organizationId,
+    quoteId: quote.id,
+    invoiceId: result.id,
+    actorUserId,
   });
 
   const invoiceLines = await db

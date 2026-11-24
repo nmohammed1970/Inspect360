@@ -48,6 +48,7 @@ import {
   type EditableQuoteLine,
 } from "@/components/maintenance-quotes/QuoteLinesEditor";
 import { formatMoneyMinor } from "@/components/maintenance-quotes/quoteMoney";
+import { DocumentAttachmentsPanel } from "@/components/maintenance-quotes/DocumentAttachmentsPanel";
 import { cn } from "@/lib/utils";
 
 type QuoteDetail = {
@@ -746,6 +747,15 @@ export default function WorkOrderQuotation() {
               />
             </CardContent>
           </Card>
+
+          {workOrderId && quoteId ? (
+            <DocumentAttachmentsPanel
+              workOrderId={workOrderId}
+              documentType="quote"
+              documentId={quoteId}
+              canEdit={editable}
+            />
+          ) : null}
         </div>
 
         <div className="space-y-4">
