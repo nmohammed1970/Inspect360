@@ -21,6 +21,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
@@ -58,6 +65,7 @@ type QuoteDetail = {
   quoteReference: string;
   versionNumber: number;
   currency: string;
+  recipientUserId?: string | null;
   recipientName: string | null;
   recipientEmail: string | null;
   recipientPhone: string | null;
@@ -189,10 +197,34 @@ export default function WorkOrderQuotation() {
   const [scopeDescription, setScopeDescription] = useState("");
   const [engineerNotes, setEngineerNotes] = useState("");
   const [validUntil, setValidUntil] = useState("");
+  const [recipientUserId, setRecipientUserId] = useState<string>("");
   const [recipientName, setRecipientName] = useState("");
   const [recipientEmail, setRecipientEmail] = useState("");
   const [lines, setLines] = useState<EditableQuoteLine[]>([blankQuoteLine()]);
   const [hydratedId, setHydratedId] = useState<string | null>(null);
+
+  type CustomerCandidate = {
+    id: string;
+    displayName: string;
+    email: string | null;
+    phone: string | null;
+    role: string;
+  };
+
+  const candidatesQuery = useQuery<{
+    candidates: CustomerCandidate[];
+    defaultRecipient: { recipientUserId: string | null } | null;
+  }>({
+    queryKey: ["/api/work-orders", workOrderId, "customer-candidates"],
+    queryFn: async () => {
+      const res = await fetch(`/api/work-orders/${workOrderId}/customer-candidates`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to load customers");
+      return res.json();
+    },
+    enabled: Boolean(workOrderId),
+  });
 
   useEffect(() => {
     if (!quote || hydratedId === quote.id) return;
@@ -201,11 +233,21 @@ export default function WorkOrderQuotation() {
     setValidUntil(
       quote.validUntil ? new Date(quote.validUntil).toISOString().slice(0, 10) : "",
     );
+    setRecipientUserId(quote.recipientUserId || "");
     setRecipientName(quote.recipientName || "");
     setRecipientEmail(quote.recipientEmail || "");
     setLines(linesFromServer(quote));
     setHydratedId(quote.id);
   }, [quote, hydratedId]);
+
+  const applyCustomer = (userId: string) => {
+    setRecipientUserId(userId);
+    const candidate = candidatesQuery.data?.candidates.find((c) => c.id === userId);
+    if (candidate) {
+      setRecipientName(candidate.displayName);
+      setRecipientEmail(candidate.email || "");
+    }
+  };
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -213,6 +255,7 @@ export default function WorkOrderQuotation() {
         scopeDescription: scopeDescription || null,
         engineerNotes: engineerNotes || null,
         validUntil: validUntil || null,
+        recipientUserId: recipientUserId || null,
         recipientName: recipientName || null,
         recipientEmail: recipientEmail || null,
       });
@@ -262,6 +305,7 @@ export default function WorkOrderQuotation() {
         scopeDescription: scopeDescription || null,
         engineerNotes: engineerNotes || null,
         validUntil: validUntil || null,
+        recipientUserId: recipientUserId || null,
         recipientName: recipientName || null,
         recipientEmail: recipientEmail || null,
       });
@@ -335,6 +379,7 @@ export default function WorkOrderQuotation() {
   const sendMutation = useMutation({
     mutationFn: async () => {
       await apiRequest("PATCH", `/api/work-orders/${workOrderId}/quotes/${quoteId}`, {
+        recipientUserId: recipientUserId || null,
         recipientName: recipientName || null,
         recipientEmail: recipientEmail || null,
       });
@@ -701,23 +746,44 @@ export default function WorkOrderQuotation() {
                 />
               </div>
               <div className="space-y-1.5 sm:col-span-1">
-                <Label htmlFor="recipient-name">Recipient</Label>
-                <Input
-                  id="recipient-name"
-                  disabled={
-                    !(
-                      editable ||
-                      quote.status === "owner_approved" ||
-                      quote.status === "sent"
-                    )
-                  }
-                  value={recipientName}
-                  onChange={(e) => setRecipientName(e.target.value)}
-                  placeholder="Customer / landlord name"
-                />
+                <Label>Customer</Label>
+                {editable ||
+                quote.status === "owner_approved" ||
+                quote.status === "sent" ? (
+                  <Select
+                    value={recipientUserId || undefined}
+                    onValueChange={applyCustomer}
+                    disabled={candidatesQuery.isLoading}
+                  >
+                    <SelectTrigger data-testid="select-quote-customer">
+                      <SelectValue
+                        placeholder={
+                          candidatesQuery.isLoading
+                            ? "Loading…"
+                            : "Select customer"
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(candidatesQuery.data?.candidates || []).map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.displayName}
+                          {c.email ? ` (${c.email})` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input value={recipientName} disabled className="bg-muted/40" />
+                )}
+                {!recipientUserId && recipientName ? (
+                  <p className="text-xs text-muted-foreground">
+                    Current: {recipientName}
+                  </p>
+                ) : null}
               </div>
               <div className="space-y-1.5 sm:col-span-2">
-                <Label htmlFor="recipient-email">Recipient Email</Label>
+                <Label htmlFor="recipient-email">Customer Email</Label>
                 <Input
                   id="recipient-email"
                   type="email"

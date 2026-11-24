@@ -38,6 +38,11 @@ import {
   publicAppBaseUrl,
   transitionOrThrow,
 } from "./quoteLifecycle";
+import {
+  defaultRecipientForWorkOrder,
+  listQuoteCustomerCandidates,
+  resolveRecipientUserInOrg,
+} from "./quoteCustomerRecipients";
 
 function orgId(req: any): string {
   return req.user.organizationId as string;
@@ -248,6 +253,35 @@ async function loadLines(quoteId: string): Promise<MaintenanceQuoteLine[]> {
 
 export function registerMaintenanceQuoteRoutes(app: Express) {
   app.get(
+    "/api/work-orders/:workOrderId/customer-candidates",
+    ...quoteGuards,
+    async (req: any, res: Response) => {
+      try {
+        const organizationId = orgId(req);
+        const access = await assertWoAccess(req.user, req.params.workOrderId);
+        if ("error" in access) {
+          return res.status(access.error).json({ message: access.message });
+        }
+
+        const workOrder = await storage.getWorkOrder(req.params.workOrderId);
+        if (!workOrder || workOrder.organizationId !== organizationId) {
+          return res.status(404).json({ message: "Work order not found" });
+        }
+
+        const [candidates, defaultRecipient] = await Promise.all([
+          listQuoteCustomerCandidates(organizationId),
+          defaultRecipientForWorkOrder(workOrder),
+        ]);
+
+        res.json({ candidates, defaultRecipient });
+      } catch (error) {
+        console.error("[quotes] customer-candidates failed:", error);
+        res.status(500).json({ message: "Failed to load customers" });
+      }
+    },
+  );
+
+  app.get(
     "/api/work-orders/:workOrderId/quotes",
     ...quoteGuards,
     async (req: any, res: Response) => {
@@ -302,7 +336,9 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
           year,
         );
 
-        const landlordSnap = ctx?.landlord ? contactSnapshot(ctx.landlord) : null;
+        const defaultRecipient = ctx?.workOrder
+          ? await defaultRecipientForWorkOrder(ctx.workOrder)
+          : null;
 
         const [quote] = await db
           .insert(maintenanceQuotes)
@@ -315,11 +351,12 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
             versionNumber: 1,
             quoteType: "original",
             currency: currency as "GBP" | "USD" | "EUR" | "AED",
-            recipientContactId: landlordSnap?.recipientContactId ?? null,
-            recipientName: landlordSnap?.recipientName ?? null,
-            recipientEmail: landlordSnap?.recipientEmail ?? null,
-            recipientPhone: landlordSnap?.recipientPhone ?? null,
-            recipientAddress: landlordSnap?.recipientAddress ?? null,
+            recipientContactId: null,
+            recipientUserId: defaultRecipient?.recipientUserId ?? null,
+            recipientName: defaultRecipient?.recipientName ?? null,
+            recipientEmail: defaultRecipient?.recipientEmail ?? null,
+            recipientPhone: defaultRecipient?.recipientPhone ?? null,
+            recipientAddress: null,
             scopeDescription: ctx?.request?.description || ctx?.issueTitle || null,
             preparedByUserId: req.user.id,
             subtotalMinor: 0,
@@ -460,6 +497,20 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
         const data = parsed.data;
         const patch: Partial<MaintenanceQuote> = { updatedAt: new Date() };
 
+        if (data.recipientUserId !== undefined) {
+          const snap = await resolveRecipientUserInOrg(organizationId, data.recipientUserId);
+          if (data.recipientUserId && !snap?.recipientUserId) {
+            return res.status(400).json({ message: "Invalid customer selection" });
+          }
+          if (snap) {
+            patch.recipientUserId = snap.recipientUserId;
+            patch.recipientContactId = null;
+            patch.recipientName = snap.recipientName;
+            patch.recipientEmail = snap.recipientEmail;
+            patch.recipientPhone = snap.recipientPhone;
+            patch.recipientAddress = null;
+          }
+        }
         if (data.recipientContactId !== undefined) {
           patch.recipientContactId = data.recipientContactId;
         }
@@ -1047,6 +1098,7 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
               quoteType: quote.quoteType === "variation" ? "variation" : "revision",
               currency: quote.currency,
               recipientContactId: quote.recipientContactId,
+              recipientUserId: quote.recipientUserId,
               recipientName: quote.recipientName,
               recipientEmail: quote.recipientEmail,
               recipientPhone: quote.recipientPhone,
@@ -1151,12 +1203,13 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
             versionNumber: 1,
             quoteType: "variation",
             currency: quote.currency,
-            recipientContactId: quote.recipientContactId,
-            recipientName: quote.recipientName,
-            recipientEmail: quote.recipientEmail,
-            recipientPhone: quote.recipientPhone,
-            recipientAddress: quote.recipientAddress,
-            scopeDescription: quote.scopeDescription,
+              recipientContactId: quote.recipientContactId,
+              recipientUserId: quote.recipientUserId,
+              recipientName: quote.recipientName,
+              recipientEmail: quote.recipientEmail,
+              recipientPhone: quote.recipientPhone,
+              recipientAddress: quote.recipientAddress,
+              scopeDescription: quote.scopeDescription,
             preparedByUserId: req.user.id,
             variationOfQuoteId: quote.id,
             parentQuoteId: quote.id,

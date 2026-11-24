@@ -15,6 +15,7 @@ import { computeQuoteLine } from "@shared/maintenanceFinanceMath";
 import { appendWorkOrderEvent, allocateDocumentNumber } from "./quoteLifecycle";
 
 export type DirectInvoiceRecipient = {
+  recipientUserId?: string | null;
   recipientContactId?: string | null;
   recipientName?: string | null;
   recipientEmail?: string | null;
@@ -67,6 +68,7 @@ export async function convertQuoteToInvoice(input: {
         invoiceReference,
         currency: quote.currency,
         recipientContactId: quote.recipientContactId,
+        recipientUserId: quote.recipientUserId,
         recipientName: quote.recipientName,
         recipientEmail: quote.recipientEmail,
         recipientPhone: quote.recipientPhone,
@@ -165,6 +167,7 @@ export async function createDirectInvoice(input: {
         invoiceReference,
         currency: currency as "GBP" | "USD" | "EUR" | "AED",
         recipientContactId: recipient?.recipientContactId ?? null,
+        recipientUserId: recipient?.recipientUserId ?? null,
         recipientName: recipient?.recipientName ?? null,
         recipientEmail: recipient?.recipientEmail ?? null,
         recipientPhone: recipient?.recipientPhone ?? null,

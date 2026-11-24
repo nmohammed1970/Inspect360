@@ -25,6 +25,7 @@ export interface MaintenanceQuote {
   quoteReference: string;
   versionNumber: number;
   currency: string;
+  recipientUserId?: string | null;
   recipientName?: string | null;
   recipientEmail?: string | null;
   recipientPhone?: string | null;
@@ -92,6 +93,7 @@ export const quotesService = {
     workOrderId: string,
     quoteId: string,
     body: {
+      recipientUserId?: string | null;
       recipientName?: string | null;
       recipientEmail?: string | null;
       recipientPhone?: string | null;
@@ -104,6 +106,26 @@ export const quotesService = {
       'PATCH',
       `/api/work-orders/${workOrderId}/quotes/${quoteId}`,
       body,
+    );
+  },
+
+  async getCustomerCandidates(workOrderId: string): Promise<{
+    candidates: Array<{
+      id: string;
+      displayName: string;
+      email: string | null;
+      phone: string | null;
+    }>;
+    defaultRecipient: {
+      recipientUserId: string | null;
+      recipientName: string | null;
+      recipientEmail: string | null;
+      recipientPhone: string | null;
+    } | null;
+  }> {
+    return apiRequestJson(
+      'GET',
+      `/api/work-orders/${workOrderId}/customer-candidates`,
     );
   },
 

@@ -17671,6 +17671,7 @@ ${optionalNotes || "No details provided."}`;
       const workOrderData = {
         ...validatedData,
         organizationId: user.organizationId,
+        createdBy: userId,
         completionChecklistId,
         completionChecklistSnapshotJson: completionChecklistSnapshotJson as any,
       } as any;

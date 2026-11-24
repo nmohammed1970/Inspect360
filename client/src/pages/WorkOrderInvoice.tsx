@@ -55,6 +55,7 @@ type InvoiceDetail = {
   status: string;
   invoiceReference: string;
   currency: string;
+  recipientUserId?: string | null;
   recipientName: string | null;
   recipientEmail: string | null;
   recipientPhone: string | null;
@@ -120,6 +121,7 @@ export default function WorkOrderInvoice() {
   });
 
   const editable = invoice?.status === "draft";
+  const [recipientUserId, setRecipientUserId] = useState("");
   const [recipientName, setRecipientName] = useState("");
   const [recipientEmail, setRecipientEmail] = useState("");
   const [recipientPhone, setRecipientPhone] = useState("");
@@ -128,6 +130,27 @@ export default function WorkOrderInvoice() {
   const [dueAt, setDueAt] = useState("");
   const [lines, setLines] = useState<EditableQuoteLine[]>([blankQuoteLine()]);
   const [hydrated, setHydrated] = useState<string | null>(null);
+
+  type CustomerCandidate = {
+    id: string;
+    displayName: string;
+    email: string | null;
+    phone: string | null;
+  };
+
+  const candidatesQuery = useQuery<{
+    candidates: CustomerCandidate[];
+  }>({
+    queryKey: ["/api/work-orders", workOrderId, "customer-candidates"],
+    queryFn: async () => {
+      const res = await fetch(`/api/work-orders/${workOrderId}/customer-candidates`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to load customers");
+      return res.json();
+    },
+    enabled: Boolean(workOrderId),
+  });
 
   const [payAmount, setPayAmount] = useState("");
   const [payDate, setPayDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -140,6 +163,7 @@ export default function WorkOrderInvoice() {
 
   useEffect(() => {
     if (!invoice || hydrated === invoice.id) return;
+    setRecipientUserId(invoice.recipientUserId || "");
     setRecipientName(invoice.recipientName || "");
     setRecipientEmail(invoice.recipientEmail || "");
     setRecipientPhone(invoice.recipientPhone || "");
@@ -166,9 +190,20 @@ export default function WorkOrderInvoice() {
     setHydrated(invoice.id);
   }, [invoice, hydrated]);
 
+  const applyCustomer = (userId: string) => {
+    setRecipientUserId(userId);
+    const candidate = candidatesQuery.data?.candidates.find((c) => c.id === userId);
+    if (candidate) {
+      setRecipientName(candidate.displayName);
+      setRecipientEmail(candidate.email || "");
+      setRecipientPhone(candidate.phone || "");
+    }
+  };
+
   const saveMutation = useMutation({
     mutationFn: async () => {
       await apiRequest("PATCH", `/api/work-orders/${workOrderId}/invoices/${invoiceId}`, {
+        recipientUserId: recipientUserId || null,
         recipientName: recipientName || null,
         recipientEmail: recipientEmail || null,
         recipientPhone: recipientPhone || null,
@@ -458,12 +493,35 @@ export default function WorkOrderInvoice() {
             </CardHeader>
             <CardContent className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label>Name</Label>
-                <Input
-                  disabled={!editable}
-                  value={recipientName}
-                  onChange={(e) => setRecipientName(e.target.value)}
-                />
+                <Label>Customer</Label>
+                {editable ? (
+                  <Select
+                    value={recipientUserId || undefined}
+                    onValueChange={applyCustomer}
+                    disabled={candidatesQuery.isLoading}
+                  >
+                    <SelectTrigger data-testid="select-invoice-customer">
+                      <SelectValue
+                        placeholder={
+                          candidatesQuery.isLoading ? "Loading…" : "Select customer"
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(candidatesQuery.data?.candidates || []).map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.displayName}
+                          {c.email ? ` (${c.email})` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input value={recipientName} disabled />
+                )}
+                {!recipientUserId && recipientName ? (
+                  <p className="text-xs text-muted-foreground">Current: {recipientName}</p>
+                ) : null}
               </div>
               <div className="space-y-1.5">
                 <Label>Email</Label>

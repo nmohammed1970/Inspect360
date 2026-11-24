@@ -1449,6 +1449,8 @@ export const maintenanceQuotes = pgTable(
     quoteType: varchar("quote_type").notNull().default("original"),
     currency: currencyEnum("currency").notNull().default("GBP"),
     recipientContactId: varchar("recipient_contact_id"),
+    /** Org user selected as quote customer (owners / maintenance admins). */
+    recipientUserId: varchar("recipient_user_id"),
     recipientName: varchar("recipient_name"),
     recipientEmail: varchar("recipient_email"),
     recipientPhone: varchar("recipient_phone"),
@@ -1579,6 +1581,8 @@ export const maintenanceInvoices = pgTable(
     invoiceReference: varchar("invoice_reference").notNull(),
     currency: currencyEnum("currency").notNull().default("GBP"),
     recipientContactId: varchar("recipient_contact_id"),
+    /** Org user selected as invoice customer (owners / maintenance admins). */
+    recipientUserId: varchar("recipient_user_id"),
     recipientName: varchar("recipient_name"),
     recipientEmail: varchar("recipient_email"),
     recipientPhone: varchar("recipient_phone"),
@@ -1937,6 +1941,8 @@ export const workOrders = pgTable("work_orders", {
   authorisationStatus: varchar("authorisation_status").notNull().default("not_required"),
   approvedQuoteId: varchar("approved_quote_id"),
   authorisedTotalMinor: integer("authorised_total_minor"),
+  /** User who created the work order (nullable for legacy rows). */
+  createdBy: varchar("created_by"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -1946,6 +1952,7 @@ export const insertWorkOrderSchema = createInsertSchema(workOrders, {
 }).omit({
   id: true,
   organizationId: true,
+  createdBy: true,
   createdAt: true,
   updatedAt: true,
 });

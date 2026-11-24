@@ -139,6 +139,7 @@ export const customerDecisionSchema = z.object({
 
 export const quoteHeaderPatchSchema = z.object({
   recipientContactId: z.string().nullable().optional(),
+  recipientUserId: z.string().nullable().optional(),
   recipientName: z.string().max(200).nullable().optional(),
   recipientEmail: z.string().max(320).nullable().optional(),
   recipientPhone: z.string().max(64).nullable().optional(),
@@ -218,6 +219,7 @@ export const invoicePaymentCreateSchema = z.object({
 });
 
 export const invoiceHeaderPatchSchema = z.object({
+  recipientUserId: z.string().nullable().optional(),
   recipientName: z.string().max(200).nullable().optional(),
   recipientEmail: z.string().max(320).nullable().optional(),
   recipientPhone: z.string().max(64).nullable().optional(),

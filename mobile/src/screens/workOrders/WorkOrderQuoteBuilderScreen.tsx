@@ -139,6 +139,7 @@ export default function WorkOrderQuoteBuilderScreen() {
   const [booting, setBooting] = useState(!routeQuoteId);
   const bootStarted = useRef(false);
 
+  const [recipientUserId, setRecipientUserId] = useState('');
   const [recipientName, setRecipientName] = useState('');
   const [recipientEmail, setRecipientEmail] = useState('');
   const [notes, setNotes] = useState('');
@@ -179,9 +180,16 @@ export default function WorkOrderQuoteBuilderScreen() {
     enabled: !!quoteId,
   });
 
+  const candidatesQuery = useQuery({
+    queryKey: ['work-order-customer-candidates', workOrderId],
+    queryFn: () => quotesService.getCustomerCandidates(workOrderId),
+    enabled: !!workOrderId,
+  });
+
   useEffect(() => {
     const quote = quoteQuery.data;
     if (!quote || hydrated) return;
+    setRecipientUserId(quote.recipientUserId ?? '');
     setRecipientName(quote.recipientName ?? '');
     setRecipientEmail(quote.recipientEmail ?? '');
     setNotes(quote.notes ?? '');
@@ -301,10 +309,32 @@ export default function WorkOrderQuoteBuilderScreen() {
       }));
   }, [lines]);
 
+  const customerOptions = useMemo(
+    () =>
+      (candidatesQuery.data?.candidates ?? []).map((c) => ({
+        value: c.id,
+        label: c.email ? `${c.displayName} (${c.email})` : c.displayName,
+      })),
+    [candidatesQuery.data?.candidates],
+  );
+
+  const applyCustomer = useCallback(
+    (userId: string) => {
+      setRecipientUserId(userId);
+      const candidate = candidatesQuery.data?.candidates.find((c) => c.id === userId);
+      if (candidate) {
+        setRecipientName(candidate.displayName);
+        setRecipientEmail(candidate.email || '');
+      }
+    },
+    [candidatesQuery.data?.candidates],
+  );
+
   const saveMutation = useMutation({
     mutationFn: async () => {
       if (!quoteId) throw new Error('Quote not ready');
       await quotesService.patchQuote(workOrderId, quoteId, {
+        recipientUserId: recipientUserId || null,
         recipientName: recipientName.trim() || null,
         recipientEmail: recipientEmail.trim() || null,
         notes: notes.trim() || null,
@@ -329,6 +359,7 @@ export default function WorkOrderQuoteBuilderScreen() {
         throw new Error('Add at least one named line before submitting');
       }
       await quotesService.patchQuote(workOrderId, quoteId, {
+        recipientUserId: recipientUserId || null,
         recipientName: recipientName.trim() || null,
         recipientEmail: recipientEmail.trim() || null,
         notes: notes.trim() || null,
@@ -453,20 +484,37 @@ export default function WorkOrderQuoteBuilderScreen() {
         ) : null}
 
         <Card style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: themeColors.text.primary }]}>Recipient</Text>
-          <Input
-            label="Name"
-            value={recipientName}
-            onChangeText={setRecipientName}
-            editable={editable && !busy}
-            placeholder="Recipient name"
-          />
+          <Text style={[styles.sectionTitle, { color: themeColors.text.primary }]}>Customer</Text>
+          {editable ? (
+            <View style={styles.fieldBlock}>
+              <Text style={[styles.fieldLabel, { color: themeColors.text.secondary }]}>
+                Customer
+              </Text>
+              <Select
+                value={recipientUserId || undefined}
+                options={customerOptions}
+                onValueChange={applyCustomer}
+                disabled={busy || candidatesQuery.isLoading}
+                placeholder={
+                  candidatesQuery.isLoading ? 'Loading…' : 'Select customer'
+                }
+                testID="select-quote-customer"
+              />
+              {!recipientUserId && recipientName ? (
+                <Text style={[styles.hint, { color: themeColors.text.muted }]}>
+                  Current: {recipientName}
+                </Text>
+              ) : null}
+            </View>
+          ) : (
+            <Input label="Customer" value={recipientName} editable={false} />
+          )}
           <Input
             label="Email"
             value={recipientEmail}
             onChangeText={setRecipientEmail}
             editable={editable && !busy}
-            placeholder="recipient@example.com"
+            placeholder="customer@example.com"
             keyboardType="email-address"
             autoCapitalize="none"
           />
@@ -801,9 +849,16 @@ const styles = StyleSheet.create({
     gap: spacing[3],
   },
   half: { flex: 1 },
+  fieldBlock: {
+    marginBottom: spacing[1],
+  },
   fieldLabel: {
     fontSize: getFontSize(13),
     marginBottom: spacing[1],
+  },
+  hint: {
+    fontSize: getFontSize(12),
+    marginTop: spacing[1],
   },
   lineTotal: {
     fontSize: getFontSize(13),
