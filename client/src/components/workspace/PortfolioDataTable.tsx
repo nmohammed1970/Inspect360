@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { ArrowRight } from "lucide-react";
 import { Link } from "wouter";
+import { ContextualLink } from "@/navigation";
 import { cn } from "@/lib/utils";
 import {
   Table,
@@ -48,6 +49,8 @@ type OpenRowLinkProps = {
   label?: string;
   className?: string;
   testId?: string;
+  /** When set, records NavContext for breadcrumbs */
+  fromLabel?: string;
 };
 
 /** Teal “Open →” row action from the template. */
@@ -56,18 +59,33 @@ export function OpenRowLink({
   label = "Open",
   className,
   testId,
+  fromLabel,
 }: OpenRowLinkProps) {
-  return (
-    <Link
-      href={href}
-      data-testid={testId}
-      className={cn(
-        "inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline underline-offset-2",
-        className,
-      )}
-    >
+  const classNames = cn(
+    "inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline underline-offset-2",
+    className,
+  );
+  const children = (
+    <>
       {label}
       <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+    </>
+  );
+  if (fromLabel) {
+    return (
+      <ContextualLink
+        href={href}
+        fromLabel={fromLabel}
+        data-testid={testId}
+        className={classNames}
+      >
+        {children}
+      </ContextualLink>
+    );
+  }
+  return (
+    <Link href={href} data-testid={testId} className={classNames}>
+      {children}
     </Link>
   );
 }

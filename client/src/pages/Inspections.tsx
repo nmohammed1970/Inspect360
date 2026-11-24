@@ -42,6 +42,7 @@ import { formatSignerDisplayName } from "@shared/signature";
 import { COMPLETION_CHECKLIST_INSPECTION_UI_VISIBLE } from "@shared/completionChecklist";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Link, useLocation, useSearch } from "wouter";
+import { navigateWithContext } from "@/navigation";
 import { useLocale } from "@/contexts/LocaleContext";
 import { LocaleDateInput } from "@/components/LocaleDateInput";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
@@ -159,7 +160,7 @@ export default function Inspections() {
   const { user } = useAuth();
   const locale = useLocale();
   const { tenanciesEnabled } = useCompanyModules();
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
   const searchParams = useSearch();
   const urlParams = new URLSearchParams(searchParams);
   const urlPropertyId = urlParams.get("propertyId");
@@ -1448,7 +1449,13 @@ export default function Inspections() {
                     <Button
                       size="sm"
                       className="flex-1 min-h-9"
-                      onClick={() => navigate(`/inspections/${inspection.id}/capture`)}
+                      onClick={() =>
+                        navigateWithContext(navigate, {
+                          href: `/inspections/${inspection.id}/capture`,
+                          fromPath: location,
+                          fromLabel: "Inspections",
+                        })
+                      }
                       data-testid={`button-start-capture-${inspection.id}`}
                     >
                       <Play className="w-4 h-4 mr-2" />
@@ -1459,7 +1466,13 @@ export default function Inspections() {
                     variant="outline"
                     size="sm"
                     className="flex-1 min-h-9"
-                    onClick={() => navigate(`/inspections/${inspection.id}/report`)}
+                    onClick={() =>
+                      navigateWithContext(navigate, {
+                        href: `/inspections/${inspection.id}/report`,
+                        fromPath: location,
+                        fromLabel: "Inspections",
+                      })
+                    }
                     data-testid={`button-view-report-${inspection.id}`}
                   >
                     <FileText className="w-4 h-4 mr-2" />
@@ -1469,7 +1482,13 @@ export default function Inspections() {
                     variant="outline"
                     size="sm"
                     className="flex-1 min-h-9"
-                    onClick={() => navigate(`/inspections/${inspection.id}`)}
+                    onClick={() =>
+                      navigateWithContext(navigate, {
+                        href: `/inspections/${inspection.id}`,
+                        fromPath: location,
+                        fromLabel: "Inspections",
+                      })
+                    }
                     data-testid={`button-view-details-${inspection.id}`}
                   >
                     View Details

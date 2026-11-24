@@ -1,27 +1,41 @@
-import { useLocation } from "wouter";
+import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
-import { BookOpen, ClipboardList } from "lucide-react";
-import { PageHeader } from "@/components/PageHeader";
-import SettingsMaintenancePriceBookPanel from "@/components/SettingsMaintenancePriceBookPanel";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  BookOpen,
+  CheckCircle2,
+  Clock,
+  FileText,
+  Receipt,
+  Wallet,
+} from "lucide-react";
+import { PageHeader } from "@/components/PageHeader";
+import { StatusBadge } from "@/components/StatusBadge";
+import SettingsMaintenancePriceBookPanel from "@/components/SettingsMaintenancePriceBookPanel";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatMoneyMinor } from "@/components/maintenance-quotes/quoteMoney";
+import {
+  MetricSummaryCard,
+  OpenRowLink,
+  PortfolioDataTable,
+  PortfolioTableBody,
+  PortfolioTableCell,
+  PortfolioTableHead,
+  PortfolioTableHeader,
+  PortfolioTableRow,
+} from "@/components/workspace";
+import { cn } from "@/lib/utils";
+import { pagePad, tabsListScroll } from "@/lib/responsive";
 import {
   MAINTENANCE_INVOICE_STATUS_LABELS,
   MAINTENANCE_PAYMENT_STATUS_LABELS,
   MAINTENANCE_QUOTE_STATUS_LABELS,
 } from "@shared/maintenanceQuoteConstants";
+import {
+  paymentStatusTone,
+  quoteLifecycleTone,
+} from "@shared/statusPriorityStyles";
 
 type QuoteRow = {
   id: string;
@@ -85,9 +99,19 @@ function whenLabel(iso?: string | null): string {
   }
 }
 
-export default function MaintenanceFinance() {
-  const [, setLocation] = useLocation();
+function quoteStatusLabel(status: string): string {
+  return MAINTENANCE_QUOTE_STATUS_LABELS[status] || status.replace(/_/g, " ");
+}
 
+function invoiceStatusLabel(status: string): string {
+  return MAINTENANCE_INVOICE_STATUS_LABELS[status] || status.replace(/_/g, " ");
+}
+
+function paymentLabel(status: string): string {
+  return MAINTENANCE_PAYMENT_STATUS_LABELS[status] || status.replace(/_/g, " ");
+}
+
+export default function MaintenanceFinance() {
   const trackingQuery = useQuery<FinanceTracking>({
     queryKey: ["/api/maintenance-finance/tracking"],
     queryFn: async () => {
@@ -102,54 +126,79 @@ export default function MaintenanceFinance() {
   const data = trackingQuery.data;
   const counts = data?.counts;
 
-  const countChips = [
-    { label: "Awaiting", value: counts?.awaitingCustomer ?? 0 },
-    { label: "Accepted", value: counts?.customerAccepted ?? 0 },
-    { label: "Outstanding", value: counts?.outstandingInvoices ?? 0 },
-    { label: "Drafts", value: counts?.draftInvoices ?? 0 },
-    {
-      label: "History",
-      value: (counts?.quoteHistory ?? 0) + (counts?.invoiceHistory ?? 0),
-    },
-  ];
-
   return (
-    <div className="space-y-4 p-4 md:p-6 max-w-[1400px] mx-auto">
+    <div className={cn("container mx-auto min-w-0 space-y-6 md:space-y-8", pagePad)}>
       <PageHeader
-        icon={ClipboardList}
+        icon={FileText}
         title="Quotes & invoicing"
         description="Quotations, invoices, and price book — tracked in one place"
       />
 
       {trackingQuery.isLoading ? (
-        <Skeleton className="h-9 w-full max-w-3xl" />
-      ) : (
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          {countChips.map((chip, i) => (
-            <span key={chip.label} className="inline-flex items-center gap-1.5">
-              {i > 0 ? <span className="text-muted-foreground mx-0.5">·</span> : null}
-              <span className="text-muted-foreground">{chip.label}</span>
-              <Badge variant={chip.value > 0 ? "default" : "secondary"} className="tabular-nums">
-                {chip.value}
-              </Badge>
-            </span>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} className="h-[5.5rem] w-full rounded-lg" />
           ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          <MetricSummaryCard
+            label="Awaiting"
+            value={counts?.awaitingCustomer ?? 0}
+            subLabel="Customer response"
+            tone="info"
+            icon={Clock}
+          />
+          <MetricSummaryCard
+            label="Accepted"
+            value={counts?.customerAccepted ?? 0}
+            subLabel="Ready to convert"
+            tone="success"
+            icon={CheckCircle2}
+          />
+          <MetricSummaryCard
+            label="Outstanding"
+            value={counts?.outstandingInvoices ?? 0}
+            subLabel="Unpaid invoices"
+            tone={(counts?.outstandingInvoices ?? 0) > 0 ? "critical" : "muted"}
+            icon={Wallet}
+          />
+          <MetricSummaryCard
+            label="Drafts"
+            value={counts?.draftInvoices ?? 0}
+            subLabel="Unsent invoices"
+            tone="warning"
+            icon={Receipt}
+          />
+          <MetricSummaryCard
+            label="History"
+            value={(counts?.quoteHistory ?? 0) + (counts?.invoiceHistory ?? 0)}
+            subLabel="Closed documents"
+            tone="muted"
+            icon={FileText}
+          />
         </div>
       )}
 
-      <Tabs defaultValue="quotations">
-        <TabsList>
-          <TabsTrigger value="quotations">Quotations</TabsTrigger>
-          <TabsTrigger value="invoices">Invoices</TabsTrigger>
+      <Tabs defaultValue="quotations" className="space-y-6 md:space-y-8">
+        <TabsList className={tabsListScroll}>
+          <TabsTrigger value="quotations" className="gap-1.5">
+            <FileText className="h-4 w-4" />
+            <span className="tab-label">Quotations</span>
+          </TabsTrigger>
+          <TabsTrigger value="invoices" className="gap-1.5">
+            <Receipt className="h-4 w-4" />
+            <span className="tab-label">Invoices</span>
+          </TabsTrigger>
           <TabsTrigger value="price-book" className="gap-1.5">
-            <BookOpen className="h-3.5 w-3.5" />
-            Price book
+            <BookOpen className="h-4 w-4" />
+            <span className="tab-label">Price book</span>
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="quotations" className="mt-4 space-y-8">
+        <TabsContent value="quotations" className="mt-0 space-y-6">
           {trackingQuery.isLoading ? (
-            <Skeleton className="h-40 w-full" />
+            <Skeleton className="h-48 w-full rounded-lg" />
           ) : trackingQuery.error ? (
             <p className="text-sm text-destructive">
               {(trackingQuery.error as Error).message}
@@ -161,9 +210,6 @@ export default function MaintenanceFinance() {
                 subtitle="Sent to the customer, or changes requested"
                 rows={data?.quotes.awaitingCustomer || []}
                 dateFor={(q) => q.sentAt || q.updatedAt}
-                onOpen={(q) =>
-                  setLocation(`/work-orders/${q.workOrderId}/quotes/${q.id}`)
-                }
               />
 
               <QuoteTableSection
@@ -171,11 +217,8 @@ export default function MaintenanceFinance() {
                 subtitle="Ready to convert to an invoice"
                 rows={data?.quotes.customerAccepted || []}
                 dateFor={(q) => q.customerDecidedAt || q.updatedAt}
-                actionLabel="Open to convert"
+                actionLabel="Convert"
                 highlight
-                onOpen={(q) =>
-                  setLocation(`/work-orders/${q.workOrderId}/quotes/${q.id}`)
-                }
               />
 
               <QuoteTableSection
@@ -183,17 +226,14 @@ export default function MaintenanceFinance() {
                 subtitle="Declined, converted, rejected, cancelled, superseded, or expired"
                 rows={data?.quotes.history || []}
                 dateFor={(q) => q.updatedAt}
-                onOpen={(q) =>
-                  setLocation(`/work-orders/${q.workOrderId}/quotes/${q.id}`)
-                }
               />
             </>
           )}
         </TabsContent>
 
-        <TabsContent value="invoices" className="mt-4 space-y-8">
+        <TabsContent value="invoices" className="mt-0 space-y-6">
           {trackingQuery.isLoading ? (
-            <Skeleton className="h-40 w-full" />
+            <Skeleton className="h-48 w-full rounded-lg" />
           ) : trackingQuery.error ? (
             <p className="text-sm text-destructive">
               {(trackingQuery.error as Error).message}
@@ -206,9 +246,6 @@ export default function MaintenanceFinance() {
                 rows={data?.invoices.outstanding || []}
                 dateFor={(inv) => inv.dueAt || inv.updatedAt}
                 highlight
-                onOpen={(inv) =>
-                  setLocation(`/work-orders/${inv.workOrderId}/invoices/${inv.id}`)
-                }
               />
 
               <InvoiceTableSection
@@ -216,9 +253,6 @@ export default function MaintenanceFinance() {
                 subtitle="Invoices not yet sent to the customer"
                 rows={data?.invoices.drafts || []}
                 dateFor={(inv) => inv.updatedAt || inv.createdAt}
-                onOpen={(inv) =>
-                  setLocation(`/work-orders/${inv.workOrderId}/invoices/${inv.id}`)
-                }
               />
 
               <InvoiceTableSection
@@ -226,50 +260,86 @@ export default function MaintenanceFinance() {
                 subtitle="Paid or void invoices"
                 rows={data?.invoices.history || []}
                 dateFor={(inv) => inv.updatedAt}
-                onOpen={(inv) =>
-                  setLocation(`/work-orders/${inv.workOrderId}/invoices/${inv.id}`)
-                }
               />
             </>
           )}
         </TabsContent>
 
-        <TabsContent value="price-book" className="mt-4">
-          <SettingsMaintenancePriceBookPanel embedded />
+        <TabsContent value="price-book" className="mt-0">
+          <div className="overflow-hidden rounded-lg border border-border/80 bg-card shadow-sm">
+            <div className="border-b border-border/80 px-4 py-3 sm:px-5">
+              <h2 className="text-base font-semibold tracking-tight">Price book</h2>
+              <p className="mt-0.5 text-sm text-muted-foreground">
+                Catalogue lines used when building quotations
+              </p>
+            </div>
+            <div className="p-4 sm:p-5">
+              <SettingsMaintenancePriceBookPanel embedded />
+            </div>
+          </div>
         </TabsContent>
       </Tabs>
     </div>
   );
 }
 
-const SectionHeader = ({
+function SectionShell({
   title,
   subtitle,
   count,
   highlight,
+  children,
 }: {
   title: string;
   subtitle?: string;
   count: number;
   highlight?: boolean;
-}) => (
-  <div className="mb-2">
-    <div className="flex items-center gap-2">
-      <h2 className="text-sm font-semibold tracking-tight">{title}</h2>
-      <Badge variant={highlight && count > 0 ? "default" : "secondary"} className="tabular-nums">
-        {count}
-      </Badge>
-    </div>
-    {subtitle ? <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p> : null}
-  </div>
-);
+  children: ReactNode;
+}) {
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-wrap items-end justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-base font-semibold tracking-tight text-foreground">
+              {title}
+            </h2>
+            <StatusBadge
+              tone={highlight && count > 0 ? "primary" : "muted"}
+              appearance="pill"
+              className="tabular-nums"
+            >
+              {count}
+            </StatusBadge>
+          </div>
+          {subtitle ? (
+            <p className="mt-0.5 text-sm text-muted-foreground">{subtitle}</p>
+          ) : null}
+        </div>
+      </div>
+      {children}
+    </section>
+  );
+}
 
-const QuoteTableSection = ({
+function EmptyTableRow({ colSpan }: { colSpan: number }) {
+  return (
+    <PortfolioTableRow>
+      <PortfolioTableCell
+        colSpan={colSpan}
+        className="h-20 text-center text-sm text-muted-foreground"
+      >
+        None right now
+      </PortfolioTableCell>
+    </PortfolioTableRow>
+  );
+}
+
+function QuoteTableSection({
   title,
   subtitle,
   rows,
   dateFor,
-  onOpen,
   actionLabel = "Open",
   highlight,
 }: {
@@ -277,151 +347,156 @@ const QuoteTableSection = ({
   subtitle?: string;
   rows: QuoteRow[];
   dateFor: (q: QuoteRow) => string | null | undefined;
-  onOpen: (q: QuoteRow) => void;
   actionLabel?: string;
   highlight?: boolean;
-}) => (
-  <section>
-    <SectionHeader
+}) {
+  return (
+    <SectionShell
       title={title}
       subtitle={subtitle}
       count={rows.length}
       highlight={highlight}
-    />
-    <div className="overflow-x-auto rounded-md border">
-      <Table>
-        <TableHeader>
-          <TableRow className="hover:bg-transparent">
-            <TableHead className="min-w-[140px]">Reference</TableHead>
-            <TableHead className="min-w-[140px]">Recipient</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead className="text-right">Amount</TableHead>
-            <TableHead>Updated</TableHead>
-            <TableHead className="text-right w-[120px]">Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
+    >
+      <PortfolioDataTable minWidth="720px">
+        <PortfolioTableHeader>
+          <PortfolioTableRow className="hover:bg-transparent">
+            <PortfolioTableHead>Reference</PortfolioTableHead>
+            <PortfolioTableHead>Recipient</PortfolioTableHead>
+            <PortfolioTableHead>Status</PortfolioTableHead>
+            <PortfolioTableHead className="text-right">Amount</PortfolioTableHead>
+            <PortfolioTableHead>Updated</PortfolioTableHead>
+            <PortfolioTableHead className="w-[7rem] text-right">
+              Actions
+            </PortfolioTableHead>
+          </PortfolioTableRow>
+        </PortfolioTableHeader>
+        <PortfolioTableBody>
           {rows.length === 0 ? (
-            <TableRow>
-              <TableCell colSpan={6} className="h-16 text-center text-muted-foreground text-sm">
-                None right now
-              </TableCell>
-            </TableRow>
+            <EmptyTableRow colSpan={6} />
           ) : (
             rows.map((q) => (
-              <TableRow key={q.id} className="hover:bg-muted/40">
-                <TableCell className="font-medium whitespace-nowrap">
+              <PortfolioTableRow key={q.id} data-testid={`row-quote-${q.id}`}>
+                <PortfolioTableCell className="font-medium whitespace-nowrap">
                   {q.quoteReference}
-                </TableCell>
-                <TableCell className="text-sm text-muted-foreground max-w-[180px] truncate">
+                </PortfolioTableCell>
+                <PortfolioTableCell className="max-w-[12rem] truncate text-sm text-muted-foreground">
                   {q.recipientName || "—"}
-                </TableCell>
-                <TableCell>
-                  <Badge variant="outline">
-                    {MAINTENANCE_QUOTE_STATUS_LABELS[q.status] ||
-                      q.status.replace(/_/g, " ")}
-                  </Badge>
-                </TableCell>
-                <TableCell className="text-right tabular-nums whitespace-nowrap">
+                </PortfolioTableCell>
+                <PortfolioTableCell>
+                  <StatusBadge
+                    tone={quoteLifecycleTone(q.status)}
+                    appearance="pill"
+                  >
+                    {quoteStatusLabel(q.status)}
+                  </StatusBadge>
+                </PortfolioTableCell>
+                <PortfolioTableCell className="text-right tabular-nums whitespace-nowrap">
                   {formatMoneyMinor(q.totalMinor, q.currency)}
-                </TableCell>
-                <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                </PortfolioTableCell>
+                <PortfolioTableCell className="whitespace-nowrap text-xs text-muted-foreground">
                   {whenLabel(dateFor(q))}
-                </TableCell>
-                <TableCell className="text-right">
-                  <Button size="sm" variant="outline" onClick={() => onOpen(q)}>
-                    {actionLabel}
-                  </Button>
-                </TableCell>
-              </TableRow>
+                </PortfolioTableCell>
+                <PortfolioTableCell className="text-right">
+                  <OpenRowLink
+                    href={`/work-orders/${q.workOrderId}/quotes/${q.id}`}
+                    label={actionLabel}
+                    fromLabel="Quotes & Invoicing"
+                    testId={`button-open-quote-${q.id}`}
+                    className="justify-end"
+                  />
+                </PortfolioTableCell>
+              </PortfolioTableRow>
             ))
           )}
-        </TableBody>
-      </Table>
-    </div>
-  </section>
-);
+        </PortfolioTableBody>
+      </PortfolioDataTable>
+    </SectionShell>
+  );
+}
 
-const InvoiceTableSection = ({
+function InvoiceTableSection({
   title,
   subtitle,
   rows,
   dateFor,
-  onOpen,
   highlight,
 }: {
   title: string;
   subtitle?: string;
   rows: InvoiceRow[];
   dateFor: (inv: InvoiceRow) => string | null | undefined;
-  onOpen: (inv: InvoiceRow) => void;
   highlight?: boolean;
-}) => (
-  <section>
-    <SectionHeader
+}) {
+  return (
+    <SectionShell
       title={title}
       subtitle={subtitle}
       count={rows.length}
       highlight={highlight}
-    />
-    <div className="overflow-x-auto rounded-md border">
-      <Table>
-        <TableHeader>
-          <TableRow className="hover:bg-transparent">
-            <TableHead className="min-w-[140px]">Reference</TableHead>
-            <TableHead className="min-w-[140px]">Recipient</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead>Payment</TableHead>
-            <TableHead className="text-right">Amount</TableHead>
-            <TableHead>Updated</TableHead>
-            <TableHead className="text-right w-[100px]">Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
+    >
+      <PortfolioDataTable minWidth="820px">
+        <PortfolioTableHeader>
+          <PortfolioTableRow className="hover:bg-transparent">
+            <PortfolioTableHead>Reference</PortfolioTableHead>
+            <PortfolioTableHead>Recipient</PortfolioTableHead>
+            <PortfolioTableHead>Status</PortfolioTableHead>
+            <PortfolioTableHead>Payment</PortfolioTableHead>
+            <PortfolioTableHead className="text-right">Amount</PortfolioTableHead>
+            <PortfolioTableHead>Updated</PortfolioTableHead>
+            <PortfolioTableHead className="w-[6rem] text-right">
+              Actions
+            </PortfolioTableHead>
+          </PortfolioTableRow>
+        </PortfolioTableHeader>
+        <PortfolioTableBody>
           {rows.length === 0 ? (
-            <TableRow>
-              <TableCell colSpan={7} className="h-16 text-center text-muted-foreground text-sm">
-                None right now
-              </TableCell>
-            </TableRow>
+            <EmptyTableRow colSpan={7} />
           ) : (
             rows.map((inv) => (
-              <TableRow key={inv.id} className="hover:bg-muted/40">
-                <TableCell className="font-medium whitespace-nowrap">
+              <PortfolioTableRow key={inv.id} data-testid={`row-invoice-${inv.id}`}>
+                <PortfolioTableCell className="font-medium whitespace-nowrap">
                   {inv.invoiceReference}
-                </TableCell>
-                <TableCell className="text-sm text-muted-foreground max-w-[180px] truncate">
+                </PortfolioTableCell>
+                <PortfolioTableCell className="max-w-[12rem] truncate text-sm text-muted-foreground">
                   {inv.recipientName || "—"}
-                </TableCell>
-                <TableCell>
-                  <Badge variant="outline">
-                    {MAINTENANCE_INVOICE_STATUS_LABELS[inv.status] ||
-                      inv.status.replace(/_/g, " ")}
-                  </Badge>
-                </TableCell>
-                <TableCell>
-                  <Badge variant="secondary">
-                    {MAINTENANCE_PAYMENT_STATUS_LABELS[inv.paymentStatus] ||
-                      inv.paymentStatus.replace(/_/g, " ")}
-                  </Badge>
-                </TableCell>
-                <TableCell className="text-right tabular-nums whitespace-nowrap text-sm">
+                </PortfolioTableCell>
+                <PortfolioTableCell>
+                  <StatusBadge
+                    tone={quoteLifecycleTone(inv.status)}
+                    appearance="pill"
+                  >
+                    {invoiceStatusLabel(inv.status)}
+                  </StatusBadge>
+                </PortfolioTableCell>
+                <PortfolioTableCell>
+                  <StatusBadge
+                    tone={paymentStatusTone(inv.paymentStatus)}
+                    appearance="pill"
+                  >
+                    {paymentLabel(inv.paymentStatus)}
+                  </StatusBadge>
+                </PortfolioTableCell>
+                <PortfolioTableCell className="text-right text-sm tabular-nums whitespace-nowrap">
                   {formatMoneyMinor(inv.paidMinor, inv.currency)} /{" "}
                   {formatMoneyMinor(inv.totalMinor, inv.currency)}
-                </TableCell>
-                <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                </PortfolioTableCell>
+                <PortfolioTableCell className="whitespace-nowrap text-xs text-muted-foreground">
                   {whenLabel(dateFor(inv))}
-                </TableCell>
-                <TableCell className="text-right">
-                  <Button size="sm" variant="outline" onClick={() => onOpen(inv)}>
-                    Open
-                  </Button>
-                </TableCell>
-              </TableRow>
+                </PortfolioTableCell>
+                <PortfolioTableCell className="text-right">
+                  <OpenRowLink
+                    href={`/work-orders/${inv.workOrderId}/invoices/${inv.id}`}
+                    label="Open"
+                    fromLabel="Quotes & Invoicing"
+                    testId={`button-open-invoice-${inv.id}`}
+                    className="justify-end"
+                  />
+                </PortfolioTableCell>
+              </PortfolioTableRow>
             ))
           )}
-        </TableBody>
-      </Table>
-    </div>
-  </section>
-);
+        </PortfolioTableBody>
+      </PortfolioDataTable>
+    </SectionShell>
+  );
+}

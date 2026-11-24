@@ -33,6 +33,7 @@ import { LocaleDateInput } from "@/components/LocaleDateInput";
 import { pagePad } from "@/lib/responsive";
 import { PageHeader } from "@/components/PageHeader";
 import { MetricSummaryCard } from "@/components/workspace";
+import { StatusBadge } from "@/components/StatusBadge";
 
 // Default document types (fallback if no custom types exist)
 const DEFAULT_DOCUMENT_TYPES = [
@@ -500,42 +501,42 @@ export default function Compliance() {
 
   const getStatusBadge = (doc: ComplianceDocument) => {
     if (!doc.expiryDate) {
-      return <Badge variant="secondary" data-testid={`badge-status-${doc.id}`}>No Expiry</Badge>;
+      return (
+        <StatusBadge tone="muted" appearance="solid" testId={`badge-status-${doc.id}`}>
+          No Expiry
+        </StatusBadge>
+      );
     }
-    
+
     const expiryDate = new Date(doc.expiryDate.toString());
     const daysUntilExpiry = differenceInDays(expiryDate, new Date());
-    
+
     if (isPast(expiryDate)) {
       return (
-        <Badge variant="destructive" data-testid={`badge-status-${doc.id}`}>
+        <StatusBadge tone="critical" appearance="solid" testId={`badge-status-${doc.id}`}>
           Expired
-        </Badge>
-      );
-    } else if (daysUntilExpiry <= 30) {
-      return (
-        <Badge 
-          className="bg-yellow-600 dark:bg-yellow-500 text-white dark:text-black" 
-          data-testid={`badge-status-${doc.id}`}
-        >
-          Expiring Soon
-        </Badge>
-      );
-    } else if (daysUntilExpiry <= 90) {
-      return (
-        <Badge 
-          className="bg-blue-600 dark:bg-blue-500 text-white dark:text-black" 
-          data-testid={`badge-status-${doc.id}`}
-        >
-          {daysUntilExpiry}d left
-        </Badge>
+        </StatusBadge>
       );
     }
-    
+    if (daysUntilExpiry <= 30) {
+      return (
+        <StatusBadge tone="warning" appearance="solid" testId={`badge-status-${doc.id}`}>
+          Expiring Soon
+        </StatusBadge>
+      );
+    }
+    if (daysUntilExpiry <= 90) {
+      return (
+        <StatusBadge tone="info" appearance="solid" testId={`badge-status-${doc.id}`}>
+          {daysUntilExpiry}d left
+        </StatusBadge>
+      );
+    }
+
     return (
-      <Badge variant="outline" data-testid={`badge-status-${doc.id}`}>
+      <StatusBadge tone="success" appearance="solid" testId={`badge-status-${doc.id}`}>
         Current
-      </Badge>
+      </StatusBadge>
     );
   };
 

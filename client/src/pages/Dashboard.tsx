@@ -45,6 +45,9 @@ import { Label } from "@/components/ui/label";
 import { pagePad } from "@/lib/responsive";
 import { cn } from "@/lib/utils";
 import { Link } from "wouter";
+import { ContextualLink } from "@/navigation";
+import { StatusBadge } from "@/components/StatusBadge";
+import { priorityTone } from "@shared/statusPriorityStyles";
 import { PageHeader } from "@/components/PageHeader";
 import { MetricSummaryCard, type MetricDotTone } from "@/components/workspace";
 
@@ -1120,9 +1123,13 @@ export default function Dashboard() {
                                 {kindMeta.label}
                               </Badge>
                               {item.meta?.priority ? (
-                                <Badge variant="outline" className="text-[10px] px-1.5 py-0 capitalize">
+                                <StatusBadge
+                                  tone={priorityTone(String(item.meta.priority))}
+                                  appearance="soft"
+                                  className="text-[10px] px-1.5 py-0 capitalize"
+                                >
                                   {item.meta.priority}
-                                </Badge>
+                                </StatusBadge>
                               ) : null}
                             </div>
                             <p className="font-medium text-sm truncate">{item.title}</p>
@@ -1207,7 +1214,7 @@ export default function Dashboard() {
                   ) : (
                     <div className="space-y-2">
                       {(stats?.alerts?.overdueInspectionsList ?? []).map((item) => (
-                        <Link key={item.id} href={`/inspections/${item.id}/capture`}>
+                        <ContextualLink key={item.id} href={`/inspections/${item.id}/capture`} fromLabel="Dashboard">
                           <div className="flex items-center justify-between p-3 rounded-lg border hover-elevate cursor-pointer" data-testid={`alert-inspection-${item.id}`}>
                             <div className="flex items-center gap-3">
                               <div className="w-8 h-8 rounded-full bg-red-100 dark:bg-red-900/20 flex items-center justify-center">
@@ -1227,7 +1234,7 @@ export default function Dashboard() {
                               </Badge>
                             </div>
                           </div>
-                        </Link>
+                        </ContextualLink>
                       ))}
                       {(stats?.alerts?.overdueInspections ?? 0) > 10 && (
                         <Link href="/inspections?status=overdue">
@@ -1294,7 +1301,7 @@ export default function Dashboard() {
                   ) : (
                     <div className="space-y-2">
                       {(stats?.alerts?.urgentMaintenanceList ?? []).map((item) => (
-                        <Link key={item.id} href={`/maintenance/${item.id}`}>
+                        <ContextualLink key={item.id} href={`/maintenance/${item.id}`} fromLabel="Dashboard">
                           <div className="flex items-center justify-between p-3 rounded-lg border hover-elevate cursor-pointer" data-testid={`alert-maintenance-${item.id}`}>
                             <div className="flex items-center gap-3">
                               <div className="w-8 h-8 rounded-full bg-orange-100 dark:bg-orange-900/20 flex items-center justify-center">
@@ -1321,7 +1328,7 @@ export default function Dashboard() {
                               )}
                             </div>
                           </div>
-                        </Link>
+                        </ContextualLink>
                       ))}
                       {(stats?.alerts?.urgentMaintenance ?? 0) > 10 && (
                         <Link href="/maintenance?priority=urgent">
@@ -1345,7 +1352,7 @@ export default function Dashboard() {
                   ) : (
                     <div className="space-y-2">
                       {(stats?.alerts?.overdueRentList ?? []).map((item) => (
-                        <Link key={item.id} href={`/properties/${item.propertyId}?tab=rent-collection`}>
+                        <ContextualLink key={item.id} href={`/properties/${item.propertyId}?tab=rent-collection`} fromLabel="Dashboard">
                           <div className="flex items-center justify-between p-3 rounded-lg border hover-elevate cursor-pointer" data-testid={`alert-rent-${item.id}`}>
                             <div className="flex items-center gap-3">
                               <div className="w-8 h-8 rounded-full bg-red-100 dark:bg-red-900/20 flex items-center justify-center">
@@ -1366,7 +1373,7 @@ export default function Dashboard() {
                               </Badge>
                             </div>
                           </div>
-                        </Link>
+                        </ContextualLink>
                       ))}
                       {(stats?.alerts?.overdueRent ?? 0) > 10 && (
                         <p className="text-center text-xs text-muted-foreground pt-2">
@@ -1597,11 +1604,11 @@ export default function Dashboard() {
                   <p className="text-xs text-muted-foreground mb-2">Properties needing attention:</p>
                   <div className="flex flex-wrap gap-1">
                     {(stats?.risk?.propertiesAtRiskIds ?? []).slice(0, 5).map((id) => (
-                      <Link key={id} href={`/properties/${id}`}>
+                      <ContextualLink key={id} href={`/properties/${id}`} fromLabel="Dashboard">
                         <Badge variant="outline" className="text-xs cursor-pointer hover-elevate" data-testid={`risk-property-${id}`}>
                           {propertyMap.get(id) || 'Property'}
                         </Badge>
-                      </Link>
+                      </ContextualLink>
                     ))}
                     {(stats?.risk?.propertiesAtRiskIds?.length ?? 0) > 5 && (
                       <Link href="/properties?status=at-risk">
@@ -1619,11 +1626,11 @@ export default function Dashboard() {
                   <p className="text-xs text-muted-foreground mb-2">Blocks needing attention:</p>
                   <div className="flex flex-wrap gap-1">
                     {(stats?.risk?.blocksAtRiskIds ?? []).slice(0, 5).map((id) => (
-                      <Link key={id} href={`/blocks/${id}`}>
+                      <ContextualLink key={id} href={`/blocks/${id}`} fromLabel="Dashboard">
                         <Badge variant="outline" className="text-xs cursor-pointer hover-elevate" data-testid={`risk-block-${id}`}>
                           {blockMap.get(id) || 'Block'}
                         </Badge>
-                      </Link>
+                      </ContextualLink>
                     ))}
                     {(stats?.risk?.blocksAtRiskIds?.length ?? 0) > 5 && (
                       <Link href="/blocks?status=at-risk">

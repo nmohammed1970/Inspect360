@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
+import { ContextualLink } from "@/navigation";
 import { format } from "date-fns";
 import {
   Inbox,
@@ -209,20 +210,25 @@ export default function AdminFeedbackInbox() {
                   {data.rows.map((row) => (
                     <TableRow key={row.id}>
                       <TableCell>
-                        <Link
+                        <ContextualLink
                           href={`/admin/feedback/${row.id}`}
+                          fromLabel="Feedback"
                           className="font-mono text-sm text-primary hover:underline"
                         >
                           {row.reference}
-                        </Link>
+                        </ContextualLink>
                       </TableCell>
                       <TableCell>
                         <FeedbackTypeBadge type={row.type} />
                       </TableCell>
                       <TableCell className="max-w-[240px] truncate">
-                        <Link href={`/admin/feedback/${row.id}`} className="hover:underline">
+                        <ContextualLink
+                          href={`/admin/feedback/${row.id}`}
+                          fromLabel="Feedback"
+                          className="hover:underline"
+                        >
                           {row.subject}
-                        </Link>
+                        </ContextualLink>
                       </TableCell>
                       <TableCell className="text-sm">{row.organizationNameSnapshot || "—"}</TableCell>
                       <TableCell className="text-sm">

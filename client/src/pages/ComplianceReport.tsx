@@ -44,6 +44,8 @@ import { reportTableClass } from "@/components/data-table";
 import { cn } from "@/lib/utils";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 import { FiltersSection } from "@/components/FiltersSection";
+import { StatusBadge } from "@/components/StatusBadge";
+import { complianceDocTone } from "@shared/statusPriorityStyles";
 
 export default function ComplianceReport() {
   const { toast } = useToast();
@@ -560,22 +562,19 @@ export default function ComplianceReport() {
                           )}
                         </TableCell>
                         <TableCell>
-                          <Badge 
-                            variant={
-                              doc.status === "expired" 
-                                ? "destructive" 
-                                : doc.status === "expiring-soon" 
-                                ? "outline" 
-                                : "default"
-                            }
+                          <StatusBadge
+                            tone={complianceDocTone(
+                              doc.status === "expiring-soon" ? "expiring_soon" : doc.status,
+                            )}
+                            appearance="solid"
                             className="text-xs"
                           >
-                            {doc.status === "expired" 
-                              ? "Expired" 
+                            {doc.status === "expired"
+                              ? "Expired"
                               : doc.status === "expiring-soon"
-                              ? "Expiring Soon"
-                              : "Current"}
-                          </Badge>
+                                ? "Expiring Soon"
+                                : "Current"}
+                          </StatusBadge>
                         </TableCell>
                         <TableCell className="hidden md:table-cell">
                           {doc.createdAt ? (

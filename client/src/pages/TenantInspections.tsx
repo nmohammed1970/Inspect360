@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
+import { ContextualLink } from "@/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -152,10 +153,13 @@ function InspectionCard({
         </div>
         {primary ? (
           <Button asChild className="w-full" data-testid={`button-start-inspection-${inspection.id}`}>
-            <Link href={`/tenant/inspections/${inspection.id}/capture`}>
+            <ContextualLink
+              href={`/tenant/inspections/${inspection.id}/capture`}
+              fromLabel="Inspections"
+            >
               {inspection.status === "in_progress" ? "Continue inspection" : "Start inspection"}
               <ArrowRight className="ml-2 h-4 w-4" />
-            </Link>
+            </ContextualLink>
           </Button>
         ) : (
           <Button
@@ -164,7 +168,12 @@ function InspectionCard({
             className="w-full"
             data-testid={`button-view-inspection-${inspection.id}`}
           >
-            <Link href={`/tenant/inspections/${inspection.id}/capture`}>View inspection</Link>
+            <ContextualLink
+              href={`/tenant/inspections/${inspection.id}/capture`}
+              fromLabel="Inspections"
+            >
+              View inspection
+            </ContextualLink>
           </Button>
         )}
       </CardContent>

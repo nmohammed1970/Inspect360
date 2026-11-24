@@ -1,4 +1,5 @@
 import { useParams, Link, useLocation } from "wouter";
+import { useBackHref } from "@/navigation";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -50,6 +51,7 @@ import { repeatableCountsFromPropertyLayout } from "@shared/propertyLayout";
 
 export default function InspectionDetail() {
   const { id } = useParams<{ id: string }>();
+  const backHref = useBackHref("/inspections");
   const { toast } = useToast();
   const locale = useLocale();
   const [, setLocation] = useLocation();
@@ -400,7 +402,7 @@ export default function InspectionDetail() {
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
             <p className="text-lg font-medium">Inspection not found</p>
-            <Link href="/inspections">
+            <Link href={backHref}>
               <Button variant="outline" className="mt-4">
                 <ArrowLeft className="w-4 h-4 mr-2" />
                 Back to Inspections
@@ -425,7 +427,7 @@ export default function InspectionDetail() {
   return (
     <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
       <div className="flex flex-col sm:flex-row sm:items-start gap-3 md:gap-4">
-        <Link href="/inspections" className="shrink-0">
+        <Link href={backHref} className="shrink-0">
           <Button variant="ghost" size="icon" data-testid="button-back">
             <ArrowLeft className="w-4 h-4" />
           </Button>

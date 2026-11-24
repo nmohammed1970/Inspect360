@@ -2,7 +2,6 @@ import { PreviewableImage } from "@/components/ImagePreview";
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft, MessageSquare, ClipboardList, Plus } from "lucide-react";
@@ -27,20 +26,13 @@ import { TenantLogRequestDialog } from "@/components/TenantLogRequestDialog";
 import { MaintenanceRequestDiscussion } from "@/components/MaintenanceRequestDiscussion";
 import { cn } from "@/lib/utils";
 import { pagePad, textBreak, dialogContentBase } from "@/lib/responsive";
+import { StatusBadge } from "@/components/StatusBadge";
+import {
+  maintenanceRequestStatusTone,
+  priorityTone,
+} from "@shared/statusPriorityStyles";
+import { formatMaintenanceStatus } from "@shared/inspectionLabels";
 
-const statusColors: Record<string, string> = {
-  open: "bg-yellow-100 text-yellow-800",
-  in_progress: "bg-blue-100 text-blue-800",
-  completed: "bg-green-100 text-green-800",
-  closed: "bg-gray-100 text-gray-800",
-};
-
-const priorityColors: Record<string, string> = {
-  low: "bg-gray-100 text-gray-800",
-  medium: "bg-blue-100 text-blue-800",
-  high: "bg-orange-100 text-orange-800",
-  urgent: "bg-red-100 text-red-800",
-};
 
 interface TenantRequestsProps {
   /** When true (e.g. /tenant/log-request), open the create dialog on mount */
@@ -165,12 +157,20 @@ export default function TenantRequests({ openCreateOnMount = false }: TenantRequ
                     )}
                   </div>
                   <div className="flex flex-wrap gap-2 shrink-0">
-                    <Badge className={statusColors[request.status] || ""}>
-                      {request.status}
-                    </Badge>
-                    <Badge className={priorityColors[request.priority] || ""}>
+                    <StatusBadge
+                      tone={maintenanceRequestStatusTone(request.status)}
+                      appearance="soft"
+                      className="capitalize"
+                    >
+                      {formatMaintenanceStatus(request.status)}
+                    </StatusBadge>
+                    <StatusBadge
+                      tone={priorityTone(request.priority)}
+                      appearance="soft"
+                      className="capitalize"
+                    >
                       {request.priority}
-                    </Badge>
+                    </StatusBadge>
                   </div>
                 </div>
               </CardHeader>

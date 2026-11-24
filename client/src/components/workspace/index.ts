@@ -14,5 +14,5 @@ export {
   PortfolioTableCell,
   OpenRowLink,
 } from "./PortfolioDataTable";
-export { StaffBreadcrumbs } from "./StaffBreadcrumbs";
+export { StaffBreadcrumbs, AppBreadcrumbs } from "./StaffBreadcrumbs";
 export { HeaderNotifications } from "./HeaderNotifications";
