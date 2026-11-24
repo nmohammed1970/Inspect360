@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useLocation, Link } from "wouter";
+import { navigateWithContext } from "@/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -44,7 +45,7 @@ const statusConfig: Record<string, { label: string; variant: "default" | "second
 };
 
 export default function TenantComparisonReports() {
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
   const locale = useLocale();
 
   const { data: reports = [], isLoading } = useQuery<ComparisonReport[]>({
@@ -112,7 +113,13 @@ export default function TenantComparisonReports() {
               <Card 
                 key={report.id} 
                 className="hover-elevate cursor-pointer"
-                onClick={() => navigate(`/tenant/comparison-reports/${report.id}`)}
+                onClick={() =>
+                  navigateWithContext(navigate, {
+                    href: `/tenant/comparison-reports/${report.id}`,
+                    fromPath: location,
+                    fromLabel: "Comparison Reports",
+                  })
+                }
                 data-testid={`card-report-${report.id}`}
               >
                 <CardContent className="p-4 md:p-6">

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import SignatureCanvas from "react-signature-canvas";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "wouter";
+import { useBackHref } from "@/navigation";
 import {
   ArrowLeft,
   Calendar,
@@ -81,6 +82,7 @@ const priorityColors: Record<string, string> = {
 const WorkOrderDetailPage = () => {
   const params = useParams<{ workOrderId: string }>();
   const workOrderId = params.workOrderId;
+  const backHref = useBackHref("/maintenance?tab=work-orders");
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -291,7 +293,7 @@ const WorkOrderDetailPage = () => {
     return (
       <div className="space-y-4 p-4 sm:p-6">
         <Button variant="ghost" asChild>
-          <Link href="/maintenance?tab=work-orders">
+          <Link href={backHref}>
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back to work orders
           </Link>
@@ -308,7 +310,7 @@ const WorkOrderDetailPage = () => {
       <PageHeader
         leading={
           <Button variant="ghost" size="sm" className="-ml-2" asChild>
-            <Link href="/maintenance?tab=work-orders">
+            <Link href={backHref}>
               <ArrowLeft className="mr-2 h-4 w-4" />
               Back
             </Link>

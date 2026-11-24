@@ -13,6 +13,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTr
 import { QuickAddMaintenanceSheet } from "@/components/QuickAddMaintenanceSheet";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
+import { ContextualLink } from "@/navigation";
 import { TagInput } from "@/components/TagInput";
 import { TagFilter } from "@/components/TagFilter";
 import { AddressInput } from "@/components/AddressInput";
@@ -450,7 +451,11 @@ export default function Blocks() {
             <Card key={block.id} data-testid={`card-block-${block.id}`} className="overflow-hidden flex h-full flex-col rounded-lg border-border/80 shadow-sm">
               <CardHeader className="pb-4">
                 <div className="flex items-start justify-between gap-2">
-                  <Link href={`/blocks/${block.id}`} className="flex-1 min-w-0">
+                  <ContextualLink
+                    href={`/blocks/${block.id}`}
+                    fromLabel="Blocks"
+                    className="flex-1 min-w-0"
+                  >
                     <div className="flex items-center gap-3 cursor-pointer group">
                       <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0 group-hover:bg-primary/20 transition-smooth">
                         <Building className="h-5 w-5 text-primary" />
@@ -458,7 +463,7 @@ export default function Blocks() {
                       <CardTitle className="text-xl font-bold truncate">{block.name}</CardTitle>
                     </div>
                     <CardDescription className="line-clamp-2 min-h-[2.75rem] cursor-pointer mt-3 text-base">{block.address}</CardDescription>
-                  </Link>
+                  </ContextualLink>
                   <div className="flex gap-1 flex-shrink-0">
                     {maintenanceEnabled && (
                     <Button

@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Building2, Home, Calendar, MapPin, FileText, ClipboardCheck } from "lucide-react";
 import { Link } from "wouter";
+import { ContextualLink } from "@/navigation";
 import { useLocale } from "@/contexts/LocaleContext";
 import {
   Breadcrumb,
@@ -117,9 +118,10 @@ export default function TenantHome() {
             const typeLabel =
               inspection.templateName || formatInspectionType(inspection.type);
             return (
-              <Link
+              <ContextualLink
                 key={`assign-${inspection.id}`}
                 href={`/tenant/inspections/${inspection.id}/capture`}
+                fromLabel="Home"
               >
                 <div className="w-full rounded-lg border border-primary/40 bg-primary/5 p-4 cursor-pointer hover:bg-primary/10 transition-colors min-w-0">
                   <div className="flex items-start gap-3 min-w-0">
@@ -140,7 +142,7 @@ export default function TenantHome() {
                     </div>
                   </div>
                 </div>
-              </Link>
+              </ContextualLink>
             );
           })}
 
@@ -148,7 +150,11 @@ export default function TenantHome() {
             const typeLabel =
               inspection.type === "check_out" ? "check-out" : "check-in";
             return (
-              <Link key={inspection.id} href={`/tenant/inspection-review/${inspection.id}`}>
+              <ContextualLink
+                key={inspection.id}
+                href={`/tenant/inspection-review/${inspection.id}`}
+                fromLabel="Home"
+              >
                 <div className="w-full rounded-lg border border-orange-500 bg-[#FFF8E7] p-4 cursor-pointer hover:bg-[#FFF5D6] transition-colors min-w-0">
                   <div className="flex items-start gap-3 min-w-0">
                     <div className="shrink-0 mt-0.5">
@@ -162,7 +168,7 @@ export default function TenantHome() {
                     </div>
                   </div>
                 </div>
-              </Link>
+              </ContextualLink>
             );
           })}
           

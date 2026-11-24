@@ -23,6 +23,7 @@ import {
 import { FileText, ArrowRight, User, Building2, Calendar, Plus, Loader2, GitCompare } from "lucide-react";
 import { format } from "date-fns";
 import { Link } from "wouter";
+import { ContextualLink } from "@/navigation";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { useCompanyModules } from "@/hooks/useCompanyModules";
@@ -525,7 +526,11 @@ export default function ComparisonReports() {
                     </div>
 
                     {/* View Button */}
-                    <Link href={`/comparisons/${report.id}`} className="inline-block w-full sm:w-auto">
+                    <ContextualLink
+                      href={`/comparisons/${report.id}`}
+                      fromLabel="Comparisons"
+                      className="inline-block w-full sm:w-auto"
+                    >
                       <Button 
                         variant="outline" 
                         size="sm" 
@@ -535,7 +540,7 @@ export default function ComparisonReports() {
                         View Details
                         <ArrowRight className="w-4 h-4 ml-2" />
                       </Button>
-                    </Link>
+                    </ContextualLink>
                   </div>
                 </CardContent>
               </Card>

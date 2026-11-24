@@ -8,6 +8,7 @@ import { SiteMaintenanceFinancePanel } from "@/components/maintenance-quotes/Sit
 import { HmoPropertyPanel } from "@/components/hmo/HmoPropertyPanel";
 import { useState, useEffect, useMemo } from "react";
 import { useRoute, Link, useSearch } from "wouter";
+import { useBackHref } from "@/navigation";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -194,6 +195,7 @@ export default function PropertyDetail() {
   const propertyId = params?.id;
   const searchParams = useSearch();
   const urlTab = new URLSearchParams(searchParams).get("tab");
+  const backHref = useBackHref("/properties");
   const { rentalsEnabled, tenanciesEnabled, complianceEnabled, maintenanceEnabled, hmoComplianceEnabled } = useCompanyModules();
   const propertyTabs = useMemo(() => {
     const tabs = new Set([
@@ -560,10 +562,10 @@ export default function PropertyDetail() {
       <div className={cn("container mx-auto min-w-0", pagePad)}>
         <div className="text-center py-12">
           <p className="text-muted-foreground">Property not found</p>
-          <Link href="/properties">
+          <Link href={backHref}>
             <Button variant="outline" className="mt-4">
               <ArrowLeft className="mr-2 h-4 w-4" />
-              Back to Properties
+              Back
             </Button>
           </Link>
         </div>
@@ -575,10 +577,16 @@ export default function PropertyDetail() {
     <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
       {/* Header */}
       <div className="flex items-center gap-2 md:gap-4">
-        <Link href={property.blockId ? `/blocks/${property.blockId}` : "/properties"}>
+        <Link href={backHref}>
           <Button variant="ghost" size="sm" className="text-xs md:text-sm" data-testid="button-back">
             <ArrowLeft className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" />
-            <span className="hidden sm:inline">{property.blockId && property.blockName ? `Back to ${property.blockName}` : "Back to Properties"}</span>
+            <span className="hidden sm:inline">
+              {backHref.startsWith("/blocks/") && property.blockName
+                ? `Back to ${property.blockName}`
+                : backHref.startsWith("/blocks")
+                  ? "Back to Blocks"
+                  : "Back to Properties"}
+            </span>
             <span className="sm:hidden">Back</span>
           </Button>
         </Link>

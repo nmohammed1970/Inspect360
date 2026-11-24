@@ -6,10 +6,11 @@ import { AdminLayout } from "./admin-layout";
 
 interface AdminPageWrapperProps {
   children: ReactNode;
+  /** @deprecated Ignored — AppBreadcrumbs is registry-driven */
   breadcrumbs?: Array<{ label: string; href?: string }>;
 }
 
-export function AdminPageWrapper({ children, breadcrumbs }: AdminPageWrapperProps) {
+export function AdminPageWrapper({ children }: AdminPageWrapperProps) {
   const [, navigate] = useLocation();
 
   // Check admin authentication
@@ -41,6 +42,6 @@ export function AdminPageWrapper({ children, breadcrumbs }: AdminPageWrapperProp
     return null; // Will redirect to login
   }
 
-  return <AdminLayout breadcrumbs={breadcrumbs}>{children}</AdminLayout>;
+  return <AdminLayout>{children}</AdminLayout>;
 }
 

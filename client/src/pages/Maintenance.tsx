@@ -3,6 +3,7 @@ import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { useLocation, useSearch, useParams } from "wouter";
+import { navigateWithContext } from "@/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -172,7 +173,7 @@ export default function Maintenance() {
   const { user } = useAuth();
   const { toast } = useToast();
   const locale = useLocale();
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
   const searchParams = useSearch();
   const params = useParams<{ id?: string }>();
   const maintenanceId = params?.id;
@@ -1826,6 +1827,7 @@ export default function Maintenance() {
                               <OpenRowLink
                                 href={`/maintenance/work-orders/${linkedWorkOrder.id}`}
                                 label="WO"
+                                fromLabel="Maintenance"
                                 testId={`button-view-work-order-${request.id}`}
                                 className="ml-1"
                               />
@@ -2077,7 +2079,11 @@ export default function Maintenance() {
                                   "bg-primary text-primary-foreground hover:bg-[hsl(var(--primary-hover))]",
                               )}
                               onClick={() => {
-                                navigate(`/maintenance/work-orders/${linkedWorkOrder.id}`);
+                                navigateWithContext(navigate, {
+                                  href: `/maintenance/work-orders/${linkedWorkOrder.id}`,
+                                  fromPath: location,
+                                  fromLabel: "Maintenance",
+                                });
                               }}
                               data-testid={`button-view-work-order-${request.id}`}
                             >
@@ -2417,7 +2423,13 @@ export default function Maintenance() {
                               variant="outline"
                               size="sm"
                               className="h-8"
-                              onClick={() => navigate(`/maintenance/work-orders/${workOrder.id}`)}
+                              onClick={() =>
+                                navigateWithContext(navigate, {
+                                  href: `/maintenance/work-orders/${workOrder.id}`,
+                                  fromPath: location,
+                                  fromLabel: "Maintenance",
+                                })
+                              }
                               data-testid={`button-view-work-order-${workOrder.id}`}
                             >
                               View details

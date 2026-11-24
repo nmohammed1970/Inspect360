@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "wouter";
+import { ContextualLink } from "@/navigation";
 import { format } from "date-fns";
 import { MessageSquarePlus, Plus, Inbox } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -117,20 +117,25 @@ export default function FeedbackPage() {
                     {rows.map((row) => (
                       <TableRow key={row.id} className="hover:bg-muted/40">
                         <TableCell>
-                          <Link
+                          <ContextualLink
                             href={`/feedback/${row.id}`}
+                            fromLabel="Feedback"
                             className="font-mono text-sm text-primary hover:underline"
                           >
                             {row.reference}
-                          </Link>
+                          </ContextualLink>
                         </TableCell>
                         <TableCell>
                           <FeedbackTypeBadge type={row.type} />
                         </TableCell>
                         <TableCell className="max-w-[280px] truncate">
-                          <Link href={`/feedback/${row.id}`} className="hover:underline font-medium">
+                          <ContextualLink
+                            href={`/feedback/${row.id}`}
+                            fromLabel="Feedback"
+                            className="hover:underline font-medium"
+                          >
                             {row.subject}
-                          </Link>
+                          </ContextualLink>
                         </TableCell>
                         <TableCell>
                           <FeedbackStatusBadge status={row.status} />
