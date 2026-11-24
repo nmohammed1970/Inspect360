@@ -15482,8 +15482,13 @@ ${optionalNotes || "No details provided."}`;
         return res.status(403).json({ message: "Unauthorized to update this request" });
       }
 
-      // Owners, clerks, and contractors can edit maintenance requests
-      if (user.role !== "owner" && user.role !== "clerk" && user.role !== "contractor") {
+      // Owners, clerks, contractors, and maintenance admins can edit maintenance requests
+      if (
+        user.role !== "owner" &&
+        user.role !== "clerk" &&
+        user.role !== "contractor" &&
+        user.role !== "maintenance_admin"
+      ) {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
 
@@ -17860,7 +17865,7 @@ ${optionalNotes || "No details provided."}`;
           return res.status(403).json({ error: "Access denied" });
         }
 
-        if ((workOrder as any).authorisationStatus !== "authorised") {
+        if ((workOrder as any).authorisationStatus === "quote_required") {
           return res.status(409).json({
             error: "A customer-accepted quotation is required before scheduling",
             code: "QUOTE_AUTHORISATION_REQUIRED",
@@ -17967,7 +17972,7 @@ ${optionalNotes || "No details provided."}`;
           return res.status(403).json({ error: "Access denied" });
         }
 
-        if ((workOrder as any).authorisationStatus !== "authorised") {
+        if ((workOrder as any).authorisationStatus === "quote_required") {
           return res.status(409).json({
             error: "A customer-accepted quotation is required before marking arrival",
             code: "QUOTE_AUTHORISATION_REQUIRED",

@@ -17,7 +17,7 @@ export function registerMaintenanceMessageRoutes(app: Express) {
   const staffGuards = [
     isAuthenticated,
     requireCompanyModule("maintenance"),
-    requireRole("owner", "maintenance_admin"),
+    requireRole("owner", "maintenance_admin", "contractor"),
   ] as const;
 
   async function loadStaffRequest(req: any, res: Response) {

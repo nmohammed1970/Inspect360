@@ -93,11 +93,13 @@ const WorkOrderDetailPage = () => {
   const [padKey, setPadKey] = useState(0);
   const padRef = useRef<SignatureCanvas>(null);
 
-  const isAssigneeRole = user?.role === "contractor";
+  const canFieldAct =
+    user?.role === "contractor" || user?.role === "maintenance_admin";
   const canScheduleWorkOrder =
     user?.role === "owner" ||
     user?.role === "contractor" ||
     user?.role === "maintenance_admin";
+  const canVisitAct = (status?: string | null) => status !== "quote_required";
 
   const {
     data: workOrder,
@@ -353,7 +355,7 @@ const WorkOrderDetailPage = () => {
           </div>
         )}
 
-        {isAssigneeRole && !isClosed && (
+        {canFieldAct && !isClosed && (
           <div className="flex flex-wrap items-center gap-2">
             <Label className="text-sm font-medium">Update Status</Label>
             <Select
@@ -413,9 +415,7 @@ const WorkOrderDetailPage = () => {
         )}
 
         <div className="flex flex-wrap gap-2">
-          {canScheduleWorkOrder &&
-            !isClosed &&
-            workOrder.authorisationStatus === "authorised" && (
+          {canScheduleWorkOrder && !isClosed && canVisitAct(workOrder.authorisationStatus) && (
               <Button
                 variant="outline"
                 size="sm"
@@ -428,7 +428,7 @@ const WorkOrderDetailPage = () => {
             )}
           {canScheduleWorkOrder &&
             !isClosed &&
-            workOrder.authorisationStatus === "authorised" &&
+            canVisitAct(workOrder.authorisationStatus) &&
             !workOrder.arrivedAt && (
               <Button
                 variant="outline"

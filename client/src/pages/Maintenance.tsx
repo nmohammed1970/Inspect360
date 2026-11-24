@@ -222,11 +222,13 @@ export default function Maintenance() {
     user?.role === "contractor" ||
     user?.role === "maintenance_admin";
   const isAssigneeRole = user?.role === "contractor";
+  const canFieldAct =
+    user?.role === "contractor" || user?.role === "maintenance_admin";
   const isMaintenanceManager =
     user?.role === "owner" || user?.role === "maintenance_admin";
   const tabFromUrl = new URLSearchParams(searchParams).get("tab");
   const defaultWorkOrdersTab =
-    tabFromUrl === "work-orders" || (isAssigneeRole && tabFromUrl !== "requests");
+    tabFromUrl === "work-orders" || (canFieldAct && tabFromUrl !== "requests");
   const [activeTab, setActiveTab] = useState(
     defaultWorkOrdersTab && canSeeWorkOrders ? "work-orders" : "requests",
   );
@@ -1940,7 +1942,9 @@ export default function Maintenance() {
                           )
                         )}
 
-                        {isMaintenanceManager && (
+                        {(isMaintenanceManager ||
+                          isAssigneeRole ||
+                          user?.role === "tenant") && (
                           <Button
                             variant="outline"
                             size="sm"
@@ -2278,7 +2282,9 @@ export default function Maintenance() {
                           </div>
 
                           <div className="mt-4 flex flex-wrap items-center gap-3 pt-3 border-t">
-                            {isAssigneeRole && workOrder.status !== "completed" && workOrder.status !== "rejected" && (
+                            {canFieldAct &&
+                              workOrder.status !== "completed" &&
+                              workOrder.status !== "rejected" && (
                               <div className="flex items-center gap-2">
                                 <label className="text-sm font-medium">Update Status:</label>
                                 <Select
@@ -2312,10 +2318,23 @@ export default function Maintenance() {
                             >
                               View details
                             </Button>
+                            {canFieldAct &&
+                              workOrder.status !== "completed" &&
+                              workOrder.status !== "rejected" && (
+                                <Button
+                                  size="sm"
+                                  className="h-8"
+                                  onClick={() => setCompleteWorkOrderId(workOrder.id)}
+                                  data-testid={`button-mark-complete-${workOrder.id}`}
+                                >
+                                  <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+                                  Mark Job As Complete
+                                </Button>
+                              )}
                             {canScheduleWorkOrder &&
                               workOrder.status !== "completed" &&
                               workOrder.status !== "rejected" &&
-                              workOrder.authorisationStatus === "authorised" && (
+                              workOrder.authorisationStatus !== "quote_required" && (
                                 <Button
                                   variant="outline"
                                   size="sm"
@@ -2330,7 +2349,7 @@ export default function Maintenance() {
                             {canScheduleWorkOrder &&
                               workOrder.status !== "completed" &&
                               workOrder.status !== "rejected" &&
-                              workOrder.authorisationStatus === "authorised" &&
+                              workOrder.authorisationStatus !== "quote_required" &&
                               !workOrder.arrivedAt && (
                                 <Button
                                   variant="outline"
@@ -2375,13 +2394,19 @@ export default function Maintenance() {
           <DialogHeader>
             <DialogTitle>Discussion</DialogTitle>
             <DialogDescription>
-              Tips and updates with the tenant on this request.
+              {user?.role === "tenant"
+                ? "Messages with your maintenance team about this request."
+                : "Tips and updates with the tenant on this request."}
             </DialogDescription>
           </DialogHeader>
           {discussionRequest ? (
             <MaintenanceRequestDiscussion
               requestId={discussionRequest.id}
-              apiBase={`/api/maintenance/${discussionRequest.id}/messages`}
+              apiBase={
+                user?.role === "tenant"
+                  ? `/api/tenant/maintenance-requests/${discussionRequest.id}/messages`
+                  : `/api/maintenance/${discussionRequest.id}/messages`
+              }
               requestTitle={discussionRequest.title}
             />
           ) : null}
