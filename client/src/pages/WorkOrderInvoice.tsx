@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
   MAINTENANCE_INVOICE_STATUS_LABELS,
@@ -104,6 +105,9 @@ export default function WorkOrderInvoice() {
   const invoiceId = params.invoiceId;
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const { user } = useAuth();
+  const canEditRecipient =
+    user?.role === "owner" || user?.role === "maintenance_admin";
 
   const { data: invoice, isLoading, error } = useQuery<InvoiceDetail>({
     queryKey: ["/api/work-orders", workOrderId, "invoices", invoiceId],
@@ -494,7 +498,7 @@ export default function WorkOrderInvoice() {
             <CardContent className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>Customer</Label>
-                {editable ? (
+                {editable && canEditRecipient ? (
                   <Select
                     value={recipientUserId || undefined}
                     onValueChange={applyCustomer}
@@ -519,14 +523,14 @@ export default function WorkOrderInvoice() {
                 ) : (
                   <Input value={recipientName} disabled />
                 )}
-                {!recipientUserId && recipientName ? (
+                {canEditRecipient && !recipientUserId && recipientName ? (
                   <p className="text-xs text-muted-foreground">Current: {recipientName}</p>
                 ) : null}
               </div>
               <div className="space-y-1.5">
                 <Label>Email</Label>
                 <Input
-                  disabled={!editable}
+                  disabled={!(editable && canEditRecipient)}
                   value={recipientEmail}
                   onChange={(e) => setRecipientEmail(e.target.value)}
                 />
@@ -534,7 +538,7 @@ export default function WorkOrderInvoice() {
               <div className="space-y-1.5">
                 <Label>Phone</Label>
                 <Input
-                  disabled={!editable}
+                  disabled={!(editable && canEditRecipient)}
                   value={recipientPhone}
                   onChange={(e) => setRecipientPhone(e.target.value)}
                 />
@@ -551,7 +555,7 @@ export default function WorkOrderInvoice() {
               <div className="space-y-1.5 sm:col-span-2">
                 <Label>Address</Label>
                 <Textarea
-                  disabled={!editable}
+                  disabled={!(editable && canEditRecipient)}
                   value={recipientAddress}
                   onChange={(e) => setRecipientAddress(e.target.value)}
                   rows={2}

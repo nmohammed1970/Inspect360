@@ -111,7 +111,7 @@ export function canTransitionQuote(
     return actor === "customer";
   }
   if (to === "expired") return actor === "system";
-  if (to === "converted") return actor === "owner";
+  if (to === "converted") return actor === "owner" || actor === "staff";
   if (to === "pending_owner_approval") return actor === "staff" || actor === "owner";
   if (to === "superseded") return actor === "staff" || actor === "owner";
   if (to === "cancelled") return actor === "staff" || actor === "owner";

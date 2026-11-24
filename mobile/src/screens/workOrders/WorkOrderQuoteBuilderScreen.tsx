@@ -42,6 +42,7 @@ import {
   computeQuoteLine,
   computeQuoteTotals,
 } from '../../../../shared/maintenanceFinanceMath';
+import { useAuth } from '../../contexts/AuthContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import Card from '../../components/ui/Card';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
@@ -133,6 +134,11 @@ export default function WorkOrderQuoteBuilderScreen() {
   const route = useRoute<RouteProp<WorkOrdersStackParamList, 'WorkOrderQuoteBuilder'>>();
   const { workOrderId, quoteId: routeQuoteId } = route.params;
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const canEditRecipient =
+    user?.role === 'owner' || user?.role === 'maintenance_admin';
+  const canConvertQuote =
+    canEditRecipient || user?.role === 'contractor';
 
   const [quoteId, setQuoteId] = useState<string | undefined>(routeQuoteId);
   const [bootError, setBootError] = useState<string | null>(null);
@@ -334,9 +340,13 @@ export default function WorkOrderQuoteBuilderScreen() {
     mutationFn: async () => {
       if (!quoteId) throw new Error('Quote not ready');
       await quotesService.patchQuote(workOrderId, quoteId, {
-        recipientUserId: recipientUserId || null,
-        recipientName: recipientName.trim() || null,
-        recipientEmail: recipientEmail.trim() || null,
+        ...(canEditRecipient
+          ? {
+              recipientUserId: recipientUserId || null,
+              recipientName: recipientName.trim() || null,
+              recipientEmail: recipientEmail.trim() || null,
+            }
+          : {}),
         notes: notes.trim() || null,
       });
       return quotesService.putLines(workOrderId, quoteId, toWriteLines());
@@ -359,9 +369,13 @@ export default function WorkOrderQuoteBuilderScreen() {
         throw new Error('Add at least one named line before submitting');
       }
       await quotesService.patchQuote(workOrderId, quoteId, {
-        recipientUserId: recipientUserId || null,
-        recipientName: recipientName.trim() || null,
-        recipientEmail: recipientEmail.trim() || null,
+        ...(canEditRecipient
+          ? {
+              recipientUserId: recipientUserId || null,
+              recipientName: recipientName.trim() || null,
+              recipientEmail: recipientEmail.trim() || null,
+            }
+          : {}),
         notes: notes.trim() || null,
       });
       await quotesService.putLines(workOrderId, quoteId, named);
@@ -380,6 +394,33 @@ export default function WorkOrderQuoteBuilderScreen() {
     },
   });
 
+  const convertMutation = useMutation({
+    mutationFn: async () => {
+      if (!quoteId) throw new Error('Quote not ready');
+      return quotesService.convertToInvoice(workOrderId, quoteId);
+    },
+    onSuccess: (invoice) => {
+      queryClient.invalidateQueries({ queryKey: ['work-order-quotes', workOrderId] });
+      queryClient.invalidateQueries({ queryKey: ['work-order-quote', workOrderId, quoteId] });
+      setHydrated(false);
+      Alert.alert(
+        'Invoice created',
+        invoice.invoiceReference
+          ? `Draft invoice ${invoice.invoiceReference} created.`
+          : 'Draft invoice created from this quotation.',
+        [
+          {
+            text: 'OK',
+            onPress: () => navigation.navigate('WorkOrderQuotes', { workOrderId }),
+          },
+        ],
+      );
+    },
+    onError: (err: Error) => {
+      Alert.alert('Convert failed', err.message || 'Please try again');
+    },
+  });
+
   const handleSubmit = () => {
     Alert.alert(
       'Submit for approval?',
@@ -387,6 +428,17 @@ export default function WorkOrderQuoteBuilderScreen() {
       [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Submit', onPress: () => submitMutation.mutate() },
+      ],
+    );
+  };
+
+  const handleConvert = () => {
+    Alert.alert(
+      'Convert to invoice?',
+      'This creates a draft invoice from the accepted quotation.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Convert', onPress: () => convertMutation.mutate() },
       ],
     );
   };
@@ -431,7 +483,10 @@ export default function WorkOrderQuoteBuilderScreen() {
   }
 
   const quote = quoteQuery.data;
-  const busy = saveMutation.isPending || submitMutation.isPending;
+  const busy =
+    saveMutation.isPending || submitMutation.isPending || convertMutation.isPending;
+  const showConvert =
+    canConvertQuote && quoteQuery.data?.status === 'accepted';
   const statusText =
     MAINTENANCE_QUOTE_STATUS_LABELS[quote.status] || quote.status.replace(/_/g, ' ');
 
@@ -471,21 +526,26 @@ export default function WorkOrderQuoteBuilderScreen() {
       <ScrollView
         contentContainerStyle={[
           styles.scroll,
-          { paddingBottom: insets.bottom + (editable ? 140 : spacing[8]) },
+          {
+            paddingBottom:
+              insets.bottom + (editable || showConvert ? 140 : spacing[8]),
+          },
         ]}
         keyboardShouldPersistTaps="handled"
       >
         {!editable ? (
           <Card style={styles.section}>
             <Text style={[styles.readOnlyBanner, { color: themeColors.text.secondary }]}>
-              This quotation is not editable on mobile. Approve, send, or convert on the web.
+              {showConvert
+                ? 'This quotation is accepted. You can convert it to an invoice below. Approve or send on the web.'
+                : 'This quotation is not editable on mobile. Approve or send on the web.'}
             </Text>
           </Card>
         ) : null}
 
         <Card style={styles.section}>
           <Text style={[styles.sectionTitle, { color: themeColors.text.primary }]}>Customer</Text>
-          {editable ? (
+          {editable && canEditRecipient ? (
             <View style={styles.fieldBlock}>
               <Text style={[styles.fieldLabel, { color: themeColors.text.secondary }]}>
                 Customer
@@ -513,7 +573,7 @@ export default function WorkOrderQuoteBuilderScreen() {
             label="Email"
             value={recipientEmail}
             onChangeText={setRecipientEmail}
-            editable={editable && !busy}
+            editable={editable && canEditRecipient && !busy}
             placeholder="customer@example.com"
             keyboardType="email-address"
             autoCapitalize="none"
@@ -665,7 +725,7 @@ export default function WorkOrderQuoteBuilderScreen() {
         </Card>
       </ScrollView>
 
-      {editable ? (
+      {editable || showConvert ? (
         <View
           style={[
             styles.footer,
@@ -676,19 +736,33 @@ export default function WorkOrderQuoteBuilderScreen() {
             },
           ]}
         >
-          <Button
-            title={saveMutation.isPending ? 'Saving…' : 'Save draft'}
-            variant="outline"
-            onPress={() => saveMutation.mutate()}
-            disabled={busy}
-            style={styles.footerBtn}
-          />
-          <Button
-            title={submitMutation.isPending ? 'Submitting…' : 'Submit for approval'}
-            onPress={handleSubmit}
-            disabled={busy}
-            style={styles.footerBtn}
-          />
+          {editable ? (
+            <>
+              <Button
+                title={saveMutation.isPending ? 'Saving…' : 'Save draft'}
+                variant="outline"
+                onPress={() => saveMutation.mutate()}
+                disabled={busy}
+                style={styles.footerBtn}
+              />
+              <Button
+                title={submitMutation.isPending ? 'Submitting…' : 'Submit for approval'}
+                onPress={handleSubmit}
+                disabled={busy}
+                style={styles.footerBtn}
+              />
+            </>
+          ) : null}
+          {showConvert ? (
+            <Button
+              title={
+                convertMutation.isPending ? 'Converting…' : 'Convert to invoice'
+              }
+              onPress={handleConvert}
+              disabled={busy}
+              style={styles.footerBtn}
+            />
+          ) : null}
         </View>
       ) : null}
 

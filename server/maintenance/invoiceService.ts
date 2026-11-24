@@ -34,15 +34,17 @@ export class InvoiceServiceError extends Error {
 export async function convertQuoteToInvoice(input: {
   quote: MaintenanceQuote;
   actorUserId: string;
+  actorRole?: string;
 }) {
-  const { quote, actorUserId } = input;
+  const { quote, actorUserId, actorRole } = input;
   if (quote.status !== "accepted") {
     throw new InvoiceServiceError(
       "Only customer-accepted quotes can be converted to an invoice",
       409,
     );
   }
-  assertQuoteTransition(quote.status, "converted", "owner");
+  const transitionActor = actorRole === "contractor" ? "staff" : "owner";
+  assertQuoteTransition(quote.status, "converted", transitionActor);
 
   const lines = await db
     .select()

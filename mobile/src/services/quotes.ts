@@ -148,6 +148,16 @@ export const quotesService = {
     );
   },
 
+  async convertToInvoice(
+    workOrderId: string,
+    quoteId: string,
+  ): Promise<{ id: string; invoiceReference?: string }> {
+    return apiRequestJson(
+      'POST',
+      `/api/work-orders/${workOrderId}/quotes/${quoteId}/convert-to-invoice`,
+    );
+  },
+
   async searchPriceBook(params: {
     currency?: string;
     q?: string;

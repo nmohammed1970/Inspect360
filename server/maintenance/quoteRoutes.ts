@@ -495,6 +495,24 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
         }
 
         const data = parsed.data;
+        const recipientKeys = [
+          "recipientUserId",
+          "recipientContactId",
+          "recipientName",
+          "recipientEmail",
+          "recipientPhone",
+          "recipientAddress",
+        ] as const;
+        const touchesRecipient = recipientKeys.some((key) => data[key] !== undefined);
+        if (touchesRecipient) {
+          const role = req.user?.role || "";
+          if (role !== "owner" && role !== "maintenance_admin") {
+            return res.status(403).json({
+              message: "Only owners and maintenance admins can change the quote customer",
+            });
+          }
+        }
+
         const patch: Partial<MaintenanceQuote> = { updatedAt: new Date() };
 
         if (data.recipientUserId !== undefined) {
@@ -1279,7 +1297,7 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
   app.post(
     "/api/work-orders/:workOrderId/quotes/:quoteId/convert-to-invoice",
     ...quoteGuards,
-    requireRole("owner", "maintenance_admin"),
+    requireRole("owner", "maintenance_admin", "contractor"),
     async (req: any, res: Response) => {
       try {
         const { convertQuoteToInvoice } = await import("./invoiceService");
@@ -1299,6 +1317,7 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
         const result = await convertQuoteToInvoice({
           quote,
           actorUserId: req.user.id,
+          actorRole: req.user.role || "",
         });
         res.status(201).json(result);
       } catch (error: any) {

@@ -165,6 +165,8 @@ export default function WorkOrderQuotation() {
   const { user } = useAuth();
   const isOwner =
     user?.role === "owner" || user?.role === "maintenance_admin";
+  const canEditRecipient = isOwner;
+  const canConvertQuote = isOwner || user?.role === "contractor";
   const [decisionOpen, setDecisionOpen] = useState<"reject" | "request_changes" | null>(null);
   const [decisionReason, setDecisionReason] = useState("");
   const [lastPublicLink, setLastPublicLink] = useState<string | null>(null);
@@ -255,9 +257,13 @@ export default function WorkOrderQuotation() {
         scopeDescription: scopeDescription || null,
         engineerNotes: engineerNotes || null,
         validUntil: validUntil || null,
-        recipientUserId: recipientUserId || null,
-        recipientName: recipientName || null,
-        recipientEmail: recipientEmail || null,
+        ...(canEditRecipient
+          ? {
+              recipientUserId: recipientUserId || null,
+              recipientName: recipientName || null,
+              recipientEmail: recipientEmail || null,
+            }
+          : {}),
       });
       const res = await apiRequest(
         "PUT",
@@ -305,9 +311,13 @@ export default function WorkOrderQuotation() {
         scopeDescription: scopeDescription || null,
         engineerNotes: engineerNotes || null,
         validUntil: validUntil || null,
-        recipientUserId: recipientUserId || null,
-        recipientName: recipientName || null,
-        recipientEmail: recipientEmail || null,
+        ...(canEditRecipient
+          ? {
+              recipientUserId: recipientUserId || null,
+              recipientName: recipientName || null,
+              recipientEmail: recipientEmail || null,
+            }
+          : {}),
       });
       await apiRequest(
         "PUT",
@@ -623,7 +633,7 @@ export default function WorkOrderQuotation() {
                 Create revision
               </Button>
             ) : null}
-            {isOwner && quote.status === "accepted" ? (
+            {canConvertQuote && quote.status === "accepted" ? (
               <Button
                 disabled={convertMutation.isPending}
                 onClick={() => convertMutation.mutate()}
@@ -747,9 +757,10 @@ export default function WorkOrderQuotation() {
               </div>
               <div className="space-y-1.5 sm:col-span-1">
                 <Label>Customer</Label>
-                {editable ||
-                quote.status === "owner_approved" ||
-                quote.status === "sent" ? (
+                {canEditRecipient &&
+                (editable ||
+                  quote.status === "owner_approved" ||
+                  quote.status === "sent") ? (
                   <Select
                     value={recipientUserId || undefined}
                     onValueChange={applyCustomer}
@@ -776,7 +787,7 @@ export default function WorkOrderQuotation() {
                 ) : (
                   <Input value={recipientName} disabled className="bg-muted/40" />
                 )}
-                {!recipientUserId && recipientName ? (
+                {canEditRecipient && !recipientUserId && recipientName ? (
                   <p className="text-xs text-muted-foreground">
                     Current: {recipientName}
                   </p>
@@ -789,9 +800,10 @@ export default function WorkOrderQuotation() {
                   type="email"
                   disabled={
                     !(
-                      editable ||
-                      quote.status === "owner_approved" ||
-                      quote.status === "sent"
+                      canEditRecipient &&
+                      (editable ||
+                        quote.status === "owner_approved" ||
+                        quote.status === "sent")
                     )
                   }
                   value={recipientEmail}
