@@ -109,9 +109,35 @@ export interface WorkOrderCertificate {
   complianceDocumentId?: string | null;
 }
 
+export type MaintenanceRequestMessage = {
+  id: string;
+  body: string;
+  authorUserId: string;
+  createdAt: string;
+  author?: {
+    id: string;
+    firstName?: string | null;
+    lastName?: string | null;
+    role?: string | null;
+  } | null;
+};
+
 export const maintenanceService = {
   async getMaintenanceRequests(): Promise<MaintenanceRequestWithDetails[]> {
     return apiRequestJson<MaintenanceRequestWithDetails[]>('GET', '/api/maintenance');
+  },
+
+  async getMaintenanceRequestMessages(
+    requestId: string,
+  ): Promise<MaintenanceRequestMessage[]> {
+    return apiRequestJson('GET', `/api/maintenance/${requestId}/messages`);
+  },
+
+  async postMaintenanceRequestMessage(
+    requestId: string,
+    body: string,
+  ): Promise<MaintenanceRequestMessage> {
+    return apiRequestJson('POST', `/api/maintenance/${requestId}/messages`, { body });
   },
 
   async getMaintenanceRequest(id: string): Promise<MaintenanceRequestWithDetails> {

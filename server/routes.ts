@@ -17822,7 +17822,7 @@ ${optionalNotes || "No details provided."}`;
         return res.status(403).json({ error: "No organization found" });
       }
 
-      const workOrder = await storage.getWorkOrder(req.params.id);
+      const workOrder = await storage.getWorkOrderDetailed(req.params.id);
       if (!workOrder) {
         return res.status(404).json({ error: "Work order not found" });
       }
@@ -18079,6 +18079,24 @@ ${optionalNotes || "No details provided."}`;
           });
         } catch (hmoErr) {
           console.warn("[hmo] WO completion verification hook failed:", hmoErr);
+        }
+
+        try {
+          const detailed = await storage.getWorkOrderDetailed(req.params.id);
+          const { notifyWorkOrderCompleted } = await import(
+            "./maintenance/notifyWorkOrderCompleted"
+          );
+          await notifyWorkOrderCompleted({
+            organizationId: user.organizationId,
+            workOrderId: req.params.id,
+            propertyId: detailed?.maintenanceRequest?.propertyId ?? detailed?.property?.id ?? null,
+            jobTitle: detailed?.maintenanceRequest?.title ?? null,
+            propertyName: detailed?.property?.name ?? null,
+            propertyAddress: (detailed?.property as any)?.address ?? null,
+            req,
+          });
+        } catch (notifyErr) {
+          console.warn("[notifyWorkOrderCompleted] hook failed:", notifyErr);
         }
       }
 
@@ -21584,10 +21602,20 @@ ${optionalNotes || "No details provided."}`;
   registerMaintenanceQuoteRoutes(app);
   const { registerPublicMaintenanceQuoteRoutes } = await import("./maintenance/publicQuoteRoutes");
   registerPublicMaintenanceQuoteRoutes(app);
+  const { registerMaintenanceJobFeedbackRoutes } = await import("./maintenance/jobFeedbackRoutes");
+  registerMaintenanceJobFeedbackRoutes(app);
   const { registerMaintenanceInvoiceRoutes } = await import("./maintenance/invoiceRoutes");
   registerMaintenanceInvoiceRoutes(app);
   const { registerMaintenanceFinanceRoutes } = await import("./maintenance/financeRoutes");
   registerMaintenanceFinanceRoutes(app);
+  const { registerMaintenanceMessageRoutes } = await import(
+    "./maintenance/maintenanceMessageRoutes"
+  );
+  registerMaintenanceMessageRoutes(app);
+  const { registerMaintenanceInboxRoutes } = await import(
+    "./maintenance/maintenanceInboxRoutes"
+  );
+  registerMaintenanceInboxRoutes(app);
   const { registerMaintenanceDocumentAttachmentRoutes } = await import(
     "./maintenance/documentAttachmentRoutes"
   );

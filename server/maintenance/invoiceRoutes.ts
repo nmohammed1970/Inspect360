@@ -505,6 +505,29 @@ export function registerMaintenanceInvoiceRoutes(app: Express) {
           console.warn("[invoices] send email failed:", emailErr);
         }
 
+        if (invoice.recipientUserId) {
+          try {
+            const { notifyFinanceUsers } = await import("./notifyFinanceUsers");
+            await notifyFinanceUsers({
+              userIds: [invoice.recipientUserId],
+              organizationId: orgId(req),
+              type: "invoice_sent",
+              title: "New invoice to review",
+              message: `${invoice.invoiceReference}${
+                ctx?.issueTitle ? ` — ${ctx.issueTitle}` : ""
+              }`,
+              data: {
+                workOrderId: invoice.workOrderId,
+                invoiceId: invoice.id,
+                invoiceReference: invoice.invoiceReference,
+                publicLink: link,
+              },
+            });
+          } catch (notifErr) {
+            console.warn("[invoices] recipient notify failed:", notifErr);
+          }
+        }
+
         res.json({ ...updated, publicLink: link, emailSent, emailError });
       } catch (error) {
         console.error("[invoices] send failed:", error);

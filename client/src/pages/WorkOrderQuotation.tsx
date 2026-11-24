@@ -339,6 +339,12 @@ export default function WorkOrderQuotation() {
     onSuccess: (data) => {
       setHydratedId(null);
       invalidateQuote();
+      queryClient.invalidateQueries({
+        queryKey: ["/api/maintenance-finance/pending-count"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["/api/maintenance-finance/tracking"],
+      });
       setLastPublicLink(data.publicLink || null);
       setLastEmailSent(data.emailSent !== false);
       if (data.emailSent === false) {
@@ -406,6 +412,12 @@ export default function WorkOrderQuotation() {
       });
       queryClient.invalidateQueries({
         queryKey: ["/api/work-orders", workOrderId, "invoices"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["/api/maintenance-finance/pending-count"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["/api/maintenance-finance/tracking"],
       });
       toast({ title: "Invoice draft created" });
       setLocation(`/work-orders/${workOrderId}/invoices/${data.id}`);
@@ -842,7 +854,13 @@ export default function WorkOrderQuotation() {
                 variant="outline"
                 size="sm"
                 className="w-full mt-2"
-                onClick={() => setLocation("/maintenance?tab=work-orders")}
+                onClick={() =>
+                  setLocation(
+                    workOrderId
+                      ? `/maintenance/work-orders/${workOrderId}`
+                      : "/maintenance?tab=work-orders",
+                  )
+                }
               >
                 View work order
               </Button>

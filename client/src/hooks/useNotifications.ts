@@ -154,6 +154,19 @@ export function useNotifications() {
               queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
               queryClient.invalidateQueries({ queryKey: ["/api/notifications/unread-count"] });
 
+              const isFinance =
+                typeof notification.type === "string" &&
+                (notification.type.startsWith("quote_") ||
+                  notification.type.startsWith("invoice_"));
+              if (isFinance) {
+                queryClient.invalidateQueries({
+                  queryKey: ["/api/maintenance-finance/pending-count"],
+                });
+                queryClient.invalidateQueries({
+                  queryKey: ["/api/maintenance-finance/tracking"],
+                });
+              }
+
               // Show popup for tenant users
               if (user.role === "tenant") {
                 setPopupNotification(notification);
@@ -245,10 +258,36 @@ export function useNotifications() {
       notification.data?.inspectionId
     ) {
       window.location.href = `/tenant/inspection-review/${notification.data.inspectionId}`;
+    } else if (
+      (notification.type === "quote_customer_accepted" ||
+        notification.type === "quote_customer_declined" ||
+        notification.type === "quote_customer_changes_requested" ||
+        notification.type === "quote_sent") &&
+      notification.data?.workOrderId &&
+      notification.data?.quoteId
+    ) {
+      window.location.href = `/work-orders/${notification.data.workOrderId}/quotes/${notification.data.quoteId}`;
+    } else if (
+      notification.type === "invoice_sent" &&
+      notification.data?.workOrderId &&
+      notification.data?.invoiceId
+    ) {
+      window.location.href = `/work-orders/${notification.data.workOrderId}/invoices/${notification.data.invoiceId}`;
+    } else if (
+      notification.type?.startsWith("quote_") ||
+      notification.type?.startsWith("invoice_")
+    ) {
+      window.location.href = "/maintenance/finance";
+    } else if (notification.type === "maintenance_request_message") {
+      if (user?.role === "tenant") {
+        window.location.href = "/tenant/requests";
+      } else {
+        window.location.href = "/maintenance";
+      }
     }
 
     setPopupNotification(null);
-  }, [markAsReadMutation]);
+  }, [markAsReadMutation, user?.role]);
 
   return {
     notifications,

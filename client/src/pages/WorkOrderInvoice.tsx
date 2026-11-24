@@ -260,6 +260,12 @@ export default function WorkOrderInvoice() {
       queryClient.invalidateQueries({
         queryKey: ["/api/work-orders", workOrderId, "invoices", invoiceId],
       });
+      queryClient.invalidateQueries({
+        queryKey: ["/api/maintenance-finance/pending-count"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["/api/maintenance-finance/tracking"],
+      });
       if (data.emailSent === false) {
         toast({
           title: "Link created — email failed",

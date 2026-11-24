@@ -809,6 +809,29 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
           });
         }
 
+        if (quote.recipientUserId) {
+          try {
+            const { notifyFinanceUsers } = await import("./notifyFinanceUsers");
+            await notifyFinanceUsers({
+              userIds: [quote.recipientUserId],
+              organizationId,
+              type: "quote_sent",
+              title: isResend ? "Quotation resent" : "New quotation to review",
+              message: `${quote.quoteReference}${
+                ctx?.issueTitle ? ` — ${ctx.issueTitle}` : ""
+              }`,
+              data: {
+                workOrderId: quote.workOrderId,
+                quoteId: quote.id,
+                quoteReference: quote.quoteReference,
+                publicLink: link,
+              },
+            });
+          } catch (notifErr) {
+            console.warn("[quotes] recipient notify failed:", notifErr);
+          }
+        }
+
         res.json({
           ...serializeQuote(updated, lines),
           publicLink: link,
@@ -897,6 +920,28 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
         } catch (emailErr: any) {
           emailError = emailErr?.message || "Email failed";
           console.warn("[quotes] resend email failed:", emailErr);
+        }
+        if (quote.recipientUserId) {
+          try {
+            const { notifyFinanceUsers } = await import("./notifyFinanceUsers");
+            await notifyFinanceUsers({
+              userIds: [quote.recipientUserId],
+              organizationId,
+              type: "quote_sent",
+              title: "Quotation resent",
+              message: `${quote.quoteReference}${
+                ctx?.issueTitle ? ` — ${ctx.issueTitle}` : ""
+              }`,
+              data: {
+                workOrderId: quote.workOrderId,
+                quoteId: quote.id,
+                quoteReference: quote.quoteReference,
+                publicLink: link,
+              },
+            });
+          } catch (notifErr) {
+            console.warn("[quotes] recipient notify failed:", notifErr);
+          }
         }
         res.json({
           ...serializeQuote(updated, lines),

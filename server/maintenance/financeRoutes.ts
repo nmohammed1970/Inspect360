@@ -41,6 +41,80 @@ export function registerMaintenanceFinanceRoutes(app: Express) {
   );
 
   app.get(
+    "/api/maintenance-finance/pending-count",
+    ...staffGuards,
+    async (req: any, res: Response) => {
+      try {
+        const organizationId = req.user.organizationId as string;
+
+        const [awaitingCustomer, customerAccepted, outstanding, drafts] =
+          await Promise.all([
+            db
+              .select({ id: maintenanceQuotes.id })
+              .from(maintenanceQuotes)
+              .where(
+                and(
+                  eq(maintenanceQuotes.organizationId, organizationId),
+                  inArray(maintenanceQuotes.status, [
+                    "sent",
+                    "customer_changes_requested",
+                  ]),
+                ),
+              ),
+            db
+              .select({ id: maintenanceQuotes.id })
+              .from(maintenanceQuotes)
+              .where(
+                and(
+                  eq(maintenanceQuotes.organizationId, organizationId),
+                  eq(maintenanceQuotes.status, "accepted"),
+                ),
+              ),
+            db
+              .select({ id: maintenanceInvoices.id })
+              .from(maintenanceInvoices)
+              .where(
+                and(
+                  eq(maintenanceInvoices.organizationId, organizationId),
+                  inArray(maintenanceInvoices.paymentStatus, [
+                    "unpaid",
+                    "partially_paid",
+                  ]),
+                  inArray(maintenanceInvoices.status, ["draft", "sent"]),
+                ),
+              ),
+            db
+              .select({ id: maintenanceInvoices.id })
+              .from(maintenanceInvoices)
+              .where(
+                and(
+                  eq(maintenanceInvoices.organizationId, organizationId),
+                  eq(maintenanceInvoices.status, "draft"),
+                ),
+              ),
+          ]);
+
+        const count =
+          awaitingCustomer.length +
+          customerAccepted.length +
+          outstanding.length +
+          drafts.length;
+
+        res.json({
+          count,
+          awaitingCustomer: awaitingCustomer.length,
+          customerAccepted: customerAccepted.length,
+          outstandingInvoices: outstanding.length,
+          draftInvoices: drafts.length,
+        });
+      } catch (error) {
+        console.error("[finance] pending-count failed:", error);
+        res.status(500).json({ message: "Failed to load pending count" });
+      }
+    },
+  );
+
+  app.get(
     "/api/maintenance-finance/tracking",
     ...staffGuards,
     async (req: any, res: Response) => {

@@ -1375,6 +1375,37 @@ export const insertMaintenanceRequestSchema = createInsertSchema(maintenanceRequ
 export type MaintenanceRequest = typeof maintenanceRequests.$inferSelect;
 export type InsertMaintenanceRequest = z.infer<typeof insertMaintenanceRequestSchema>;
 
+/** Staff–tenant discussion thread on a maintenance request. */
+export const maintenanceRequestMessages = pgTable(
+  "maintenance_request_messages",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    organizationId: varchar("organization_id").notNull(),
+    maintenanceRequestId: varchar("maintenance_request_id").notNull(),
+    authorUserId: varchar("author_user_id").notNull(),
+    body: text("body").notNull(),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [
+    index("maintenance_request_messages_request_idx").on(
+      table.maintenanceRequestId,
+      table.createdAt,
+    ),
+    index("maintenance_request_messages_org_idx").on(table.organizationId),
+  ],
+);
+
+export const insertMaintenanceRequestMessageSchema = createInsertSchema(
+  maintenanceRequestMessages,
+).omit({
+  id: true,
+  createdAt: true,
+});
+export type MaintenanceRequestMessage = typeof maintenanceRequestMessages.$inferSelect;
+export type InsertMaintenanceRequestMessage = z.infer<
+  typeof insertMaintenanceRequestMessageSchema
+>;
+
 /** Org-scoped catalog of reusable quotation line templates. */
 export const maintenancePriceBookItems = pgTable(
   "maintenance_price_book_items",
@@ -2030,6 +2061,35 @@ export type WorkOrderCompletionChecklistResponse =
 export type InsertWorkOrderCompletionChecklistResponse = z.infer<
   typeof insertWorkOrderCompletionChecklistResponseSchema
 >;
+
+/** Tenant CSAT invite + submission after a work order is marked completed. */
+export const maintenanceJobFeedback = pgTable(
+  "maintenance_job_feedback",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    organizationId: varchar("organization_id").notNull(),
+    workOrderId: varchar("work_order_id").notNull(),
+    token: varchar("token").notNull(),
+    rating: integer("rating"),
+    improvementNotes: text("improvement_notes"),
+    submittedAt: timestamp("submitted_at"),
+    submittedByEmail: varchar("submitted_by_email"),
+    tenantUserId: varchar("tenant_user_id"),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("maintenance_job_feedback_token_uidx").on(table.token),
+    uniqueIndex("maintenance_job_feedback_wo_uidx").on(table.workOrderId),
+    index("maintenance_job_feedback_org_idx").on(table.organizationId),
+  ],
+);
+
+export const insertMaintenanceJobFeedbackSchema = createInsertSchema(maintenanceJobFeedback).omit({
+  id: true,
+  createdAt: true,
+});
+export type MaintenanceJobFeedback = typeof maintenanceJobFeedback.$inferSelect;
+export type InsertMaintenanceJobFeedback = z.infer<typeof insertMaintenanceJobFeedbackSchema>;
 
 // Certificates uploaded against work orders → optional Compliance documents
 export const workOrderCertificates = pgTable("work_order_certificates", {

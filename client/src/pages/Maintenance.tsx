@@ -7,7 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Wrench, Upload, Sparkles, Loader2, X, Check, ChevronsUpDown, Pencil, Trash2, Clipboard, Calendar, User as UserIcon, AlertCircle, AlertTriangle, CheckCircle2, Clock, Filter, Building2, MoreVertical, ArrowRight } from "lucide-react";
+import { Plus, Wrench, Upload, Sparkles, Loader2, X, Check, ChevronsUpDown, Pencil, Trash2, Clipboard, Calendar, User as UserIcon, AlertCircle, AlertTriangle, CheckCircle2, Clock, Filter, Building2, MoreVertical, ArrowRight, MessageSquare } from "lucide-react";
+import { MaintenanceRequestDiscussion } from "@/components/MaintenanceRequestDiscussion";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,7 +16,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { WorkOrderQuotesInvoicesPanel } from "@/components/maintenance-quotes/WorkOrderQuotesInvoicesPanel";
 import { WorkOrderFinanceLinks } from "@/components/maintenance-quotes/WorkOrderFinanceLinks";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
@@ -82,13 +82,10 @@ import { ModernFilePickerInline } from "@/components/ModernFilePickerInline";
 import { extractFileUrlFromUploadResponse, cn } from "@/lib/utils";
 import { useModules } from "@/hooks/use-modules";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { WorkOrderCertificatePanel } from "@/components/WorkOrderCertificatePanel";
 import { WorkOrderCompleteDialog } from "@/components/WorkOrderCompleteDialog";
-import { WorkOrderCompletionChecklistPanel } from "@/components/WorkOrderCompletionChecklistPanel";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 import { FiltersSection } from "@/components/FiltersSection";
 import { pagePad, dialogContentBase } from "@/lib/responsive";
-import { parseSignatureValue } from "@shared/signature";
 import { PageHeader } from "@/components/PageHeader";
 
 type MaintenanceRequestWithDetails = MaintenanceRequest & {
@@ -202,12 +199,12 @@ export default function Maintenance() {
   // Work order creation state
   const [isWorkOrderDialogOpen, setIsWorkOrderDialogOpen] = useState(false);
   const [selectedRequestForWorkOrder, setSelectedRequestForWorkOrder] = useState<MaintenanceRequestWithDetails | null>(null);
-  const [selectedWorkOrderDetail, setSelectedWorkOrderDetail] = useState<WorkOrder | null>(null);
   const [completeWorkOrderId, setCompleteWorkOrderId] = useState<string | null>(null);
   const [requestToDelete, setRequestToDelete] = useState<MaintenanceRequestWithDetails | null>(null);
   const [workOrderToDelete, setWorkOrderToDelete] = useState<WorkOrder | null>(null);
   const [scheduleWorkOrder, setScheduleWorkOrder] = useState<WorkOrder | null>(null);
   const [scheduleAtLocal, setScheduleAtLocal] = useState("");
+  const [discussionRequest, setDiscussionRequest] = useState<MaintenanceRequestWithDetails | null>(null);
 
   const { data: completionChecklists = [] } = useQuery<any[]>({
     queryKey: ["/api/completion-checklists"],
@@ -218,19 +215,6 @@ export default function Maintenance() {
     },
   });
   const activeCompletionChecklists = completionChecklists.filter((c: any) => c.isActive !== false);
-
-  const assignWorkOrderChecklistMutation = useMutation({
-    mutationFn: async ({ id, completionChecklistId }: { id: string; completionChecklistId: string | null }) => {
-      return apiRequest("PATCH", `/api/work-orders/${id}`, { completionChecklistId });
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["/api/work-orders"] });
-      toast({ title: "Checklist updated" });
-    },
-    onError: (e: any) => {
-      toast({ title: "Failed to update checklist", description: e?.message, variant: "destructive" });
-    },
-  });
 
   // Inspectors (clerk) must not see work orders in the inspector portal.
   const canSeeWorkOrders =
@@ -314,7 +298,8 @@ export default function Maintenance() {
   // Work order status update mutation
   const updateWorkOrderStatusMutation = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: string }) => {
-      return apiRequest("PATCH", `/api/work-orders/${id}/status`, { status });
+      await apiRequest("PATCH", `/api/work-orders/${id}/status`, { status });
+      return { id, status };
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/work-orders"] });
@@ -356,12 +341,6 @@ export default function Maintenance() {
     onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/work-orders"] });
       setScheduleWorkOrder(null);
-      if (selectedWorkOrderDetail && data?.id === selectedWorkOrderDetail.id) {
-        setSelectedWorkOrderDetail({
-          ...selectedWorkOrderDetail,
-          scheduledAt: data.scheduledAt ?? selectedWorkOrderDetail.scheduledAt,
-        });
-      }
       toast({
         title: "Job scheduled",
         description: data?.warning || (data?.emailed || data?.notified ? "Tenant notified" : "No tenant email on file"),
@@ -381,15 +360,8 @@ export default function Maintenance() {
       const res = await apiRequest("POST", `/api/work-orders/${id}/arrive`);
       return res.json();
     },
-    onSuccess: (data: any) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/work-orders"] });
-      if (selectedWorkOrderDetail && data?.id === selectedWorkOrderDetail.id) {
-        setSelectedWorkOrderDetail({
-          ...selectedWorkOrderDetail,
-          arrivedAt: data.arrivedAt ?? selectedWorkOrderDetail.arrivedAt,
-          status: data.status ?? selectedWorkOrderDetail.status,
-        });
-      }
       toast({ title: "Arrived on site", description: "Arrival recorded" });
     },
     onError: (e: any) => {
@@ -1968,6 +1940,19 @@ export default function Maintenance() {
                           )
                         )}
 
+                        {isMaintenanceManager && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 rounded-full px-3 text-xs"
+                            onClick={() => setDiscussionRequest(request)}
+                            data-testid={`button-discussion-${request.id}`}
+                          >
+                            <MessageSquare className="mr-1.5 h-3.5 w-3.5" />
+                            Discussion
+                          </Button>
+                        )}
+
                         {canOwnerAct && isWorkOrdersEnabled && (
                           linkedWorkOrder ? (
                             <Button
@@ -1985,9 +1970,7 @@ export default function Maintenance() {
                                   "bg-emerald-600 text-white hover:bg-emerald-700",
                               )}
                               onClick={() => {
-                                setSelectedWorkOrderDetail(linkedWorkOrder);
-                                setActiveTab("work-orders");
-                                navigate("/maintenance?tab=work-orders");
+                                navigate(`/maintenance/work-orders/${linkedWorkOrder.id}`);
                               }}
                               data-testid={`button-view-work-order-${request.id}`}
                             >
@@ -2320,17 +2303,15 @@ export default function Maintenance() {
                                 </Select>
                               </div>
                             )}
-                            {isAssigneeRole && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="h-8"
-                                onClick={() => setSelectedWorkOrderDetail(workOrder)}
-                                data-testid={`button-view-work-order-${workOrder.id}`}
-                              >
-                                View details
-                              </Button>
-                            )}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-8"
+                              onClick={() => navigate(`/maintenance/work-orders/${workOrder.id}`)}
+                              data-testid={`button-view-work-order-${workOrder.id}`}
+                            >
+                              View details
+                            </Button>
                             {canScheduleWorkOrder &&
                               workOrder.status !== "completed" &&
                               workOrder.status !== "rejected" &&
@@ -2384,175 +2365,26 @@ export default function Maintenance() {
         </TabsContent>
       </Tabs>
 
-      {/* Assignee Work Order detail (certificates + description) */}
       <Dialog
-        open={!!selectedWorkOrderDetail}
+        open={!!discussionRequest}
         onOpenChange={(open) => {
-          if (!open) setSelectedWorkOrderDetail(null);
+          if (!open) setDiscussionRequest(null);
         }}
       >
-        <DialogContent className={cn(dialogContentBase, "max-w-2xl max-h-[90vh] overflow-y-auto")}>
-          {selectedWorkOrderDetail && (
-            <>
-              <DialogHeader>
-                <DialogTitle>{selectedWorkOrderDetail.maintenanceRequest.title}</DialogTitle>
-                <DialogDescription>
-                  {[selectedWorkOrderDetail.property?.name, selectedWorkOrderDetail.block?.name]
-                    .filter(Boolean)
-                    .join(" · ") || "Work order details"}
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4">
-                <div className="flex flex-wrap gap-2">
-                  <Badge className={priorityColors[selectedWorkOrderDetail.maintenanceRequest.priority]}>
-                    {selectedWorkOrderDetail.maintenanceRequest.priority}
-                  </Badge>
-                  <Badge className={workOrderStatusColors[selectedWorkOrderDetail.status]}>
-                    {selectedWorkOrderDetail.status.replace("_", " ")}
-                  </Badge>
-                </div>
-                {selectedWorkOrderDetail.maintenanceRequest.description && (
-                  <p className="text-sm text-muted-foreground whitespace-pre-wrap">
-                    {selectedWorkOrderDetail.maintenanceRequest.description}
-                  </p>
-                )}
-                {selectedWorkOrderDetail.scheduledAt && (
-                  <div className="rounded-md border p-3 text-sm">
-                    <p className="font-medium">Scheduled visit</p>
-                    <p className="text-muted-foreground">
-                      {new Date(selectedWorkOrderDetail.scheduledAt).toLocaleString(undefined, {
-                        dateStyle: "full",
-                        timeStyle: "short",
-                      })}
-                    </p>
-                  </div>
-                )}
-                {selectedWorkOrderDetail.arrivedAt && (
-                  <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm dark:border-emerald-900 dark:bg-emerald-950/40">
-                    <p className="font-medium">Arrived on site</p>
-                    <p className="text-muted-foreground">
-                      {new Date(selectedWorkOrderDetail.arrivedAt).toLocaleString(undefined, {
-                        dateStyle: "full",
-                        timeStyle: "short",
-                      })}
-                    </p>
-                  </div>
-                )}
-                <div className="flex flex-wrap gap-2">
-                  {canScheduleWorkOrder &&
-                    selectedWorkOrderDetail.status !== "completed" &&
-                    selectedWorkOrderDetail.status !== "rejected" &&
-                    selectedWorkOrderDetail.authorisationStatus === "authorised" && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => openScheduleDialog(selectedWorkOrderDetail)}
-                        data-testid="button-schedule-work-order-detail"
-                      >
-                        <Calendar className="w-3.5 h-3.5 mr-1.5" />
-                        {selectedWorkOrderDetail.scheduledAt ? "Reschedule" : "Schedule Job"}
-                      </Button>
-                    )}
-                  {canScheduleWorkOrder &&
-                    selectedWorkOrderDetail.status !== "completed" &&
-                    selectedWorkOrderDetail.status !== "rejected" &&
-                    selectedWorkOrderDetail.authorisationStatus === "authorised" &&
-                    !selectedWorkOrderDetail.arrivedAt && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={arriveOnSiteMutation.isPending}
-                        onClick={() => arriveOnSiteMutation.mutate(selectedWorkOrderDetail.id)}
-                        data-testid="button-arrive-work-order-detail"
-                      >
-                        <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
-                        {arriveOnSiteMutation.isPending ? "Recording…" : "Arrived on Site"}
-                      </Button>
-                    )}
-                </div>
-                {canScheduleWorkOrder &&
-                  selectedWorkOrderDetail.status !== "completed" &&
-                  selectedWorkOrderDetail.status !== "rejected" &&
-                  selectedWorkOrderDetail.authorisationStatus === "quote_required" && (
-                    <p className="text-xs text-muted-foreground">
-                      Accept quotation before scheduling
-                    </p>
-                  )}
-                {selectedWorkOrderDetail.status !== "completed" &&
-                  selectedWorkOrderDetail.status !== "rejected" && (
-                  <div className="space-y-2">
-                    <Label>Completion checklist</Label>
-                    <Select
-                      value={
-                        (selectedWorkOrderDetail as any).completionChecklistId || "__none__"
-                      }
-                      onValueChange={(v) => {
-                        const next = v === "__none__" ? null : v;
-                        assignWorkOrderChecklistMutation.mutate({
-                          id: selectedWorkOrderDetail.id,
-                          completionChecklistId: next,
-                        });
-                        setSelectedWorkOrderDetail({
-                          ...selectedWorkOrderDetail,
-                          completionChecklistId: next,
-                        } as any);
-                      }}
-                    >
-                      <SelectTrigger data-testid="select-wo-detail-checklist">
-                        <SelectValue placeholder="None" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">None</SelectItem>
-                        {activeCompletionChecklists.map((c: any) => (
-                          <SelectItem key={c.id} value={c.id}>
-                            {c.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-                <WorkOrderCompletionChecklistPanel
-                  workOrderId={selectedWorkOrderDetail.id}
-                  readOnly={
-                    selectedWorkOrderDetail.status === "completed" ||
-                    selectedWorkOrderDetail.status === "rejected"
-                  }
-                />
-                {(() => {
-                  const sig = parseSignatureValue(
-                    (selectedWorkOrderDetail as any).customerSignatureJson,
-                  );
-                  if (!sig?.image) return null;
-                  return (
-                    <div className="space-y-2 rounded-md border p-3">
-                      <p className="text-sm font-medium">Customer signature</p>
-                      {sig.signedByName && (
-                        <p className="text-xs text-muted-foreground">{sig.signedByName}</p>
-                      )}
-                      <img
-                        src={sig.image}
-                        alt="Customer signature"
-                        className="w-full max-h-32 object-contain bg-white rounded border"
-                      />
-                    </div>
-                  );
-                })()}
-                <div className="space-y-2 rounded-md border p-3">
-                  <p className="text-sm font-medium">Quotes & invoices</p>
-                  <WorkOrderQuotesInvoicesPanel
-                    workOrderId={selectedWorkOrderDetail.id}
-                    onNavigateAway={() => setSelectedWorkOrderDetail(null)}
-                  />
-                </div>
-                <WorkOrderCertificatePanel
-                  workOrderId={selectedWorkOrderDetail.id}
-                  propertyId={selectedWorkOrderDetail.maintenanceRequest.propertyId}
-                  blockId={selectedWorkOrderDetail.maintenanceRequest.blockId}
-                />
-              </div>
-            </>
-          )}
+        <DialogContent className={cn(dialogContentBase, "max-w-lg")} data-testid="dialog-mr-discussion">
+          <DialogHeader>
+            <DialogTitle>Discussion</DialogTitle>
+            <DialogDescription>
+              Tips and updates with the tenant on this request.
+            </DialogDescription>
+          </DialogHeader>
+          {discussionRequest ? (
+            <MaintenanceRequestDiscussion
+              requestId={discussionRequest.id}
+              apiBase={`/api/maintenance/${discussionRequest.id}/messages`}
+              requestTitle={discussionRequest.title}
+            />
+          ) : null}
         </DialogContent>
       </Dialog>
 

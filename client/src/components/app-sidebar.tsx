@@ -25,6 +25,7 @@ import {
   SidebarGroupContent,
   SidebarHeader,
   SidebarMenu,
+  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   useSidebar,
@@ -38,7 +39,7 @@ import type { Organization } from "@shared/schema";
 import { BRAND_LOGO_MASTER } from "@/lib/brandAssets";
 import { isLockedAppPath } from "@shared/entitlements";
 import { useEntitlement } from "@/hooks/useEntitlement";
-import { notifyEntitlementLock } from "@/lib/queryClient";
+import { apiRequest, notifyEntitlementLock } from "@/lib/queryClient";
 
 export function AppSidebar() {
   const { user } = useAuth();
@@ -72,12 +73,29 @@ export function AppSidebar() {
   const { isModuleEnabled } = useModules();
   const { data: entitlement } = useEntitlement();
 
+  const canSeeFinanceBadge =
+    !!maintenanceEnabled &&
+    !!user &&
+    ["owner", "clerk", "contractor", "maintenance_admin"].includes(user.role || "");
+
+  const { data: financePending } = useQuery<{ count: number }>({
+    queryKey: ["/api/maintenance-finance/pending-count"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/maintenance-finance/pending-count");
+      return res.json();
+    },
+    enabled: canSeeFinanceBadge,
+    refetchOnWindowFocus: true,
+    refetchInterval: 60_000,
+  });
+  const financePendingCount = financePending?.count ?? 0;
+
   const mainMenuItems = [
     {
       title: "Dashboard",
       url: "/dashboard",
       icon: LayoutDashboard,
-      roles: ["owner", "compliance", "tenant"],
+      roles: ["owner", "compliance", "tenant", "maintenance_admin"],
     },
     {
       title: "Contacts",
@@ -138,6 +156,12 @@ export function AppSidebar() {
       url: "/maintenance/finance",
       icon: FileText,
       roles: ["owner", "clerk", "contractor", "maintenance_admin"],
+    },
+    {
+      title: "Maintenance Feedback",
+      url: "/maintenance/feedback",
+      icon: MessageSquarePlus,
+      roles: ["owner", "maintenance_admin", "clerk"],
     },
     {
       title: "My Work Orders",
@@ -242,6 +266,9 @@ export function AppSidebar() {
                     setOpenMobile(false);
                   }
                 };
+                const showFinanceBadge =
+                  item.url === "/maintenance/finance" && financePendingCount > 0;
+
                 return (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton
@@ -260,6 +287,14 @@ export function AppSidebar() {
                         <span className="truncate font-medium">{item.title}</span>
                       </Link>
                     </SidebarMenuButton>
+                    {showFinanceBadge ? (
+                      <SidebarMenuBadge
+                        className="bg-emerald-600 text-white"
+                        data-testid="badge-finance-pending"
+                      >
+                        {financePendingCount > 99 ? "99+" : financePendingCount}
+                      </SidebarMenuBadge>
+                    ) : null}
                   </SidebarMenuItem>
                 );
               })}

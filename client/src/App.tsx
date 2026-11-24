@@ -29,6 +29,9 @@ import WorkOrderQuotationNew from "@/pages/WorkOrderQuotationNew";
 import WorkOrderInvoiceNew from "@/pages/WorkOrderInvoiceNew";
 import WorkOrderInvoice from "@/pages/WorkOrderInvoice";
 import MaintenanceFinance from "@/pages/MaintenanceFinance";
+import WorkOrderDetailPage from "@/pages/WorkOrderDetailPage";
+import MaintenanceFeedback from "@/pages/MaintenanceFeedback";
+import MaintenanceJobFeedbackPublic from "@/pages/MaintenanceJobFeedbackPublic";
 import PublicQuote from "@/pages/PublicQuote";
 import PublicInvoice from "@/pages/PublicInvoice";
 import Analytics from "@/pages/Analytics";
@@ -155,6 +158,7 @@ function AppContent() {
     "/tenant/login",
     "/public/quotes",
     "/public/invoices",
+    "/maintenance-feedback",
   ];
 
   // Check if current route is a protected route
@@ -387,6 +391,7 @@ function AppContent() {
           <Route path="/auth" component={Auth} />
           <Route path="/public/quotes/:token" component={PublicQuote} />
           <Route path="/public/invoices/:token" component={PublicInvoice} />
+          <Route path="/maintenance-feedback/:token" component={MaintenanceJobFeedbackPublic} />
           <Route path="/forgot-password">
             {() => <ForgotPassword portal="user" />}
           </Route>
@@ -653,12 +658,8 @@ function AppContent() {
               <Switch>
                 {isMaintenanceAdminRole(user?.role) ? (
                   <>
-                    <Route path="/">
-                      {() => <FieldRoleRedirect to="/maintenance" />}
-                    </Route>
-                    <Route path="/dashboard">
-                      {() => <FieldRoleRedirect to="/maintenance" />}
-                    </Route>
+                    <Route path="/" component={Dashboard} />
+                    <Route path="/dashboard" component={Dashboard} />
                     <Route path="/settings">
                       {() => <FieldRoleRedirect to="/maintenance" />}
                     </Route>
@@ -781,6 +782,7 @@ function AppContent() {
                 </Route>
                 <Route path="/public/quotes/:token" component={PublicQuote} />
                 <Route path="/public/invoices/:token" component={PublicInvoice} />
+                <Route path="/maintenance-feedback/:token" component={MaintenanceJobFeedbackPublic} />
                 <Route path="/work-orders/:workOrderId/quotes/new">
                   {() => (
                     <CompanyModuleRoute module="maintenance">
@@ -806,6 +808,20 @@ function AppContent() {
                   {() => (
                     <CompanyModuleRoute module="maintenance">
                       <WorkOrderInvoice />
+                    </CompanyModuleRoute>
+                  )}
+                </Route>
+                <Route path="/maintenance/work-orders/:workOrderId">
+                  {() => (
+                    <CompanyModuleRoute module="maintenance">
+                      <WorkOrderDetailPage />
+                    </CompanyModuleRoute>
+                  )}
+                </Route>
+                <Route path="/maintenance/feedback">
+                  {() => (
+                    <CompanyModuleRoute module="maintenance">
+                      <MaintenanceFeedback />
                     </CompanyModuleRoute>
                   )}
                 </Route>

@@ -20,6 +20,7 @@ import {
   complianceDocuments,
   complianceDocumentTypes,
   maintenanceRequests,
+  maintenanceRequestMessages,
   comparisonReports,
   comparisonReportItems,
   comparisonComments,
@@ -101,6 +102,8 @@ import {
   type InsertComplianceDocumentType,
   type MaintenanceRequest,
   type InsertMaintenanceRequest,
+  type MaintenanceRequestMessage,
+  type InsertMaintenanceRequestMessage,
   type ComparisonReport,
   type InsertComparisonReport,
   type CreditTransaction,
@@ -263,6 +266,9 @@ import {
   quotationActivityLog,
   type QuotationActivityLog,
   type InsertQuotationActivityLog,
+  maintenanceJobFeedback,
+  type MaintenanceJobFeedback,
+  type InsertMaintenanceJobFeedback,
 } from "@shared/schema";
 import { normalizePhoneForStorage } from "@shared/phoneCountryCodes";
 import { db } from "./db";
@@ -350,6 +356,22 @@ export interface IStorage {
   getMaintenanceByOrganization(organizationId: string): Promise<any[]>;
   updateMaintenanceStatus(id: string, status: string, assignedTo?: string): Promise<MaintenanceRequest>;
   updateMaintenanceRequest(id: string, updates: Partial<InsertMaintenanceRequest>): Promise<MaintenanceRequest>;
+  createMaintenanceRequestMessage(
+    message: InsertMaintenanceRequestMessage,
+  ): Promise<MaintenanceRequestMessage>;
+  getMaintenanceRequestMessages(maintenanceRequestId: string): Promise<
+    Array<
+      MaintenanceRequestMessage & {
+        author?: {
+          id: string;
+          firstName: string | null;
+          lastName: string | null;
+          role: string | null;
+        } | null;
+      }
+    >
+  >;
+  countMaintenanceRequestMessages(maintenanceRequestId: string): Promise<number>;
 
   // Comparison Report operations
   createComparisonReport(report: InsertComparisonReport): Promise<ComparisonReport>;
@@ -479,6 +501,7 @@ export interface IStorage {
     opts: { userId: string; contactIds: string[]; role: "clerk" | "contractor" },
   ): Promise<any[]>;
   getWorkOrder(id: string): Promise<WorkOrder | undefined>;
+  getWorkOrderDetailed(id: string): Promise<any | undefined>;
   updateWorkOrderStatus(id: string, status: string, completedAt?: Date): Promise<WorkOrder>;
   updateWorkOrder(id: string, updates: Partial<WorkOrder>): Promise<WorkOrder>;
   updateWorkOrderCost(id: string, costActual: number, variationNotes?: string): Promise<WorkOrder>;
@@ -489,6 +512,18 @@ export interface IStorage {
     data: InsertWorkOrderCompletionChecklistResponse,
   ): Promise<WorkOrderCompletionChecklistResponse>;
   deleteWorkOrderCompletionChecklistResponses(workOrderId: string): Promise<void>;
+  createMaintenanceJobFeedback(
+    data: Pick<InsertMaintenanceJobFeedback, "organizationId" | "workOrderId" | "token">,
+  ): Promise<MaintenanceJobFeedback>;
+  getMaintenanceJobFeedbackByToken(token: string): Promise<MaintenanceJobFeedback | undefined>;
+  getMaintenanceJobFeedbackByWorkOrderId(
+    workOrderId: string,
+  ): Promise<MaintenanceJobFeedback | undefined>;
+  submitMaintenanceJobFeedback(
+    token: string,
+    data: { rating: number; improvementNotes?: string | null; submittedByEmail?: string | null },
+  ): Promise<MaintenanceJobFeedback>;
+  listMaintenanceJobFeedbackByOrganization(organizationId: string): Promise<any[]>;
 
   // Work Log operations
   createWorkLog(log: InsertWorkLog): Promise<WorkLog>;
@@ -1685,6 +1720,10 @@ export class DatabaseStorage implements IStorage {
       .delete(maintenanceRequestTags)
       .where(eq(maintenanceRequestTags.maintenanceRequestId, id));
 
+    await db
+      .delete(maintenanceRequestMessages)
+      .where(eq(maintenanceRequestMessages.maintenanceRequestId, id));
+
     // Clear soft links from tenant chats
     await db
       .update(tenantMaintenanceChats)
@@ -1692,6 +1731,61 @@ export class DatabaseStorage implements IStorage {
       .where(eq(tenantMaintenanceChats.maintenanceRequestId, id));
 
     await db.delete(maintenanceRequests).where(eq(maintenanceRequests.id, id));
+  }
+
+  async createMaintenanceRequestMessage(
+    messageData: InsertMaintenanceRequestMessage,
+  ): Promise<MaintenanceRequestMessage> {
+    const [row] = await db
+      .insert(maintenanceRequestMessages)
+      .values(messageData)
+      .returning();
+    return row;
+  }
+
+  async getMaintenanceRequestMessages(maintenanceRequestId: string) {
+    const rows = await db
+      .select({
+        id: maintenanceRequestMessages.id,
+        organizationId: maintenanceRequestMessages.organizationId,
+        maintenanceRequestId: maintenanceRequestMessages.maintenanceRequestId,
+        authorUserId: maintenanceRequestMessages.authorUserId,
+        body: maintenanceRequestMessages.body,
+        createdAt: maintenanceRequestMessages.createdAt,
+        authorId: users.id,
+        authorFirstName: users.firstName,
+        authorLastName: users.lastName,
+        authorRole: users.role,
+      })
+      .from(maintenanceRequestMessages)
+      .leftJoin(users, eq(maintenanceRequestMessages.authorUserId, users.id))
+      .where(eq(maintenanceRequestMessages.maintenanceRequestId, maintenanceRequestId))
+      .orderBy(maintenanceRequestMessages.createdAt);
+
+    return rows.map((r) => ({
+      id: r.id,
+      organizationId: r.organizationId,
+      maintenanceRequestId: r.maintenanceRequestId,
+      authorUserId: r.authorUserId,
+      body: r.body,
+      createdAt: r.createdAt,
+      author: r.authorId
+        ? {
+            id: r.authorId,
+            firstName: r.authorFirstName,
+            lastName: r.authorLastName,
+            role: r.authorRole,
+          }
+        : null,
+    }));
+  }
+
+  async countMaintenanceRequestMessages(maintenanceRequestId: string): Promise<number> {
+    const rows = await db
+      .select({ id: maintenanceRequestMessages.id })
+      .from(maintenanceRequestMessages)
+      .where(eq(maintenanceRequestMessages.maintenanceRequestId, maintenanceRequestId));
+    return rows.length;
   }
 
   // Comparison Report operations
@@ -2719,6 +2813,20 @@ export class DatabaseStorage implements IStorage {
     return workOrder;
   }
 
+  async getWorkOrderDetailed(id: string): Promise<any | undefined> {
+    const [row] = await db
+      .select(this.workOrderListSelect())
+      .from(workOrders)
+      .innerJoin(maintenanceRequests, eq(workOrders.maintenanceRequestId, maintenanceRequests.id))
+      .leftJoin(contacts, eq(workOrders.contractorId, contacts.id))
+      .leftJoin(teams, eq(workOrders.teamId, teams.id))
+      .leftJoin(properties, eq(maintenanceRequests.propertyId, properties.id))
+      .leftJoin(blocks, eq(maintenanceRequests.blockId, blocks.id))
+      .where(eq(workOrders.id, id))
+      .limit(1);
+    return row;
+  }
+
   async updateWorkOrderStatus(id: string, status: string, completedAt?: Date): Promise<WorkOrder> {
     const updateData: any = { status: status as any, updatedAt: new Date() };
     if (completedAt !== undefined) {
@@ -2785,6 +2893,75 @@ export class DatabaseStorage implements IStorage {
     await db
       .delete(workOrderCompletionChecklistResponses)
       .where(eq(workOrderCompletionChecklistResponses.workOrderId, workOrderId));
+  }
+
+  async createMaintenanceJobFeedback(
+    data: Pick<InsertMaintenanceJobFeedback, "organizationId" | "workOrderId" | "token">,
+  ): Promise<MaintenanceJobFeedback> {
+    const [row] = await db.insert(maintenanceJobFeedback).values(data).returning();
+    return row;
+  }
+
+  async getMaintenanceJobFeedbackByToken(
+    token: string,
+  ): Promise<MaintenanceJobFeedback | undefined> {
+    const [row] = await db
+      .select()
+      .from(maintenanceJobFeedback)
+      .where(eq(maintenanceJobFeedback.token, token))
+      .limit(1);
+    return row;
+  }
+
+  async getMaintenanceJobFeedbackByWorkOrderId(
+    workOrderId: string,
+  ): Promise<MaintenanceJobFeedback | undefined> {
+    const [row] = await db
+      .select()
+      .from(maintenanceJobFeedback)
+      .where(eq(maintenanceJobFeedback.workOrderId, workOrderId))
+      .limit(1);
+    return row;
+  }
+
+  async submitMaintenanceJobFeedback(
+    token: string,
+    data: { rating: number; improvementNotes?: string | null; submittedByEmail?: string | null },
+  ): Promise<MaintenanceJobFeedback> {
+    const [row] = await db
+      .update(maintenanceJobFeedback)
+      .set({
+        rating: data.rating,
+        improvementNotes: data.improvementNotes ?? null,
+        submittedByEmail: data.submittedByEmail ?? null,
+        submittedAt: new Date(),
+      })
+      .where(eq(maintenanceJobFeedback.token, token))
+      .returning();
+    return row;
+  }
+
+  async listMaintenanceJobFeedbackByOrganization(organizationId: string): Promise<any[]> {
+    return await db
+      .select({
+        id: maintenanceJobFeedback.id,
+        organizationId: maintenanceJobFeedback.organizationId,
+        workOrderId: maintenanceJobFeedback.workOrderId,
+        rating: maintenanceJobFeedback.rating,
+        improvementNotes: maintenanceJobFeedback.improvementNotes,
+        submittedAt: maintenanceJobFeedback.submittedAt,
+        submittedByEmail: maintenanceJobFeedback.submittedByEmail,
+        createdAt: maintenanceJobFeedback.createdAt,
+        jobTitle: maintenanceRequests.title,
+        propertyName: properties.name,
+        propertyAddress: properties.address,
+      })
+      .from(maintenanceJobFeedback)
+      .innerJoin(workOrders, eq(maintenanceJobFeedback.workOrderId, workOrders.id))
+      .innerJoin(maintenanceRequests, eq(workOrders.maintenanceRequestId, maintenanceRequests.id))
+      .leftJoin(properties, eq(maintenanceRequests.propertyId, properties.id))
+      .where(eq(maintenanceJobFeedback.organizationId, organizationId))
+      .orderBy(desc(maintenanceJobFeedback.createdAt));
   }
 
   async updateWorkOrderCost(id: string, costActual: number, variationNotes?: string): Promise<WorkOrder> {

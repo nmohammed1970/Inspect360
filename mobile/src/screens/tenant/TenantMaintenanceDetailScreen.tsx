@@ -17,6 +17,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import Card from '../../components/ui/Card';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Button from '../../components/ui/Button';
+import MaintenanceRequestDiscussionPanel from '../../components/MaintenanceRequestDiscussionPanel';
 import { colors, spacing, borderRadius } from '../../theme';
 import { getFontSize, moderateScale } from '../../utils/responsive';
 import { getAPI_URL } from '../../services/api';
@@ -147,6 +148,12 @@ export default function TenantMaintenanceDetailScreen({ navigation, route }: Pro
             </ScrollView>
           </Card>
         ) : null}
+
+        <MaintenanceRequestDiscussionPanel
+          requestId={requestId}
+          mode="tenant"
+          canPost
+        />
       </ScrollView>
     </View>
   );

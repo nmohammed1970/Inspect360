@@ -8,9 +8,11 @@ import { maintenanceService } from '../../services/maintenance';
 import type { MaintenanceStackParamList } from '../../navigation/types';
 import Card from '../../components/ui/Card';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
+import MaintenanceRequestDiscussionPanel from '../../components/MaintenanceRequestDiscussionPanel';
 import { colors, spacing } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useResponsive } from '../../hooks/useResponsive';
+import { useAuth } from '../../contexts/AuthContext';
 
 type RoutePropType = RouteProp<MaintenanceStackParamList, 'MaintenanceDetail'>;
 
@@ -18,11 +20,14 @@ export default function MaintenanceDetailScreen() {
   const route = useRoute<RoutePropType>();
   const insets = useSafeAreaInsets() || { top: 0, bottom: 0, left: 0, right: 0 };
   const { getResponsivePadding } = useResponsive();
-  const contentPad = getResponsivePadding(16);
   const theme = useTheme();
+  const { user } = useAuth();
   // Ensure themeColors is always defined - use default colors if theme not available
   const themeColors = (theme && theme.colors) ? theme.colors : colors;
   const { requestId } = route.params;
+  const canDiscuss =
+    user?.role === 'owner' || user?.role === 'maintenance_admin';
+  const contentPad = getResponsivePadding(16);
 
   const { data: request, isLoading } = useQuery({
     queryKey: [`/api/maintenance/${requestId}`],
@@ -83,6 +88,14 @@ export default function MaintenanceDetailScreen() {
             </Text>
           )}
         </Card>
+
+        {canDiscuss ? (
+          <MaintenanceRequestDiscussionPanel
+            requestId={requestId}
+            mode="staff"
+            canPost
+          />
+        ) : null}
       </ScrollView>
     </SafeAreaView>
   );
