@@ -12,7 +12,11 @@ import {
   assertQuoteTransition,
 } from "@shared/maintenanceQuoteConstants";
 import { computeQuoteLine } from "@shared/maintenanceFinanceMath";
-import { appendWorkOrderEvent, allocateDocumentNumber } from "./quoteLifecycle";
+import {
+  appendWorkOrderEvent,
+  allocateDocumentNumber,
+  resolveWorkOrderLocation,
+} from "./quoteLifecycle";
 
 export type DirectInvoiceRecipient = {
   recipientUserId?: string | null;
@@ -58,6 +62,14 @@ export async function convertQuoteToInvoice(input: {
   );
   const invoiceReference = formatInvoiceReference(year, invoiceNumber);
 
+  let propertyId = quote.propertyId ?? null;
+  let blockId = quote.blockId ?? null;
+  if (!propertyId && !blockId) {
+    const location = await resolveWorkOrderLocation(quote.workOrderId);
+    propertyId = location.propertyId;
+    blockId = location.blockId;
+  }
+
   const result = await db.transaction(async (tx) => {
     const [invoice] = await tx
       .insert(maintenanceInvoices)
@@ -65,6 +77,8 @@ export async function convertQuoteToInvoice(input: {
         organizationId: quote.organizationId,
         workOrderId: quote.workOrderId,
         quoteId: quote.id,
+        propertyId,
+        blockId,
         status: "draft",
         invoiceNumber,
         invoiceReference,
@@ -150,6 +164,7 @@ export async function createDirectInvoice(input: {
   const year = new Date().getFullYear();
   const { number: invoiceNumber } = await allocateDocumentNumber(organizationId, "invoice");
   const invoiceReference = formatInvoiceReference(year, invoiceNumber);
+  const location = await resolveWorkOrderLocation(workOrderId);
 
   const blank = computeQuoteLine({
     quantity: 1,
@@ -164,6 +179,8 @@ export async function createDirectInvoice(input: {
         organizationId,
         workOrderId,
         quoteId: null,
+        propertyId: location.propertyId,
+        blockId: location.blockId,
         status: "draft",
         invoiceNumber,
         invoiceReference,

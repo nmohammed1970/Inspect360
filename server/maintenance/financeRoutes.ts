@@ -2,6 +2,7 @@ import type { Express, Response, NextFunction } from "express";
 import { and, desc, eq, inArray, or } from "drizzle-orm";
 import { isAuthenticated, requireCompanyModule, requireRole } from "../auth";
 import { db } from "../db";
+import { storage } from "../storage";
 import {
   maintenanceInvoices,
   maintenanceQuotes,
@@ -167,6 +168,90 @@ export function registerMaintenanceFinanceRoutes(app: Express) {
       } catch (error) {
         console.error("[finance] tracking failed:", error);
         res.status(500).json({ message: "Failed to load tracking" });
+      }
+    },
+  );
+
+  app.get(
+    "/api/properties/:propertyId/maintenance-finance",
+    ...staffGuards,
+    async (req: any, res: Response) => {
+      try {
+        const organizationId = req.user.organizationId as string;
+        const property = await storage.getProperty(req.params.propertyId);
+        if (!property || property.organizationId !== organizationId) {
+          return res.status(404).json({ message: "Property not found" });
+        }
+
+        const [quotes, invoices] = await Promise.all([
+          db
+            .select()
+            .from(maintenanceQuotes)
+            .where(
+              and(
+                eq(maintenanceQuotes.organizationId, organizationId),
+                eq(maintenanceQuotes.propertyId, property.id),
+              ),
+            )
+            .orderBy(desc(maintenanceQuotes.updatedAt)),
+          db
+            .select()
+            .from(maintenanceInvoices)
+            .where(
+              and(
+                eq(maintenanceInvoices.organizationId, organizationId),
+                eq(maintenanceInvoices.propertyId, property.id),
+              ),
+            )
+            .orderBy(desc(maintenanceInvoices.updatedAt)),
+        ]);
+
+        res.json({ quotes, invoices });
+      } catch (error) {
+        console.error("[finance] property finance failed:", error);
+        res.status(500).json({ message: "Failed to load property finance" });
+      }
+    },
+  );
+
+  app.get(
+    "/api/blocks/:blockId/maintenance-finance",
+    ...staffGuards,
+    async (req: any, res: Response) => {
+      try {
+        const organizationId = req.user.organizationId as string;
+        const block = await storage.getBlock(req.params.blockId);
+        if (!block || block.organizationId !== organizationId) {
+          return res.status(404).json({ message: "Block not found" });
+        }
+
+        const [quotes, invoices] = await Promise.all([
+          db
+            .select()
+            .from(maintenanceQuotes)
+            .where(
+              and(
+                eq(maintenanceQuotes.organizationId, organizationId),
+                eq(maintenanceQuotes.blockId, block.id),
+              ),
+            )
+            .orderBy(desc(maintenanceQuotes.updatedAt)),
+          db
+            .select()
+            .from(maintenanceInvoices)
+            .where(
+              and(
+                eq(maintenanceInvoices.organizationId, organizationId),
+                eq(maintenanceInvoices.blockId, block.id),
+              ),
+            )
+            .orderBy(desc(maintenanceInvoices.updatedAt)),
+        ]);
+
+        res.json({ quotes, invoices });
+      } catch (error) {
+        console.error("[finance] block finance failed:", error);
+        res.status(500).json({ message: "Failed to load block finance" });
       }
     },
   );

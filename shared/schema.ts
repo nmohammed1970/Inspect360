@@ -1442,6 +1442,10 @@ export const maintenanceQuotes = pgTable(
     id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
     organizationId: varchar("organization_id").notNull(),
     workOrderId: varchar("work_order_id").notNull(),
+    /** Snapshot from WO→MR at create (site = property). */
+    propertyId: varchar("property_id"),
+    /** Snapshot from WO→MR / property.block at create. */
+    blockId: varchar("block_id"),
     status: varchar("status").notNull().default("draft"),
     quoteNumber: integer("quote_number").notNull(),
     quoteReference: varchar("quote_reference").notNull(),
@@ -1484,6 +1488,8 @@ export const maintenanceQuotes = pgTable(
     index("maintenance_quotes_org_idx").on(table.organizationId),
     index("maintenance_quotes_work_order_idx").on(table.workOrderId),
     index("maintenance_quotes_org_status_idx").on(table.organizationId, table.status),
+    index("maintenance_quotes_org_property_idx").on(table.organizationId, table.propertyId),
+    index("maintenance_quotes_org_block_idx").on(table.organizationId, table.blockId),
     uniqueIndex("maintenance_quotes_org_number_version_uidx").on(
       table.organizationId,
       table.quoteNumber,
@@ -1576,6 +1582,10 @@ export const maintenanceInvoices = pgTable(
     organizationId: varchar("organization_id").notNull(),
     workOrderId: varchar("work_order_id").notNull(),
     quoteId: varchar("quote_id"),
+    /** Snapshot from WO→MR or copied from quote on convert (site = property). */
+    propertyId: varchar("property_id"),
+    /** Snapshot from WO→MR / property.block or copied from quote. */
+    blockId: varchar("block_id"),
     status: varchar("status").notNull().default("draft"),
     invoiceNumber: integer("invoice_number").notNull(),
     invoiceReference: varchar("invoice_reference").notNull(),
@@ -1604,6 +1614,8 @@ export const maintenanceInvoices = pgTable(
   (table) => [
     index("maintenance_invoices_org_idx").on(table.organizationId),
     index("maintenance_invoices_work_order_idx").on(table.workOrderId),
+    index("maintenance_invoices_org_property_idx").on(table.organizationId, table.propertyId),
+    index("maintenance_invoices_org_block_idx").on(table.organizationId, table.blockId),
     uniqueIndex("maintenance_invoices_org_number_uidx").on(
       table.organizationId,
       table.invoiceNumber,

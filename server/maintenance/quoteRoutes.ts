@@ -32,6 +32,7 @@ import {
   appendWorkOrderEvent,
   createQuoteShareToken,
   publicAppBaseUrl,
+  resolveWorkOrderLocation,
   transitionOrThrow,
 } from "./quoteLifecycle";
 import {
@@ -335,12 +336,15 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
         const defaultRecipient = ctx?.workOrder
           ? await defaultRecipientForWorkOrder(ctx.workOrder)
           : null;
+        const location = await resolveWorkOrderLocation(req.params.workOrderId);
 
         const [quote] = await db
           .insert(maintenanceQuotes)
           .values({
             organizationId,
             workOrderId: req.params.workOrderId,
+            propertyId: location.propertyId,
+            blockId: location.blockId,
             status: "draft",
             quoteNumber,
             quoteReference,
@@ -977,6 +981,8 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
             .values({
               organizationId,
               workOrderId: quote.workOrderId,
+              propertyId: quote.propertyId,
+              blockId: quote.blockId,
               status: "draft",
               quoteNumber: quote.quoteNumber,
               quoteReference: quote.quoteReference,
@@ -1083,19 +1089,21 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
           .values({
             organizationId,
             workOrderId: quote.workOrderId,
+            propertyId: quote.propertyId,
+            blockId: quote.blockId,
             status: "draft",
             quoteNumber,
             quoteReference,
             versionNumber: 1,
             quoteType: "variation",
             currency: quote.currency,
-              recipientContactId: quote.recipientContactId,
-              recipientUserId: quote.recipientUserId,
-              recipientName: quote.recipientName,
-              recipientEmail: quote.recipientEmail,
-              recipientPhone: quote.recipientPhone,
-              recipientAddress: quote.recipientAddress,
-              scopeDescription: quote.scopeDescription,
+            recipientContactId: quote.recipientContactId,
+            recipientUserId: quote.recipientUserId,
+            recipientName: quote.recipientName,
+            recipientEmail: quote.recipientEmail,
+            recipientPhone: quote.recipientPhone,
+            recipientAddress: quote.recipientAddress,
+            scopeDescription: quote.scopeDescription,
             preparedByUserId: req.user.id,
             variationOfQuoteId: quote.id,
             parentQuoteId: quote.id,

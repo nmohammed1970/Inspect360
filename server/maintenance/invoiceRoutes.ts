@@ -247,8 +247,10 @@ export function registerMaintenanceInvoiceRoutes(app: Express) {
                 workOrderStatus: work.workOrderStatus,
                 issueTitle: work.issueTitle,
                 locationLabel: work.locationLabel,
+                propertyId: invoice.propertyId ?? null,
                 propertyName: work.propertyName,
                 propertyAddress: work.propertyAddress,
+                blockId: invoice.blockId ?? null,
                 blockName: work.blockName,
                 assigneeName: work.assigneeName,
               }
