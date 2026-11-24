@@ -9,6 +9,17 @@ import { HmoPropertyPanel } from "@/components/hmo/HmoPropertyPanel";
 import { useState, useEffect, useMemo } from "react";
 import { useRoute, Link, useSearch } from "wouter";
 import { useBackHref } from "@/navigation";
+import { StatusBadge } from "@/components/StatusBadge";
+import {
+  formatInspectionStatus,
+  formatMaintenanceStatus,
+} from "@shared/inspectionLabels";
+import {
+  complianceDocTone,
+  inspectionStatusTone,
+  maintenanceRequestStatusTone,
+  priorityTone,
+} from "@shared/statusPriorityStyles";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -943,16 +954,13 @@ export default function PropertyDetail() {
                             )}
                           </div>
                         </div>
-                        <Badge 
-                          variant={
-                            inspection.status === 'completed' ? 'default' :
-                            inspection.status === 'in_progress' ? 'secondary' :
-                            'outline'
-                          }
-                          className={inspection.status === 'completed' ? 'bg-primary text-primary-foreground' : ''}
+                        <StatusBadge
+                          tone={inspectionStatusTone(inspection.status)}
+                          appearance="solid"
+                          className="capitalize"
                         >
-                          {inspection.status.replace('_', ' ')}
-                        </Badge>
+                          {formatInspectionStatus(inspection.status)}
+                        </StatusBadge>
                       </div>
                     </CardHeader>
                   </Card>
@@ -1216,13 +1224,12 @@ export default function PropertyDetail() {
                             </div>
                           )}
                         </div>
-                        <Badge variant={
-                          doc.status === 'expired' ? 'destructive' :
-                          doc.status === 'expiring' ? 'outline' :
-                          'default'
-                        }>
+                        <StatusBadge
+                          tone={complianceDocTone(doc.status)}
+                          appearance="solid"
+                        >
                           {doc.status === 'expired' ? 'Expired' : doc.status === 'expiring' ? 'Expiring Soon' : 'Valid'}
-                        </Badge>
+                        </StatusBadge>
                       </div>
                     </CardHeader>
                   </Card>
@@ -1279,14 +1286,20 @@ export default function PropertyDetail() {
                           </div>
                         </div>
                         <div className="flex flex-col items-end gap-2">
-                          <Badge variant={
-                            request.priority === 'urgent' ? 'destructive' :
-                            request.priority === 'high' ? 'default' :
-                            'secondary'
-                          }>
+                          <StatusBadge
+                            tone={priorityTone(request.priority)}
+                            appearance="solid"
+                            className="capitalize"
+                          >
                             {request.priority}
-                          </Badge>
-                          <Badge variant="outline">{request.status.replace('_', ' ')}</Badge>
+                          </StatusBadge>
+                          <StatusBadge
+                            tone={maintenanceRequestStatusTone(request.status)}
+                            appearance="solid"
+                            className="capitalize"
+                          >
+                            {formatMaintenanceStatus(request.status)}
+                          </StatusBadge>
                         </div>
                       </div>
                     </CardHeader>

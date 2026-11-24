@@ -3,6 +3,13 @@ import SignatureCanvas from "react-signature-canvas";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "wouter";
 import { useBackHref } from "@/navigation";
+import { StatusBadge } from "@/components/StatusBadge";
+import {
+  priorityTone,
+  toneClass,
+  workOrderStatusTone,
+} from "@shared/statusPriorityStyles";
+import { cn } from "@/lib/utils";
 import {
   ArrowLeft,
   Calendar,
@@ -40,7 +47,6 @@ import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { dialogContentBase } from "@/lib/responsive";
-import { cn } from "@/lib/utils";
 
 interface WorkOrderDetail {
   id: string;
@@ -64,20 +70,6 @@ interface WorkOrderDetail {
   block?: { id?: string; name?: string } | null;
 }
 
-const workOrderStatusColors: Record<string, string> = {
-  assigned: "bg-[color:var(--brand-info)]/10 text-[color:var(--brand-info)]",
-  in_progress: "bg-[color:var(--brand-warning)]/15 text-[color:var(--brand-slate)]",
-  waiting_parts: "bg-[color:var(--brand-warning)]/15 text-[color:var(--brand-slate)]",
-  completed: "bg-[color:var(--brand-success)]/10 text-[color:var(--brand-success)]",
-  rejected: "bg-[color:var(--brand-critical)]/10 text-[color:var(--brand-critical)]",
-};
-
-const priorityColors: Record<string, string> = {
-  low: "bg-muted text-muted-foreground",
-  medium: "bg-[color:var(--brand-info)]/10 text-[color:var(--brand-info)]",
-  high: "bg-[color:var(--brand-warning)]/15 text-[color:var(--brand-slate)]",
-  urgent: "bg-[color:var(--brand-critical)]/10 text-[color:var(--brand-critical)]",
-};
 
 const WorkOrderDetailPage = () => {
   const params = useParams<{ workOrderId: string }>();
@@ -343,12 +335,20 @@ const WorkOrderDetailPage = () => {
 
       <div className="space-y-4">
         <div className="flex flex-wrap gap-2">
-          <Badge className={priorityColors[workOrder.maintenanceRequest.priority]}>
+          <StatusBadge
+            tone={priorityTone(workOrder.maintenanceRequest.priority)}
+            appearance="soft"
+            className="capitalize"
+          >
             {workOrder.maintenanceRequest.priority}
-          </Badge>
-          <Badge className={workOrderStatusColors[workOrder.status]}>
+          </StatusBadge>
+          <StatusBadge
+            tone={workOrderStatusTone(workOrder.status)}
+            appearance="soft"
+            className="capitalize"
+          >
             {workOrder.status.replace("_", " ")}
-          </Badge>
+          </StatusBadge>
         </div>
 
         {completeError && (
@@ -374,7 +374,10 @@ const WorkOrderDetailPage = () => {
               }}
             >
               <SelectTrigger
-                className="w-full sm:w-auto sm:min-w-[12rem] h-9"
+                className={cn(
+                  "w-full sm:w-auto sm:min-w-[12rem] h-9 rounded-full text-xs font-medium",
+                  toneClass(workOrderStatusTone(workOrder.status)),
+                )}
                 data-testid="select-work-order-status-detail"
               >
                 <SelectValue />

@@ -18,6 +18,8 @@ import {
 } from "@/components/ui/breadcrumb";
 import { cn } from "@/lib/utils";
 import { pagePad, textBreak, textTruncate } from "@/lib/responsive";
+import { StatusBadge } from "@/components/StatusBadge";
+import { comparisonReportStatusTone } from "@shared/statusPriorityStyles";
 
 interface ComparisonReport {
   id: string;
@@ -36,12 +38,12 @@ interface ComparisonReport {
   } | null;
 }
 
-const statusConfig: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
-  draft: { label: "Draft", variant: "secondary" },
-  under_review: { label: "Under Review", variant: "default" },
-  awaiting_signatures: { label: "Signature Required", variant: "destructive" },
-  signed: { label: "Signed", variant: "outline" },
-  filed: { label: "Filed", variant: "secondary" },
+const statusConfig: Record<string, { label: string }> = {
+  draft: { label: "Draft" },
+  under_review: { label: "Under Review" },
+  awaiting_signatures: { label: "Signature Required" },
+  signed: { label: "Signed" },
+  filed: { label: "Filed" },
 };
 
 export default function TenantComparisonReports() {
@@ -130,9 +132,12 @@ export default function TenantComparisonReports() {
                         <span className={cn("font-semibold text-base md:text-lg", textBreak)} data-testid={`text-property-${report.id}`}>
                           {report.property?.name || "Property"}
                         </span>
-                        <Badge variant={status.variant}>
+                        <StatusBadge
+                          tone={comparisonReportStatusTone(report.status)}
+                          appearance="solid"
+                        >
                           {status.label}
-                        </Badge>
+                        </StatusBadge>
                         {needsSignature && (
                           <Badge variant="destructive" className="gap-1">
                             <Pen className="h-3 w-3" />

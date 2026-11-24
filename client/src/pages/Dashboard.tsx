@@ -46,6 +46,8 @@ import { pagePad } from "@/lib/responsive";
 import { cn } from "@/lib/utils";
 import { Link } from "wouter";
 import { ContextualLink } from "@/navigation";
+import { StatusBadge } from "@/components/StatusBadge";
+import { priorityTone } from "@shared/statusPriorityStyles";
 import { PageHeader } from "@/components/PageHeader";
 import { MetricSummaryCard, type MetricDotTone } from "@/components/workspace";
 
@@ -1121,9 +1123,13 @@ export default function Dashboard() {
                                 {kindMeta.label}
                               </Badge>
                               {item.meta?.priority ? (
-                                <Badge variant="outline" className="text-[10px] px-1.5 py-0 capitalize">
+                                <StatusBadge
+                                  tone={priorityTone(String(item.meta.priority))}
+                                  appearance="soft"
+                                  className="text-[10px] px-1.5 py-0 capitalize"
+                                >
                                   {item.meta.priority}
-                                </Badge>
+                                </StatusBadge>
                               ) : null}
                             </div>
                             <p className="font-medium text-sm truncate">{item.title}</p>

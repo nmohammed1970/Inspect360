@@ -3,14 +3,16 @@
  * Never use these for comparisons or API payloads — keep raw slug values there.
  */
 
-export type BadgeVariantName =
-  | "default"
-  | "secondary"
-  | "destructive"
-  | "success"
-  | "warning"
-  | "info"
-  | "outline";
+import {
+  activeInactiveTone,
+  inspectionStatusTone,
+  maintenanceRequestStatusTone,
+  occupancyTone,
+  toneToBadgeVariant,
+  type BadgeVariantName,
+} from "./statusPriorityStyles";
+
+export type { BadgeVariantName };
 
 /** Title-case snake_case / kebab-case for unknown values. */
 export function formatEnumLabel(value: string | null | undefined): string {
@@ -79,54 +81,25 @@ export function formatOccupancyStatus(status: string | null | undefined): string
 export function occupancyBadgeVariant(
   status: string | null | undefined,
 ): BadgeVariantName {
-  const s = (status || "").toLowerCase();
-  if (s === "occupied") return "success";
-  if (s === "vacant") return "secondary";
-  return "outline";
+  return toneToBadgeVariant(occupancyTone(status));
 }
 
 export function inspectionStatusBadgeVariant(
   status: string | null | undefined,
 ): BadgeVariantName {
-  switch (status) {
-    case "completed":
-    case "reviewed":
-      return "success";
-    case "in_progress":
-      return "warning";
-    case "scheduled":
-      return "info";
-    case "cancelled":
-      return "destructive";
-    case "draft":
-      return "outline";
-    default:
-      return "secondary";
-  }
+  if ((status || "").toLowerCase() === "draft") return "outline";
+  return toneToBadgeVariant(inspectionStatusTone(status));
 }
 
 export function maintenanceStatusBadgeVariant(
   status: string | null | undefined,
 ): BadgeVariantName {
-  switch (status) {
-    case "completed":
-    case "closed":
-      return "success";
-    case "in_progress":
-      return "warning";
-    case "open":
-      return "info";
-    default:
-      return "secondary";
-  }
+  return toneToBadgeVariant(maintenanceRequestStatusTone(status));
 }
 
 /** Active / inactive style tenant or record flags. */
 export function activeInactiveBadgeVariant(
   status: string | null | undefined,
 ): BadgeVariantName {
-  const s = (status || "").toLowerCase();
-  if (s === "active" || s === "true") return "success";
-  if (s === "inactive" || s === "false") return "secondary";
-  return "outline";
+  return toneToBadgeVariant(activeInactiveTone(status));
 }

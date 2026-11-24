@@ -31,8 +31,14 @@ import {
 import { formatInspectionNote, parseInspectionNote } from "@shared/inspectionNoteSections";
 import {
   formatMaintenanceStatus,
-  maintenanceStatusBadgeVariant,
 } from "@shared/inspectionLabels";
+import {
+  maintenanceRequestStatusTone,
+  priorityTone as sharedPriorityTone,
+  toneClass,
+  workOrderStatusTone,
+} from "@shared/statusPriorityStyles";
+import { StatusBadge } from "@/components/StatusBadge";
 import {
   Dialog,
   DialogContent,
@@ -140,21 +146,6 @@ interface WorkOrder {
     email?: string;
   } | null;
 }
-
-const workOrderStatusColors: Record<string, string> = {
-  assigned: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300",
-  in_progress: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300",
-  waiting_parts: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300",
-  completed: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300",
-  rejected: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300",
-};
-
-const priorityColors: Record<string, string> = {
-  low: "bg-gray-100 text-gray-800",
-  medium: "bg-blue-100 text-blue-800",
-  high: "bg-orange-100 text-orange-800",
-  urgent: "bg-red-100 text-red-800",
-};
 
 const createMaintenanceSchema = insertMaintenanceRequestSchema
   .omit({ organizationId: true }) // Backend adds this from session
@@ -899,54 +890,29 @@ export default function Maintenance() {
   };
 
   const getPriorityBadge = (priority: string) => {
-    const config: Record<
-      string,
-      { label: string; className: string; icon?: typeof AlertTriangle }
-    > = {
-      low: {
-        label: "Low",
-        className:
-          "rounded-full border-border bg-muted px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground",
-      },
-      medium: {
-        label: "Medium",
-        className:
-          "rounded-full border-[color:var(--brand-warning)]/40 bg-[color:var(--brand-warning)]/15 px-2.5 py-0.5 text-[11px] font-medium text-[color:var(--brand-slate)]",
-      },
-      high: {
-        label: "High",
-        className:
-          "rounded-full border-[color:var(--brand-critical)]/30 bg-[color:var(--brand-critical)]/10 px-2.5 py-0.5 text-[11px] font-medium text-[color:var(--brand-critical)]",
-        icon: AlertTriangle,
-      },
-      urgent: {
-        label: "Urgent",
-        className:
-          "rounded-full border-[color:var(--brand-critical)]/30 bg-[color:var(--brand-critical)]/10 px-2.5 py-0.5 text-[11px] font-medium text-[color:var(--brand-critical)]",
-        icon: AlertTriangle,
-      },
-    };
-    const item = config[priority] || config.medium;
-    const Icon = item.icon;
+    const label = priority.charAt(0).toUpperCase() + priority.slice(1);
+    const showIcon = priority === "high" || priority === "urgent";
     return (
-      <Badge
-        variant="outline"
-        className={cn("gap-1 shadow-none", item.className)}
-        data-testid={`badge-priority-${priority}`}
+      <StatusBadge
+        tone={sharedPriorityTone(priority)}
+        appearance="pill"
+        testId={`badge-priority-${priority}`}
+        className="gap-1"
       >
-        {Icon ? <Icon className="h-3 w-3" /> : null}
-        {item.label}
-      </Badge>
+        {showIcon ? <AlertTriangle className="h-3 w-3" /> : null}
+        {label}
+      </StatusBadge>
     );
   };
 
   const getStatusBadge = (status: string) => (
-    <Badge
-      variant={maintenanceStatusBadgeVariant(status)}
-      data-testid={`badge-status-${status}`}
+    <StatusBadge
+      tone={maintenanceRequestStatusTone(status)}
+      appearance="solid"
+      testId={`badge-status-${status}`}
     >
       {formatMaintenanceStatus(status)}
-    </Badge>
+    </StatusBadge>
   );
 
   const priorityAccentClass = (priority: string) => {
@@ -955,15 +921,8 @@ export default function Maintenance() {
     return "border-l-[color:var(--brand-teal)]";
   };
 
-  const statusSelectClass = (status: string) => {
-    if (status === "in_progress") {
-      return "border-[color:var(--brand-success)]/30 bg-[color:var(--brand-success)]/10 text-[color:var(--brand-success)]";
-    }
-    if (status === "completed" || status === "closed") {
-      return "border-border bg-muted text-muted-foreground";
-    }
-    return "border-[color:var(--brand-info)]/30 bg-[color:var(--brand-info)]/10 text-[color:var(--brand-info)]";
-  };
+  const statusSelectClass = (status: string) =>
+    toneClass(maintenanceRequestStatusTone(status));
 
   const reporterInitials = (req: MaintenanceRequestWithDetails) => {
     const f = req.reportedByUser?.firstName?.[0] ?? "";
@@ -1027,17 +986,8 @@ export default function Maintenance() {
     },
   ];
 
-  const priorityTone = (priority: string) => {
-    if (priority === "urgent" || priority === "high") return "urgent" as const;
-    if (priority === "medium") return "action" as const;
-    return "muted" as const;
-  };
-
-  const statusTone = (status: string) => {
-    if (status === "in_progress") return "success" as const;
-    if (status === "completed" || status === "closed") return "muted" as const;
-    return "info" as const;
-  };
+  const priorityTone = sharedPriorityTone;
+  const statusTone = maintenanceRequestStatusTone;
 
   let scopedWorkOrders = workOrders;
   if (filterProperty !== "all") {
@@ -2247,9 +2197,13 @@ export default function Maintenance() {
                                 <CardTitle className="text-base md:text-lg font-semibold leading-snug">
                                   {workOrder.maintenanceRequest.title}
                                 </CardTitle>
-                                <Badge className={priorityColors[workOrder.maintenanceRequest.priority]}>
+                                <StatusBadge
+                                  tone={sharedPriorityTone(workOrder.maintenanceRequest.priority)}
+                                  appearance="soft"
+                                  className="capitalize"
+                                >
                                   {workOrder.maintenanceRequest.priority}
-                                </Badge>
+                                </StatusBadge>
                               </div>
                               <CardDescription className="line-clamp-2">
                                 {workOrder.maintenanceRequest.description || "No description provided"}
@@ -2270,9 +2224,13 @@ export default function Maintenance() {
                                   <Trash2 className="w-4 h-4" />
                                 </Button>
                               )}
-                              <Badge className={cn(workOrderStatusColors[workOrder.status], "capitalize")}>
+                              <StatusBadge
+                                tone={workOrderStatusTone(workOrder.status)}
+                                appearance="soft"
+                                className="capitalize"
+                              >
                                 {workOrder.status.replace("_", " ")}
-                              </Badge>
+                              </StatusBadge>
                               {(workOrder as any).authorisationStatus === "quote_required" ? (
                                 <Badge variant="outline" className="bg-amber-50 text-amber-900 border-amber-200">
                                   Quote required
@@ -2407,7 +2365,13 @@ export default function Maintenance() {
                                     updateWorkOrderStatusMutation.mutate({ id: workOrder.id, status });
                                   }}
                                 >
-                                  <SelectTrigger className="w-full sm:w-auto sm:min-w-0 sm:max-w-[12rem] h-8" data-testid={`select-work-order-status-${workOrder.id}`}>
+                                  <SelectTrigger
+                                    className={cn(
+                                      "w-full sm:w-auto sm:min-w-0 sm:max-w-[12rem] h-8 rounded-full text-[11px] font-medium",
+                                      toneClass(workOrderStatusTone(workOrder.status)),
+                                    )}
+                                    data-testid={`select-work-order-status-${workOrder.id}`}
+                                  >
                                     <SelectValue />
                                   </SelectTrigger>
                                   <SelectContent>

@@ -1,4 +1,5 @@
 import type { FeedbackStatus, FeedbackType } from "./feedbackSchema";
+import { SEMANTIC_TONE_CLASS } from "./statusPriorityStyles";
 
 export function feedbackTypeLabel(type: string | null | undefined): string {
   switch (type) {
@@ -38,21 +39,21 @@ export function feedbackStatusMeta(status: string | null | undefined): {
 } {
   switch (status as FeedbackStatus) {
     case "new":
-      return { label: "New", className: "border-sky-300 bg-sky-50 text-sky-900" };
+      return { label: "New", className: SEMANTIC_TONE_CLASS.info };
     case "in_review":
-      return { label: "In Review", className: "border-amber-300 bg-amber-50 text-amber-950" };
+      return { label: "In Review", className: SEMANTIC_TONE_CLASS.warning };
     case "waiting_on_user":
-      return { label: "Waiting on User", className: "border-orange-300 bg-orange-50 text-orange-950" };
+      return { label: "Waiting on User", className: SEMANTIC_TONE_CLASS.action };
     case "planned":
-      return { label: "Planned", className: "border-violet-300 bg-violet-50 text-violet-950" };
+      return { label: "Planned", className: SEMANTIC_TONE_CLASS.primary };
     case "resolved":
-      return { label: "Resolved", className: "border-emerald-300 bg-emerald-50 text-emerald-900" };
+      return { label: "Resolved", className: SEMANTIC_TONE_CLASS.success };
     case "closed":
-      return { label: "Closed", className: "border-slate-300 bg-slate-50 text-slate-700" };
+      return { label: "Closed", className: SEMANTIC_TONE_CLASS.muted };
     default:
       return {
         label: feedbackStatusLabel(status),
-        className: "border-muted-foreground/30 bg-muted text-foreground",
+        className: SEMANTIC_TONE_CLASS.muted,
       };
   }
 }
@@ -63,15 +64,15 @@ export function feedbackTypeMeta(type: string | null | undefined): {
 } {
   switch (type as FeedbackType) {
     case "issue":
-      return { label: "Issue", className: "border-rose-300 bg-rose-50 text-rose-900" };
+      return { label: "Issue", className: SEMANTIC_TONE_CLASS.critical };
     case "feature_request":
-      return { label: "Feature Request", className: "border-violet-300 bg-violet-50 text-violet-950" };
+      return { label: "Feature Request", className: SEMANTIC_TONE_CLASS.primary };
     case "question":
-      return { label: "General Question", className: "border-sky-300 bg-sky-50 text-sky-900" };
+      return { label: "General Question", className: SEMANTIC_TONE_CLASS.info };
     default:
       return {
         label: feedbackTypeLabel(type),
-        className: "border-muted-foreground/30 bg-muted text-foreground",
+        className: SEMANTIC_TONE_CLASS.muted,
       };
   }
 }

@@ -31,6 +31,9 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 import { pagePad } from "@/lib/responsive";
 import { PageHeader } from "@/components/PageHeader";
+import { StatusBadge } from "@/components/StatusBadge";
+import { comparisonReportStatusTone } from "@shared/statusPriorityStyles";
+import { formatEnumLabel } from "@shared/inspectionLabels";
 
 interface ComparisonReport {
   id: string;
@@ -55,12 +58,12 @@ interface ComparisonReportItem {
   status: string;
 }
 
-const statusConfig = {
-  draft: { label: "Draft", color: "bg-gray-500" },
-  under_review: { label: "Under Review", color: "bg-blue-500" },
-  awaiting_signatures: { label: "Awaiting Signatures", color: "bg-amber-500" },
-  signed: { label: "Signed", color: "bg-green-500" },
-  filed: { label: "Filed", color: "bg-slate-600" },
+const statusConfig: Record<string, { label: string }> = {
+  draft: { label: "Draft" },
+  under_review: { label: "Under Review" },
+  awaiting_signatures: { label: "Awaiting Signatures" },
+  signed: { label: "Signed" },
+  filed: { label: "Filed" },
 };
 
 export default function ComparisonReports() {
@@ -471,9 +474,13 @@ export default function ComparisonReports() {
                     <div className="flex-1 space-y-3 w-full min-w-0">
                       {/* Status and Date */}
                       <div className="flex items-center gap-2 md:gap-3 flex-wrap">
-                        <Badge className={`${statusInfo.color} text-white text-xs`}>
-                          {statusInfo.label}
-                        </Badge>
+                        <StatusBadge
+                          tone={comparisonReportStatusTone(report.status)}
+                          appearance="solid"
+                          className="text-xs"
+                        >
+                          {statusInfo?.label || formatEnumLabel(report.status)}
+                        </StatusBadge>
                         <div className="flex items-center gap-1.5 md:gap-2 text-xs md:text-sm text-muted-foreground">
                           <Calendar className="w-3 h-3 md:w-4 md:h-4 shrink-0" />
                           <span>{format(new Date(report.createdAt), "MMM d, yyyy")}</span>

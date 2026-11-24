@@ -36,6 +36,7 @@ import {
   isQuoteRevisable,
 } from "@shared/maintenanceQuoteConstants";
 import { useAuth } from "@/hooks/useAuth";
+import { quoteLifecycleTone, toneClass } from "@shared/statusPriorityStyles";
 import type {
   MaintenancePriceBookCategory,
   MaintenancePriceBookUnit,
@@ -100,17 +101,7 @@ type QuoteDetail = {
 };
 
 function statusBadgeClass(status: string): string {
-  if (status === "draft") return "bg-slate-100 text-slate-800 border-slate-200";
-  if (status === "sent" || status === "customer_changes_requested") {
-    return "bg-amber-100 text-amber-900 border-amber-200";
-  }
-  if (status === "accepted" || status === "converted") {
-    return "bg-emerald-100 text-emerald-900 border-emerald-200";
-  }
-  if (status === "declined") {
-    return "bg-red-100 text-red-900 border-red-200";
-  }
-  return "bg-muted text-foreground";
+  return toneClass(quoteLifecycleTone(status));
 }
 
 function statusLabel(status: string): string {

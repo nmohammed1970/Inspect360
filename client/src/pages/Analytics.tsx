@@ -27,6 +27,8 @@ import { pagePad, dialogContentBase, formGrid2, dialogFooterSticky } from "@/lib
 import { FiltersSection } from "@/components/FiltersSection";
 import { PageHeader } from "@/components/PageHeader";
 import { MetricSummaryCard } from "@/components/workspace";
+import { StatusBadge } from "@/components/StatusBadge";
+import { priorityTone } from "@shared/statusPriorityStyles";
 
 interface WorkOrderAnalytics {
   total: number;
@@ -98,22 +100,6 @@ interface Team {
   isActive: boolean;
 }
 
-const statusColors: Record<string, string> = {
-  pending: "bg-muted text-muted-foreground",
-  assigned: "bg-[color:var(--brand-info)]/10 text-[color:var(--brand-info)]",
-  scheduled: "bg-primary/10 text-primary",
-  in_progress: "bg-[color:var(--brand-warning)]/15 text-[color:var(--brand-slate)]",
-  waiting_parts: "bg-[color:var(--brand-warning)]/15 text-[color:var(--brand-slate)]",
-  completed: "bg-[color:var(--brand-success)]/10 text-[color:var(--brand-success)]",
-  rejected: "bg-[color:var(--brand-critical)]/10 text-[color:var(--brand-critical)]",
-};
-
-const priorityColors: Record<string, string> = {
-  low: "bg-muted text-muted-foreground",
-  medium: "bg-[color:var(--brand-info)]/10 text-[color:var(--brand-info)]",
-  high: "bg-[color:var(--brand-warning)]/15 text-[color:var(--brand-slate)]",
-  urgent: "bg-[color:var(--brand-critical)]/10 text-[color:var(--brand-critical)]",
-};
 
 const statusCategories = {
   open: ["assigned"],
@@ -1207,9 +1193,13 @@ function WorkOrderCard({
           </div>
           
           <div className="flex items-center gap-1.5 flex-wrap">
-            <Badge className={cn(priorityColors[workOrder.maintenanceRequest.priority], "text-[10px] px-1.5 py-0")} variant="secondary">
+            <StatusBadge
+              tone={priorityTone(workOrder.maintenanceRequest.priority)}
+              appearance="soft"
+              className="text-[10px] px-1.5 py-0 capitalize"
+            >
               {workOrder.maintenanceRequest.priority}
-            </Badge>
+            </StatusBadge>
             {workOrder.team && (
               <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-normal">
                 {workOrder.team.name}
