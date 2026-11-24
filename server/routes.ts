@@ -17838,6 +17838,113 @@ ${optionalNotes || "No details provided."}`;
     }
   });
 
+  app.post(
+    "/api/work-orders/:id/schedule",
+    isAuthenticated,
+    requireCompanyModule("maintenance"),
+    requireRole("owner", "contractor", "maintenance_admin"),
+    async (req: any, res) => {
+      try {
+        const userId = req.user.id;
+        const user = await storage.getUser(userId);
+        if (!user?.organizationId) {
+          return res.status(403).json({ error: "No organization found" });
+        }
+
+        const workOrder = await storage.getWorkOrder(req.params.id);
+        if (!workOrder) {
+          return res.status(404).json({ error: "Work order not found" });
+        }
+
+        if (!(await assertWorkOrderAccess(user as any, workOrder))) {
+          return res.status(403).json({ error: "Access denied" });
+        }
+
+        if ((workOrder as any).authorisationStatus !== "authorised") {
+          return res.status(409).json({
+            error: "A customer-accepted quotation is required before scheduling",
+            code: "QUOTE_AUTHORISATION_REQUIRED",
+          });
+        }
+
+        const rawScheduledAt = req.body?.scheduledAt;
+        if (rawScheduledAt == null || String(rawScheduledAt).trim() === "") {
+          return res.status(400).json({ error: "scheduledAt is required" });
+        }
+
+        const scheduledAt = new Date(rawScheduledAt);
+        if (Number.isNaN(scheduledAt.getTime())) {
+          return res.status(400).json({ error: "scheduledAt must be a valid ISO datetime" });
+        }
+
+        // Allow a small clock skew; reject clearly past times
+        const skewMs = 60_000;
+        if (scheduledAt.getTime() < Date.now() - skewMs) {
+          return res.status(400).json({ error: "scheduledAt must be now or in the future" });
+        }
+
+        const isReschedule = !!(workOrder as any).scheduledAt;
+        const updated = await storage.updateWorkOrder(workOrder.id, {
+          scheduledAt,
+          updatedAt: new Date(),
+        } as any);
+
+        const { appendWorkOrderEvent, resolveWorkOrderLocation } = await import(
+          "./maintenance/quoteLifecycle"
+        );
+        await appendWorkOrderEvent({
+          organizationId: user.organizationId,
+          workOrderId: workOrder.id,
+          eventType: "job_scheduled",
+          actorUserId: userId,
+          payload: {
+            scheduledAt: scheduledAt.toISOString(),
+            isReschedule,
+          },
+        });
+
+        const { propertyId } = await resolveWorkOrderLocation(workOrder.id);
+        let notified = 0;
+        let emailed = 0;
+        let warning: string | undefined;
+
+        if (propertyId) {
+          const property = await storage.getProperty(propertyId);
+          const request = await storage.getMaintenanceRequest(workOrder.maintenanceRequestId);
+          const { notifyTenantsOfJobSchedule } = await import(
+            "./maintenance/notifyTenantsOfJobSchedule"
+          );
+          const result = await notifyTenantsOfJobSchedule({
+            organizationId: user.organizationId,
+            workOrderId: workOrder.id,
+            propertyId,
+            scheduledAt,
+            jobTitle: request?.title || null,
+            propertyName: property?.name || null,
+            propertyAddress: property?.address || null,
+            isReschedule,
+          });
+          notified = result.notified;
+          emailed = result.emailed;
+          warning = result.warning;
+        } else {
+          warning = "No property linked to this work order; tenants were not notified";
+        }
+
+        res.json({
+          ...updated,
+          scheduledAt: updated.scheduledAt ?? scheduledAt,
+          notified,
+          emailed,
+          ...(warning ? { warning } : {}),
+        });
+      } catch (error) {
+        console.error("Error scheduling work order:", error);
+        res.status(500).json({ error: "Failed to schedule work order" });
+      }
+    },
+  );
+
   app.patch("/api/work-orders/:id/status", isAuthenticated, requireCompanyModule("maintenance"), async (req: any, res) => {
     try {
       const userId = req.user.id;

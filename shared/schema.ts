@@ -1960,6 +1960,8 @@ export const workOrders = pgTable("work_orders", {
   assignedToId: varchar("assigned_to_id"), // Specific team member assigned
   status: workOrderStatusEnum("status").notNull().default("assigned"),
   slaDue: timestamp("sla_due"), // Service Level Agreement deadline
+  /** Visit / job schedule (technician-set after quote accepted). Distinct from slaDue. */
+  scheduledAt: timestamp("scheduled_at"),
   costEstimate: integer("cost_estimate"), // In cents
   costActual: integer("cost_actual"), // In cents
   variationNotes: text("variation_notes"), // Notes on cost variations
@@ -1987,6 +1989,7 @@ export const workOrders = pgTable("work_orders", {
 
 export const insertWorkOrderSchema = createInsertSchema(workOrders, {
   slaDue: z.union([z.date(), z.string().transform((s) => s ? new Date(s) : undefined)]).optional(),
+  scheduledAt: z.union([z.date(), z.string().transform((s) => s ? new Date(s) : undefined)]).optional(),
 }).omit({
   id: true,
   organizationId: true,

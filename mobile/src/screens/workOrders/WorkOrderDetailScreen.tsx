@@ -9,6 +9,7 @@ import {
   TouchableOpacity,
   Platform,
   Image,
+  Modal,
 } from 'react-native';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
@@ -107,9 +108,16 @@ export default function WorkOrderDetailScreen() {
   const [showCertificates, setShowCertificates] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editChecklistId, setEditChecklistId] = useState('__none__');
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [scheduleDate, setScheduleDate] = useState<Date | null>(null);
+  const [scheduleTime, setScheduleTime] = useState('09:00');
 
   const isOwner = user?.role === 'owner';
-  const canUpdateStatus = user?.role === 'clerk' || user?.role === 'contractor' || isOwner;
+  const isMaintenanceAdmin = user?.role === 'maintenance_admin';
+  const canUpdateStatus =
+    user?.role === 'clerk' || user?.role === 'contractor' || isOwner || isMaintenanceAdmin;
+  const canSchedule =
+    user?.role === 'contractor' || isOwner || isMaintenanceAdmin;
   const isTerminal = (status: string) => status === 'completed' || status === 'rejected';
 
   const [editTeamId, setEditTeamId] = useState('unassigned');
@@ -204,6 +212,67 @@ export default function WorkOrderDetailScreen() {
       Alert.alert('Error', error?.message || 'Failed to update work order');
     },
   });
+
+  const scheduleMutation = useMutation({
+    mutationFn: (scheduledAt: string) =>
+      maintenanceService.scheduleWorkOrder(workOrderId, scheduledAt),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/work-orders'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/work-orders', workOrderId] });
+      setShowScheduleModal(false);
+      const notifyMsg =
+        result.warning ||
+        (result.emailed || result.notified
+          ? 'Tenant notified'
+          : 'No tenant email on file');
+      Alert.alert('Scheduled', notifyMsg);
+    },
+    onError: (error: any) => {
+      Alert.alert('Error', error?.message || 'Failed to schedule job');
+    },
+  });
+
+  const openScheduleModal = () => {
+    const existing = parseSlaDate(query.data?.scheduledAt);
+    const base = existing && existing.getTime() >= Date.now() - 60_000 ? existing : new Date();
+    // Snap to next round hour if creating fresh
+    if (!existing) {
+      base.setMinutes(0, 0, 0);
+      if (base.getTime() < Date.now()) {
+        base.setHours(base.getHours() + 1);
+      }
+    }
+    setScheduleDate(base);
+    setScheduleTime(
+      `${String(base.getHours()).padStart(2, '0')}:${String(base.getMinutes()).padStart(2, '0')}`,
+    );
+    setShowScheduleModal(true);
+  };
+
+  const confirmSchedule = () => {
+    if (!scheduleDate) {
+      Alert.alert('Missing date', 'Choose a visit date');
+      return;
+    }
+    const match = /^(\d{1,2}):(\d{2})$/.exec((scheduleTime || '').trim());
+    if (!match) {
+      Alert.alert('Invalid time', 'Use HH:MM (24-hour), e.g. 14:30');
+      return;
+    }
+    const hours = Number(match[1]);
+    const minutes = Number(match[2]);
+    if (hours > 23 || minutes > 59) {
+      Alert.alert('Invalid time', 'Use HH:MM (24-hour), e.g. 14:30');
+      return;
+    }
+    const when = new Date(scheduleDate);
+    when.setHours(hours, minutes, 0, 0);
+    if (when.getTime() < Date.now() - 60_000) {
+      Alert.alert('Invalid time', 'Scheduled time must be now or in the future');
+      return;
+    }
+    scheduleMutation.mutate(when.toISOString());
+  };
 
   const onRefresh = useCallback(() => {
     void query.refetch();
@@ -345,7 +414,17 @@ export default function WorkOrderDetailScreen() {
         year: 'numeric',
       })
     : null;
+  const scheduledLabel = wo.scheduledAt
+    ? new Date(wo.scheduledAt).toLocaleString(undefined, {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      })
+    : null;
   const overdue = isOverdue(wo.slaDue, wo.status);
+  const isAuthorised = wo.authorisationStatus === 'authorised';
   const softStatusBg = isDark ? status.color + '33' : status.softBg;
   const softPriorityBg = isDark ? priority.color + '33' : priority.softBg;
   const accentColor = overdue ? '#DC2626' : status.color;
@@ -355,6 +434,7 @@ export default function WorkOrderDetailScreen() {
     ? `${wo.contractor.firstName || ''} ${wo.contractor.lastName || ''}`.trim()
     : '';
   const description = wo.maintenanceRequest?.description?.trim() || '';
+  const showScheduleSection = !!(location || due || scheduledLabel || (canSchedule && !editing));
 
   const InfoRow = ({
     icon,
@@ -483,7 +563,7 @@ export default function WorkOrderDetailScreen() {
         )}
 
         {/* Location & schedule */}
-        {(location || due) && !editing && (
+        {showScheduleSection && !editing && (
           <Card
             style={[
               styles.sectionCard,
@@ -521,7 +601,42 @@ export default function WorkOrderDetailScreen() {
                   warn={overdue}
                 />
               )}
+              {!!scheduledLabel && (
+                <InfoRow
+                  icon={<Clock size={16} color={themeColors.primary.DEFAULT} />}
+                  label="Scheduled visit"
+                  value={scheduledLabel}
+                />
+              )}
             </View>
+            {canSchedule && !isTerminal(wo.status) && isAuthorised ? (
+              <View style={{ marginTop: spacing[3] }}>
+                <Button
+                  title={
+                    scheduleMutation.isPending
+                      ? 'Scheduling…'
+                      : scheduledLabel
+                        ? 'Reschedule'
+                        : 'Schedule Job'
+                  }
+                  onPress={openScheduleModal}
+                  disabled={scheduleMutation.isPending}
+                  icon={<Calendar size={16} color="#fff" />}
+                />
+              </View>
+            ) : null}
+            {canSchedule &&
+            !isTerminal(wo.status) &&
+            wo.authorisationStatus === 'quote_required' ? (
+              <Text
+                style={[
+                  styles.hint,
+                  { color: themeColors.text.secondary, marginTop: spacing[3] },
+                ]}
+              >
+                Accept quotation before scheduling
+              </Text>
+            ) : null}
           </Card>
         )}
 
@@ -837,6 +952,57 @@ export default function WorkOrderDetailScreen() {
         onClose={() => setShowCertificates(false)}
       />
 
+      <Modal
+        visible={showScheduleModal}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowScheduleModal(false)}
+      >
+        <View style={styles.scheduleModalBackdrop}>
+          <View
+            style={[
+              styles.scheduleModalCard,
+              { backgroundColor: themeColors.card?.DEFAULT || themeColors.background },
+            ]}
+          >
+            <Text style={[styles.sectionTitle, { color: themeColors.text.primary }]}>
+              {scheduledLabel ? 'Reschedule Job' : 'Schedule Job'}
+            </Text>
+            <Text style={[styles.hint, { color: themeColors.text.secondary, marginBottom: spacing[3] }]}>
+              Active tenants will be notified of the visit time.
+            </Text>
+            <DatePicker
+              label="Visit date"
+              value={scheduleDate}
+              onChange={setScheduleDate}
+              minimumDate={new Date()}
+              mode="date"
+            />
+            <Input
+              label="Visit time (24h)"
+              value={scheduleTime}
+              onChangeText={setScheduleTime}
+              placeholder="09:00"
+              autoCapitalize="none"
+              keyboardType="numbers-and-punctuation"
+            />
+            <View style={{ gap: spacing[2], marginTop: spacing[3] }}>
+              <Button
+                title={scheduleMutation.isPending ? 'Saving…' : 'Confirm schedule'}
+                onPress={confirmSchedule}
+                disabled={scheduleMutation.isPending}
+              />
+              <Button
+                title="Cancel"
+                variant="outline"
+                onPress={() => setShowScheduleModal(false)}
+                disabled={scheduleMutation.isPending}
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
+
     </View>
   );
 }
@@ -1046,5 +1212,17 @@ const styles = StyleSheet.create({
   activityMeta: {
     fontSize: getFontSize(11),
     marginTop: 2,
+  },
+  scheduleModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'flex-end',
+  },
+  scheduleModalCard: {
+    borderTopLeftRadius: borderRadius.xl,
+    borderTopRightRadius: borderRadius.xl,
+    padding: spacing[4],
+    paddingBottom: spacing[8],
+    gap: spacing[2],
   },
 });

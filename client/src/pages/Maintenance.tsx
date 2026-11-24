@@ -101,6 +101,8 @@ interface WorkOrder {
   id: string;
   status: string;
   slaDue?: string | null;
+  scheduledAt?: string | null;
+  authorisationStatus?: string | null;
   costEstimate?: number | null;
   costActual?: number | null;
   createdAt: string;
@@ -203,6 +205,8 @@ export default function Maintenance() {
   const [completeWorkOrderId, setCompleteWorkOrderId] = useState<string | null>(null);
   const [requestToDelete, setRequestToDelete] = useState<MaintenanceRequestWithDetails | null>(null);
   const [workOrderToDelete, setWorkOrderToDelete] = useState<WorkOrder | null>(null);
+  const [scheduleWorkOrder, setScheduleWorkOrder] = useState<WorkOrder | null>(null);
+  const [scheduleAtLocal, setScheduleAtLocal] = useState("");
 
   const { data: completionChecklists = [] } = useQuery<any[]>({
     queryKey: ["/api/completion-checklists"],
@@ -317,6 +321,57 @@ export default function Maintenance() {
     },
     onError: () => {
       toast({ title: "Failed to update work order status", variant: "destructive" });
+    },
+  });
+
+  const canScheduleWorkOrder =
+    user?.role === "owner" ||
+    user?.role === "contractor" ||
+    user?.role === "maintenance_admin";
+
+  const openScheduleDialog = (workOrder: WorkOrder) => {
+    const existing = workOrder.scheduledAt ? new Date(workOrder.scheduledAt) : null;
+    const base =
+      existing && !Number.isNaN(existing.getTime()) && existing.getTime() >= Date.now() - 60_000
+        ? existing
+        : new Date();
+    if (!existing) {
+      base.setMinutes(0, 0, 0);
+      if (base.getTime() < Date.now()) {
+        base.setHours(base.getHours() + 1);
+      }
+    }
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const local = `${base.getFullYear()}-${pad(base.getMonth() + 1)}-${pad(base.getDate())}T${pad(base.getHours())}:${pad(base.getMinutes())}`;
+    setScheduleAtLocal(local);
+    setScheduleWorkOrder(workOrder);
+  };
+
+  const scheduleWorkOrderMutation = useMutation({
+    mutationFn: async ({ id, scheduledAt }: { id: string; scheduledAt: string }) => {
+      const res = await apiRequest("POST", `/api/work-orders/${id}/schedule`, { scheduledAt });
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/work-orders"] });
+      setScheduleWorkOrder(null);
+      if (selectedWorkOrderDetail && data?.id === selectedWorkOrderDetail.id) {
+        setSelectedWorkOrderDetail({
+          ...selectedWorkOrderDetail,
+          scheduledAt: data.scheduledAt ?? selectedWorkOrderDetail.scheduledAt,
+        });
+      }
+      toast({
+        title: "Job scheduled",
+        description: data?.warning || (data?.emailed || data?.notified ? "Tenant notified" : "No tenant email on file"),
+      });
+    },
+    onError: (e: any) => {
+      toast({
+        title: "Failed to schedule job",
+        description: e?.message || "Failed to schedule job",
+        variant: "destructive",
+      });
     },
   });
 
@@ -2148,6 +2203,21 @@ export default function Maintenance() {
                               </div>
                             )}
 
+                            {workOrder.scheduledAt && (
+                              <div className="flex items-center gap-2 text-sm">
+                                <Clock className="h-4 w-4 text-muted-foreground shrink-0" />
+                                <div>
+                                  <p className="font-medium">Scheduled visit</p>
+                                  <p className="text-muted-foreground">
+                                    {new Date(workOrder.scheduledAt).toLocaleString(undefined, {
+                                      dateStyle: "medium",
+                                      timeStyle: "short",
+                                    })}
+                                  </p>
+                                </div>
+                              </div>
+                            )}
+
                             {(workOrder.costEstimate || workOrder.costActual) && (
                               <div className="flex items-center gap-2 text-sm">
                                 <span className="h-4 w-4 text-muted-foreground flex items-center justify-center font-semibold shrink-0">£</span>
@@ -2210,6 +2280,29 @@ export default function Maintenance() {
                                 View details
                               </Button>
                             )}
+                            {canScheduleWorkOrder &&
+                              workOrder.status !== "completed" &&
+                              workOrder.status !== "rejected" &&
+                              workOrder.authorisationStatus === "authorised" && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8"
+                                  onClick={() => openScheduleDialog(workOrder)}
+                                  data-testid={`button-schedule-work-order-${workOrder.id}`}
+                                >
+                                  <Calendar className="w-3.5 h-3.5 mr-1.5" />
+                                  {workOrder.scheduledAt ? "Reschedule" : "Schedule Job"}
+                                </Button>
+                              )}
+                            {canScheduleWorkOrder &&
+                              workOrder.status !== "completed" &&
+                              workOrder.status !== "rejected" &&
+                              workOrder.authorisationStatus === "quote_required" && (
+                                <span className="text-xs text-muted-foreground self-center">
+                                  Accept quotation before scheduling
+                                </span>
+                              )}
                             <WorkOrderFinanceLinks workOrderId={workOrder.id} />
                           </div>
                         </CardContent>
@@ -2255,6 +2348,39 @@ export default function Maintenance() {
                     {selectedWorkOrderDetail.maintenanceRequest.description}
                   </p>
                 )}
+                {selectedWorkOrderDetail.scheduledAt && (
+                  <div className="rounded-md border p-3 text-sm">
+                    <p className="font-medium">Scheduled visit</p>
+                    <p className="text-muted-foreground">
+                      {new Date(selectedWorkOrderDetail.scheduledAt).toLocaleString(undefined, {
+                        dateStyle: "full",
+                        timeStyle: "short",
+                      })}
+                    </p>
+                  </div>
+                )}
+                {canScheduleWorkOrder &&
+                  selectedWorkOrderDetail.status !== "completed" &&
+                  selectedWorkOrderDetail.status !== "rejected" &&
+                  selectedWorkOrderDetail.authorisationStatus === "authorised" && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => openScheduleDialog(selectedWorkOrderDetail)}
+                      data-testid="button-schedule-work-order-detail"
+                    >
+                      <Calendar className="w-3.5 h-3.5 mr-1.5" />
+                      {selectedWorkOrderDetail.scheduledAt ? "Reschedule" : "Schedule Job"}
+                    </Button>
+                  )}
+                {canScheduleWorkOrder &&
+                  selectedWorkOrderDetail.status !== "completed" &&
+                  selectedWorkOrderDetail.status !== "rejected" &&
+                  selectedWorkOrderDetail.authorisationStatus === "quote_required" && (
+                    <p className="text-xs text-muted-foreground">
+                      Accept quotation before scheduling
+                    </p>
+                  )}
                 {selectedWorkOrderDetail.status !== "completed" &&
                   selectedWorkOrderDetail.status !== "rejected" && (
                   <div className="space-y-2">
@@ -2343,6 +2469,66 @@ export default function Maintenance() {
           workOrders.find((w: any) => w.id === completeWorkOrderId)?.customerSignatureJson
         }
       />
+
+      <Dialog
+        open={!!scheduleWorkOrder}
+        onOpenChange={(open) => {
+          if (!open) setScheduleWorkOrder(null);
+        }}
+      >
+        <DialogContent className={cn(dialogContentBase, "max-w-md")} data-testid="dialog-schedule-work-order">
+          <DialogHeader>
+            <DialogTitle>
+              {scheduleWorkOrder?.scheduledAt ? "Reschedule Job" : "Schedule Job"}
+            </DialogTitle>
+            <DialogDescription>
+              {scheduleWorkOrder?.maintenanceRequest?.title || "Set a visit time. Active tenants will be notified."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="schedule-at">Visit date and time</Label>
+              <Input
+                id="schedule-at"
+                type="datetime-local"
+                value={scheduleAtLocal}
+                onChange={(e) => setScheduleAtLocal(e.target.value)}
+                data-testid="input-schedule-at"
+              />
+              <p className="text-xs text-muted-foreground">
+                Active tenants at the property will receive email and in-app notice.
+              </p>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setScheduleWorkOrder(null)}
+                disabled={scheduleWorkOrderMutation.isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                data-testid="button-confirm-schedule"
+                disabled={scheduleWorkOrderMutation.isPending || !scheduleAtLocal}
+                onClick={() => {
+                  if (!scheduleWorkOrder || !scheduleAtLocal) return;
+                  const when = new Date(scheduleAtLocal);
+                  if (Number.isNaN(when.getTime())) {
+                    toast({ title: "Invalid date/time", variant: "destructive" });
+                    return;
+                  }
+                  scheduleWorkOrderMutation.mutate({
+                    id: scheduleWorkOrder.id,
+                    scheduledAt: when.toISOString(),
+                  });
+                }}
+              >
+                {scheduleWorkOrderMutation.isPending ? "Saving…" : "Confirm schedule"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Work Order Creation Dialog */}
       {selectedRequestForWorkOrder && (
