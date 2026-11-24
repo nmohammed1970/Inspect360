@@ -8,10 +8,7 @@ import {
   canAccessWorkOrder,
   type WorkOrderIdentity,
 } from "../workOrderAccess";
-import {
-  sendQuoteOwnerDecisionEmail,
-  sendQuoteToCustomerEmail,
-} from "./maintenanceFinanceEmails";
+import { sendQuoteToCustomerEmail } from "./maintenanceFinanceEmails";
 import {
   maintenanceQuoteLines,
   maintenanceQuotes,
@@ -27,7 +24,6 @@ import {
   formatQuoteReference,
   isQuoteEditable,
   isQuoteRevisable,
-  ownerDecisionSchema,
   quoteHeaderPatchSchema,
   quoteLinesReplaceSchema,
 } from "@shared/maintenanceQuoteConstants";
@@ -475,7 +471,7 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
         if (!quote) {
           return res.status(404).json({ message: "Quote not found" });
         }
-        const recipientOnlyStatuses = ["owner_approved", "sent"];
+        const recipientOnlyStatuses = ["sent"];
         const fullEdit = isQuoteEditable(quote.status);
         const recipientOnly = recipientOnlyStatuses.includes(quote.status);
         if (!fullEdit && !recipientOnly) {
@@ -667,175 +663,27 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
   app.post(
     "/api/work-orders/:workOrderId/quotes/:quoteId/submit",
     ...quoteGuards,
-    async (req: any, res: Response) => {
-      try {
-        const organizationId = orgId(req);
-        const access = await assertWoAccess(req.user, req.params.workOrderId);
-        if ("error" in access) {
-          return res.status(access.error).json({ message: access.message });
-        }
-
-        const quote = await getQuoteForWo(
-          organizationId,
-          req.params.workOrderId,
-          req.params.quoteId,
-        );
-        if (!quote) {
-          return res.status(404).json({ message: "Quote not found" });
-        }
-
-        if (quote.status !== "draft" && quote.status !== "owner_changes_requested") {
-          return res
-            .status(409)
-            .json({ message: "Only draft quotes can be submitted for approval" });
-        }
-
-        const lines = await loadLines(quote.id);
-        const namedLines = lines.filter((l) => (l.name || "").trim().length > 0);
-        if (namedLines.length === 0) {
-          return res.status(400).json({ message: "Add at least one named line before submitting" });
-        }
-
-        transitionOrThrow(
-          quote.status,
-          "pending_owner_approval",
-          req.user.role === "owner" || req.user.role === "maintenance_admin"
-            ? "owner"
-            : "staff",
-        );
-
-        const [updated] = await db
-          .update(maintenanceQuotes)
-          .set({
-            status: "pending_owner_approval",
-            submittedAt: new Date(),
-            submittedByUserId: req.user.id,
-            updatedAt: new Date(),
-          })
-          .where(eq(maintenanceQuotes.id, quote.id))
-          .returning();
-
-        await appendWorkOrderEvent({
-          organizationId,
-          workOrderId: quote.workOrderId,
-          eventType: "quote_submitted",
-          actorUserId: req.user.id,
-          payload: { quoteId: quote.id },
-        });
-
-        res.json(serializeQuote(updated, lines));
-      } catch (error) {
-        console.error("[quotes] submit failed:", error);
-        res.status(500).json({ message: "Failed to submit quote" });
-      }
+    async (_req: any, res: Response) => {
+      return res.status(410).json({
+        message: "Submit for owner approval is removed. Use Send to customer instead.",
+      });
     },
   );
 
   app.post(
     "/api/work-orders/:workOrderId/quotes/:quoteId/owner-decision",
     ...quoteGuards,
-    requireRole("owner", "maintenance_admin"),
-    async (req: any, res: Response) => {
-      try {
-        const organizationId = orgId(req);
-        const access = await assertWoAccess(req.user, req.params.workOrderId);
-        if ("error" in access) {
-          return res.status(access.error).json({ message: access.message });
-        }
-
-        const quote = await getQuoteForWo(
-          organizationId,
-          req.params.workOrderId,
-          req.params.quoteId,
-        );
-        if (!quote) return res.status(404).json({ message: "Quote not found" });
-        if (quote.status !== "pending_owner_approval") {
-          return res.status(409).json({ message: "Quote is not awaiting owner approval" });
-        }
-
-        const parsed = ownerDecisionSchema.safeParse(req.body);
-        if (!parsed.success) {
-          return res.status(400).json({ message: "Invalid decision", errors: parsed.error.flatten() });
-        }
-
-        const { decision, reason } = parsed.data;
-        if (
-          (decision === "reject" || decision === "request_changes") &&
-          !(reason || "").trim()
-        ) {
-          return res.status(400).json({ message: "Reason is required for reject / request changes" });
-        }
-
-        const statusMap = {
-          approve: "owner_approved",
-          reject: "owner_rejected",
-          request_changes: "owner_changes_requested",
-        } as const;
-        const nextStatus = statusMap[decision];
-        transitionOrThrow(quote.status, nextStatus, "owner");
-
-        const [updated] = await db
-          .update(maintenanceQuotes)
-          .set({
-            status: nextStatus,
-            ownerDecision: decision,
-            ownerDecisionReason: reason?.trim() || null,
-            ownerDecidedAt: new Date(),
-            ownerDecidedByUserId: req.user.id,
-            updatedAt: new Date(),
-          })
-          .where(eq(maintenanceQuotes.id, quote.id))
-          .returning();
-
-        await appendWorkOrderEvent({
-          organizationId,
-          workOrderId: quote.workOrderId,
-          eventType: "quote_owner_decision",
-          actorUserId: req.user.id,
-          payload: { quoteId: quote.id, decision, nextStatus },
-        });
-
-        const lines = await loadLines(quote.id);
-        const ctx = await loadWoContext(quote.workOrderId, organizationId);
-
-        // Best-effort notify preparer
-        try {
-          const preparer = await storage.getUser(quote.preparedByUserId);
-          if (preparer?.email) {
-            await sendQuoteOwnerDecisionEmail({
-              to: preparer.email,
-              organizationId,
-              workOrderId: quote.workOrderId,
-              quoteId: quote.id,
-              quoteReference: quote.quoteReference,
-              decision,
-              reason,
-              currency: quote.currency,
-              subtotalMinor: quote.subtotalMinor,
-              taxMinor: quote.taxMinor,
-              totalMinor: quote.totalMinor,
-              lines,
-              issueTitle: ctx?.issueTitle,
-              locationLabel: ctx?.locationLabel,
-              baseUrl: publicAppBaseUrl(req),
-            });
-          }
-        } catch (emailErr) {
-          console.warn("[quotes] owner-decision email failed:", emailErr);
-        }
-
-        res.json(serializeQuote(updated, lines));
-      } catch (error: any) {
-        console.error("[quotes] owner-decision failed:", error);
-        res.status(500).json({ message: error?.message || "Failed to record owner decision" });
-      }
+    async (_req: any, res: Response) => {
+      return res.status(410).json({
+        message: "Owner approval is removed. Send the quote directly to the customer.",
+      });
     },
   );
 
   app.post(
     "/api/work-orders/:workOrderId/quotes/:quoteId/send",
     ...quoteGuards,
-    requireRole("owner", "maintenance_admin"),
+    requireRole("owner", "maintenance_admin", "contractor"),
     async (req: any, res: Response) => {
       try {
         const organizationId = orgId(req);
@@ -852,13 +700,25 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
         if (!quote) return res.status(404).json({ message: "Quote not found" });
 
         const isResend = quote.status === "sent";
-        if (quote.status !== "owner_approved" && !isResend) {
+        if (quote.status !== "draft" && !isResend) {
           return res.status(409).json({
-            message: "Quote must be owner-approved before sending to the customer",
+            message: "Only draft quotes can be sent to the customer (or resent when already sent)",
           });
         }
         if (!isResend) {
-          transitionOrThrow(quote.status, "sent", "owner");
+          const sendActor =
+            req.user.role === "owner" || req.user.role === "maintenance_admin"
+              ? "owner"
+              : "staff";
+          transitionOrThrow(quote.status, "sent", sendActor);
+
+          const lines = await loadLines(quote.id);
+          const namedLines = lines.filter((l) => (l.name || "").trim().length > 0);
+          if (namedLines.length === 0) {
+            return res.status(400).json({
+              message: "Add at least one named line before sending",
+            });
+          }
         }
 
         if (!(quote.recipientName || "").trim() || !(quote.recipientEmail || "").trim()) {
@@ -873,6 +733,13 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
           createdByUserId: req.user.id,
         });
 
+        const firstSendPatch = !isResend
+          ? {
+              submittedAt: new Date(),
+              submittedByUserId: req.user.id as string,
+            }
+          : {};
+
         const [updated] = await db
           .update(maintenanceQuotes)
           .set({
@@ -880,6 +747,7 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
             sentAt: new Date(),
             expiresAt,
             updatedAt: new Date(),
+            ...firstSendPatch,
           })
           .where(eq(maintenanceQuotes.id, quote.id))
           .returning();
@@ -953,7 +821,7 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
   app.post(
     "/api/work-orders/:workOrderId/quotes/:quoteId/resend",
     ...quoteGuards,
-    requireRole("owner", "maintenance_admin"),
+    requireRole("owner", "maintenance_admin", "contractor"),
     async (req: any, res: Response) => {
       // Alias of send (handles status === sent).
       try {
@@ -968,7 +836,7 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
           req.params.quoteId,
         );
         if (!quote) return res.status(404).json({ message: "Quote not found" });
-        if (quote.status !== "sent" && quote.status !== "owner_approved") {
+        if (quote.status !== "sent") {
           return res.status(409).json({ message: "Quote cannot be resent in this status" });
         }
         if (!(quote.recipientName || "").trim() || !(quote.recipientEmail || "").trim()) {

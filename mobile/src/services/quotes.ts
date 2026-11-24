@@ -141,10 +141,13 @@ export const quotesService = {
     );
   },
 
-  async submitQuote(workOrderId: string, quoteId: string): Promise<MaintenanceQuote> {
-    return apiRequestJson<MaintenanceQuote>(
+  async sendQuote(
+    workOrderId: string,
+    quoteId: string,
+  ): Promise<MaintenanceQuote & { publicLink?: string; emailSent?: boolean; emailError?: string | null }> {
+    return apiRequestJson(
       'POST',
-      `/api/work-orders/${workOrderId}/quotes/${quoteId}/submit`,
+      `/api/work-orders/${workOrderId}/quotes/${quoteId}/send`,
     );
   },
 

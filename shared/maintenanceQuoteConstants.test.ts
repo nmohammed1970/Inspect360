@@ -13,19 +13,27 @@ function check(cond: boolean, msg: string) {
   }
 }
 
-check(canTransitionQuote("draft", "pending_owner_approval", "staff"), "staff submit");
-check(!canTransitionQuote("draft", "sent", "owner"), "no draft→sent");
-check(!canTransitionQuote("pending_owner_approval", "sent", "owner"), "no pending→sent");
-check(canTransitionQuote("pending_owner_approval", "owner_approved", "owner"), "owner approve");
-check(!canTransitionQuote("pending_owner_approval", "owner_approved", "staff"), "staff cannot approve");
-check(canTransitionQuote("owner_approved", "sent", "owner"), "owner send");
-check(!canTransitionQuote("owner_approved", "accepted", "owner"), "no owner skip customer");
+check(canTransitionQuote("draft", "sent", "staff"), "staff send from draft");
+check(canTransitionQuote("draft", "sent", "owner"), "owner send from draft");
+check(!canTransitionQuote("draft", "accepted", "owner"), "no draft→accepted");
+check(!canTransitionQuote("draft", "sent", "customer"), "customer cannot send");
 check(canTransitionQuote("sent", "accepted", "customer"), "customer accept");
-check(canTransitionQuote("accepted", "converted", "owner"), "convert");
-check(canTransitionQuote("owner_rejected", "superseded", "staff"), "revise path");
+check(canTransitionQuote("sent", "declined", "customer"), "customer decline");
+check(
+  canTransitionQuote("sent", "customer_changes_requested", "customer"),
+  "customer request changes",
+);
+check(!canTransitionQuote("sent", "accepted", "owner"), "owner cannot accept");
+check(canTransitionQuote("accepted", "converted", "owner"), "owner convert");
+check(canTransitionQuote("accepted", "converted", "staff"), "staff convert");
+check(canTransitionQuote("declined", "superseded", "staff"), "revise from declined");
+check(
+  canTransitionQuote("customer_changes_requested", "superseded", "owner"),
+  "revise from customer changes",
+);
 
 try {
-  assertQuoteTransition("draft", "sent", "owner");
+  assertQuoteTransition("draft", "accepted", "owner");
   check(false, "assert should throw");
 } catch {
   check(true, "assert throws on illegal");

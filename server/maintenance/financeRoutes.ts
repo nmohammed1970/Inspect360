@@ -33,24 +33,9 @@ export function registerMaintenanceFinanceRoutes(app: Express) {
   app.get(
     "/api/maintenance-finance/pending-owner-approvals",
     ...ownerGuards,
-    async (req: any, res: Response) => {
-      try {
-        const organizationId = req.user.organizationId as string;
-        const rows = await db
-          .select()
-          .from(maintenanceQuotes)
-          .where(
-            and(
-              eq(maintenanceQuotes.organizationId, organizationId),
-              eq(maintenanceQuotes.status, "pending_owner_approval"),
-            ),
-          )
-          .orderBy(desc(maintenanceQuotes.submittedAt));
-        res.json(rows);
-      } catch (error) {
-        console.error("[finance] pending approvals failed:", error);
-        res.status(500).json({ message: "Failed to load pending approvals" });
-      }
+    async (_req: any, res: Response) => {
+      // Owner-approval stage removed; keep endpoint for older clients.
+      res.json([]);
     },
   );
 
@@ -60,11 +45,8 @@ export function registerMaintenanceFinanceRoutes(app: Express) {
     async (req: any, res: Response) => {
       try {
         const organizationId = req.user.organizationId as string;
-        const isOwner =
-          req.user.role === "owner" || req.user.role === "maintenance_admin";
 
         const [
-          pendingOwnerApproval,
           awaitingCustomer,
           customerAccepted,
           quoteHistory,
@@ -72,18 +54,6 @@ export function registerMaintenanceFinanceRoutes(app: Express) {
           drafts,
           invoiceHistory,
         ] = await Promise.all([
-          isOwner
-            ? db
-                .select()
-                .from(maintenanceQuotes)
-                .where(
-                  and(
-                    eq(maintenanceQuotes.organizationId, organizationId),
-                    eq(maintenanceQuotes.status, "pending_owner_approval"),
-                  ),
-                )
-                .orderBy(desc(maintenanceQuotes.submittedAt))
-            : Promise.resolve([]),
           db
             .select()
             .from(maintenanceQuotes)
@@ -116,7 +86,6 @@ export function registerMaintenanceFinanceRoutes(app: Express) {
                 inArray(maintenanceQuotes.status, [
                   "declined",
                   "converted",
-                  "owner_rejected",
                   "cancelled",
                   "superseded",
                   "expired",
@@ -165,6 +134,7 @@ export function registerMaintenanceFinanceRoutes(app: Express) {
             .limit(HISTORY_LIMIT),
         ]);
 
+        const pendingOwnerApproval: typeof awaitingCustomer = [];
         const quotes = {
           pendingOwnerApproval,
           awaitingCustomer,
@@ -181,7 +151,7 @@ export function registerMaintenanceFinanceRoutes(app: Express) {
           quotes,
           invoices,
           counts: {
-            pendingOwnerApproval: pendingOwnerApproval.length,
+            pendingOwnerApproval: 0,
             awaitingCustomer: awaitingCustomer.length,
             customerAccepted: customerAccepted.length,
             quoteHistory: quoteHistory.length,

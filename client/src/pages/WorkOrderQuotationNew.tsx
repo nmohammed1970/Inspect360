@@ -24,7 +24,7 @@ export default function WorkOrderQuotationNew() {
         });
         if (existingRes.ok) {
           const list = (await existingRes.json()) as Array<{ id: string; status: string }>;
-          const draft = list.find((q) => q.status === "draft" || q.status === "owner_changes_requested");
+          const draft = list.find((q) => q.status === "draft");
           if (draft) {
             setLocation(`/work-orders/${workOrderId}/quotes/${draft.id}`, { replace: true });
             return;

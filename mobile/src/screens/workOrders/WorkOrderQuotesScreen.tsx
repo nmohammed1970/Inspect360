@@ -69,9 +69,7 @@ export default function WorkOrderQuotesScreen() {
   const createMutation = useMutation({
     mutationFn: async () => {
       const list = query.data ?? (await quotesService.listQuotes(workOrderId));
-      const draft = list.find(
-        (q) => q.status === 'draft' || q.status === 'owner_changes_requested',
-      );
+        const draft = list.find((q) => q.status === 'draft');
       if (draft) return draft;
       return quotesService.createQuote(workOrderId);
     },
@@ -248,7 +246,7 @@ export default function WorkOrderQuotesScreen() {
         <View style={styles.headerText}>
           <Text style={[styles.title, { color: themeColors.text.primary }]}>Quotations</Text>
           <Text style={[styles.subtitle, { color: themeColors.text.secondary }]}>
-            Create and submit drafts for owner approval
+            Create drafts and send them to the customer
           </Text>
         </View>
       </View>

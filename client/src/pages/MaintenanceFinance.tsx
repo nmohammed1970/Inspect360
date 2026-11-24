@@ -16,7 +16,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useAuth } from "@/hooks/useAuth";
 import { formatMoneyMinor } from "@/components/maintenance-quotes/quoteMoney";
 import {
   MAINTENANCE_INVOICE_STATUS_LABELS,
@@ -87,9 +86,6 @@ function whenLabel(iso?: string | null): string {
 }
 
 export default function MaintenanceFinance() {
-  const { user } = useAuth();
-  const isOwner =
-    user?.role === "owner" || user?.role === "maintenance_admin";
   const [, setLocation] = useLocation();
 
   const trackingQuery = useQuery<FinanceTracking>({
@@ -107,9 +103,6 @@ export default function MaintenanceFinance() {
   const counts = data?.counts;
 
   const countChips = [
-    ...(isOwner
-      ? [{ label: "Pending", value: counts?.pendingOwnerApproval ?? 0 }]
-      : []),
     { label: "Awaiting", value: counts?.awaitingCustomer ?? 0 },
     { label: "Accepted", value: counts?.customerAccepted ?? 0 },
     { label: "Outstanding", value: counts?.outstandingInvoices ?? 0 },
@@ -163,19 +156,6 @@ export default function MaintenanceFinance() {
             </p>
           ) : (
             <>
-              {isOwner ? (
-                <QuoteTableSection
-                  title="Pending owner approval"
-                  subtitle="Waiting for you to approve, reject, or request changes"
-                  rows={data?.quotes.pendingOwnerApproval || []}
-                  dateFor={(q) => q.submittedAt || q.updatedAt}
-                  highlight
-                  onOpen={(q) =>
-                    setLocation(`/work-orders/${q.workOrderId}/quotes/${q.id}`)
-                  }
-                />
-              ) : null}
-
               <QuoteTableSection
                 title="Awaiting customer response"
                 subtitle="Sent to the customer, or changes requested"

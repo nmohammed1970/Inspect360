@@ -137,8 +137,8 @@ export default function WorkOrderQuoteBuilderScreen() {
   const { user } = useAuth();
   const canEditRecipient =
     user?.role === 'owner' || user?.role === 'maintenance_admin';
-  const canConvertQuote =
-    canEditRecipient || user?.role === 'contractor';
+  const canSendQuote = canEditRecipient || user?.role === 'contractor';
+  const canConvertQuote = canSendQuote;
 
   const [quoteId, setQuoteId] = useState<string | undefined>(routeQuoteId);
   const [bootError, setBootError] = useState<string | null>(null);
@@ -163,9 +163,7 @@ export default function WorkOrderQuoteBuilderScreen() {
     (async () => {
       try {
         const list = await quotesService.listQuotes(workOrderId);
-        const draft = list.find(
-          (q) => q.status === 'draft' || q.status === 'owner_changes_requested',
-        );
+        const draft = list.find((q) => q.status === 'draft');
         if (draft) {
           setQuoteId(draft.id);
         } else {
@@ -361,36 +359,56 @@ export default function WorkOrderQuoteBuilderScreen() {
     },
   });
 
-  const submitMutation = useMutation({
+  const sendMutation = useMutation({
     mutationFn: async () => {
       if (!quoteId) throw new Error('Quote not ready');
-      const named = toWriteLines();
-      if (named.length === 0) {
-        throw new Error('Add at least one named line before submitting');
+      const isResend = quoteQuery.data?.status === 'sent';
+      if (!isResend) {
+        const named = toWriteLines();
+        if (named.length === 0) {
+          throw new Error('Add at least one named line before sending');
+        }
+        if (!recipientName.trim() || !recipientEmail.trim()) {
+          throw new Error(
+            canEditRecipient
+              ? 'Select a customer with name and email before sending'
+              : 'An admin must set the customer before you can send',
+          );
+        }
+        await quotesService.patchQuote(workOrderId, quoteId, {
+          ...(canEditRecipient
+            ? {
+                recipientUserId: recipientUserId || null,
+                recipientName: recipientName.trim() || null,
+                recipientEmail: recipientEmail.trim() || null,
+              }
+            : {}),
+          notes: notes.trim() || null,
+        });
+        await quotesService.putLines(workOrderId, quoteId, named);
       }
-      await quotesService.patchQuote(workOrderId, quoteId, {
-        ...(canEditRecipient
-          ? {
-              recipientUserId: recipientUserId || null,
-              recipientName: recipientName.trim() || null,
-              recipientEmail: recipientEmail.trim() || null,
-            }
-          : {}),
-        notes: notes.trim() || null,
-      });
-      await quotesService.putLines(workOrderId, quoteId, named);
-      return quotesService.submitQuote(workOrderId, quoteId);
+      return quotesService.sendQuote(workOrderId, quoteId);
     },
     onSuccess: (quote) => {
       queryClient.setQueryData(['work-order-quote', workOrderId, quoteId], quote);
       queryClient.invalidateQueries({ queryKey: ['work-order-quotes', workOrderId] });
       setHydrated(false);
-      Alert.alert('Submitted', 'Quotation submitted for owner approval', [
-        { text: 'OK', onPress: () => navigation.navigate('WorkOrderQuotes', { workOrderId }) },
-      ]);
+      const emailFailed = quote.emailSent === false;
+      Alert.alert(
+        emailFailed ? 'Link created — email failed' : 'Sent to customer',
+        emailFailed
+          ? quote.emailError || 'Share the public link manually if needed.'
+          : 'The customer received an email with a View & respond link.',
+        [
+          {
+            text: 'OK',
+            onPress: () => navigation.navigate('WorkOrderQuotes', { workOrderId }),
+          },
+        ],
+      );
     },
     onError: (err: Error) => {
-      Alert.alert('Submit failed', err.message || 'Please try again');
+      Alert.alert('Send failed', err.message || 'Please try again');
     },
   });
 
@@ -421,13 +439,13 @@ export default function WorkOrderQuoteBuilderScreen() {
     },
   });
 
-  const handleSubmit = () => {
+  const handleSend = () => {
     Alert.alert(
-      'Submit for approval?',
-      'The owner will review this quotation. You can still edit if they request changes.',
+      'Send to customer?',
+      'The selected customer will receive an email with a secure link to view and respond.',
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Submit', onPress: () => submitMutation.mutate() },
+        { text: 'Send', onPress: () => sendMutation.mutate() },
       ],
     );
   };
@@ -484,9 +502,11 @@ export default function WorkOrderQuoteBuilderScreen() {
 
   const quote = quoteQuery.data;
   const busy =
-    saveMutation.isPending || submitMutation.isPending || convertMutation.isPending;
+    saveMutation.isPending || sendMutation.isPending || convertMutation.isPending;
   const showConvert =
     canConvertQuote && quoteQuery.data?.status === 'accepted';
+  const showResend =
+    canSendQuote && quoteQuery.data?.status === 'sent';
   const statusText =
     MAINTENANCE_QUOTE_STATUS_LABELS[quote.status] || quote.status.replace(/_/g, ' ');
 
@@ -528,7 +548,8 @@ export default function WorkOrderQuoteBuilderScreen() {
           styles.scroll,
           {
             paddingBottom:
-              insets.bottom + (editable || showConvert ? 140 : spacing[8]),
+              insets.bottom +
+              (editable || showConvert || showResend ? 140 : spacing[8]),
           },
         ]}
         keyboardShouldPersistTaps="handled"
@@ -537,8 +558,10 @@ export default function WorkOrderQuoteBuilderScreen() {
           <Card style={styles.section}>
             <Text style={[styles.readOnlyBanner, { color: themeColors.text.secondary }]}>
               {showConvert
-                ? 'This quotation is accepted. You can convert it to an invoice below. Approve or send on the web.'
-                : 'This quotation is not editable on mobile. Approve or send on the web.'}
+                ? 'This quotation is accepted. You can convert it to an invoice below.'
+                : showResend
+                  ? 'Awaiting customer response. You can resend the email link below.'
+                  : 'This quotation is not editable while awaiting a customer response.'}
             </Text>
           </Card>
         ) : null}
@@ -725,7 +748,7 @@ export default function WorkOrderQuoteBuilderScreen() {
         </Card>
       </ScrollView>
 
-      {editable || showConvert ? (
+      {editable || showConvert || showResend ? (
         <View
           style={[
             styles.footer,
@@ -746,12 +769,20 @@ export default function WorkOrderQuoteBuilderScreen() {
                 style={styles.footerBtn}
               />
               <Button
-                title={submitMutation.isPending ? 'Submitting…' : 'Submit for approval'}
-                onPress={handleSubmit}
+                title={sendMutation.isPending ? 'Sending…' : 'Send to customer'}
+                onPress={handleSend}
                 disabled={busy}
                 style={styles.footerBtn}
               />
             </>
+          ) : null}
+          {showResend ? (
+            <Button
+              title={sendMutation.isPending ? 'Sending…' : 'Resend to customer'}
+              onPress={handleSend}
+              disabled={busy}
+              style={styles.footerBtn}
+            />
           ) : null}
           {showConvert ? (
             <Button

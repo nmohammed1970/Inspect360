@@ -472,7 +472,7 @@ export async function sendQuoteCustomerResponseEmail(input: {
     decline:
       "The customer has declined this quotation. Review their feedback and the itemised details below, then create a revision if appropriate.",
     request_changes:
-      "The customer has asked for changes. Please revise the quotation using their note and the itemised details below, resubmit for owner approval, then send again.",
+      "The customer has asked for changes. Please revise the quotation using their note and the itemised details below, then send it to the customer again.",
   } as const;
   const totalLabel = formatMoneyMinor(input.totalMinor, input.currency);
 
