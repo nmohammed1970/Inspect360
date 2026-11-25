@@ -193,3 +193,102 @@ export async function createMaintenanceConversationRow(input: {
 
   return created;
 }
+
+/**
+ * Resolve a possible user-or-contact id to an active org user id suitable
+ * for messaging_participants. Returns null if no login user exists.
+ */
+export async function resolveMessagingUserId(
+  organizationId: string,
+  candidateId: string | null | undefined,
+): Promise<string | null> {
+  if (!candidateId) return null;
+
+  const user = await storage.getUser(candidateId);
+  if (user?.organizationId === organizationId && user.isActive) {
+    return user.id;
+  }
+
+  try {
+    const contact = await storage.getContact(candidateId);
+    if (!contact || contact.organizationId !== organizationId) return null;
+    const linkedId = (contact as { linkedUserId?: string | null }).linkedUserId;
+    if (!linkedId) return null;
+    const linked = await storage.getUser(linkedId);
+    if (linked?.organizationId === organizationId && linked.isActive) {
+      return linked.id;
+    }
+  } catch {
+    /* not a contact */
+  }
+
+  return null;
+}
+
+/**
+ * Add an assignee/worker to the MR maintenance discussion thread if it exists.
+ * Idempotent; no-ops when conversation or resolvable user is missing.
+ */
+export async function addUserToMaintenanceDiscussion(input: {
+  organizationId: string;
+  maintenanceRequestId: string;
+  userId: string | null | undefined;
+}): Promise<{ added: boolean; userId: string | null }> {
+  const resolvedUserId = await resolveMessagingUserId(
+    input.organizationId,
+    input.userId,
+  );
+  if (!resolvedUserId) {
+    return { added: false, userId: null };
+  }
+
+  const conversation = await findConversationByMaintenanceRequestId(
+    input.organizationId,
+    input.maintenanceRequestId,
+  );
+  if (!conversation) {
+    return { added: false, userId: resolvedUserId };
+  }
+
+  const [existing] = await db
+    .select({ id: messagingParticipants.id })
+    .from(messagingParticipants)
+    .where(
+      and(
+        eq(messagingParticipants.conversationId, conversation.id),
+        eq(messagingParticipants.userId, resolvedUserId),
+      ),
+    )
+    .limit(1);
+  if (existing) {
+    return { added: false, userId: resolvedUserId };
+  }
+
+  await db
+    .insert(messagingParticipants)
+    .values({
+      conversationId: conversation.id,
+      userId: resolvedUserId,
+      lastReadAt: new Date(),
+    })
+    .onConflictDoNothing();
+
+  return { added: true, userId: resolvedUserId };
+}
+
+/** Fire-and-forget — never fails the calling assignment flow. */
+export function scheduleAddUserToMaintenanceDiscussion(input: {
+  organizationId: string;
+  maintenanceRequestId: string;
+  userId: string | null | undefined;
+}) {
+  if (!input.userId || !input.maintenanceRequestId) return;
+  setImmediate(() => {
+    void addUserToMaintenanceDiscussion(input).catch((err) => {
+      console.error(
+        `[messaging] addUserToMaintenanceDiscussion failed for MR ${input.maintenanceRequestId}:`,
+        err,
+      );
+    });
+  });
+}

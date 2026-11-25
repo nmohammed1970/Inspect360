@@ -17,6 +17,7 @@ import {
   Send,
   Smile,
   Trash2,
+  Users,
   X,
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
@@ -40,6 +41,12 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { getTeamRoleDisplayLabel } from "@shared/roleLabels";
 import {
@@ -126,6 +133,7 @@ export default function MessagesPage() {
   const [groupTitle, setGroupTitle] = useState("");
   const [threadSearch, setThreadSearch] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
+  const [peopleOpen, setPeopleOpen] = useState(false);
   const [forwardMsg, setForwardMsg] = useState<MessagingMessage | null>(null);
   const [pendingFiles, setPendingFiles] = useState<
     Array<{
@@ -201,6 +209,10 @@ export default function MessagesPage() {
       setListCategory("direct");
     }
   }, [activeConversation?.id, activeConversation?.type]);
+
+  useEffect(() => {
+    setPeopleOpen(false);
+  }, [activeId]);
 
   const { data: maintenanceRequestsForPicker = [] } = useQuery<
     Array<{ id: string; title: string; status: string; property?: { name?: string } | null }>
@@ -832,6 +844,32 @@ export default function MessagesPage() {
               )}
               <Button
                 variant="ghost"
+                size="sm"
+                className="h-8 shrink-0 gap-1.5"
+                onClick={() => {
+                  setPeopleOpen(true);
+                  if (activeId) {
+                    queryClient.invalidateQueries({
+                      queryKey: [
+                        "/api/messaging/conversations",
+                        activeId,
+                        "detail",
+                      ],
+                    });
+                  }
+                }}
+                data-testid="button-thread-people"
+              >
+                <Users className="h-4 w-4" />
+                <span className="hidden sm:inline">People</span>
+                {(activeConversation?.participants.length ?? 0) > 0 && (
+                  <span className="text-xs text-muted-foreground">
+                    {activeConversation?.participants.length}
+                  </span>
+                )}
+              </Button>
+              <Button
+                variant="ghost"
                 size="icon"
                 onClick={() => setSearchOpen((v) => !v)}
                 data-testid="button-thread-search"
@@ -839,6 +877,52 @@ export default function MessagesPage() {
                 <Search className="h-4 w-4" />
               </Button>
             </header>
+
+            <Sheet open={peopleOpen} onOpenChange={setPeopleOpen}>
+              <SheetContent side="right" className="w-full sm:max-w-sm">
+                <SheetHeader>
+                  <SheetTitle>
+                    {isMaintenanceThread ? "Discussion people" : "People"}
+                  </SheetTitle>
+                </SheetHeader>
+                <ScrollArea className="mt-4 h-[calc(100vh-6rem)] pr-2">
+                  {(activeConversation?.participants.length ?? 0) === 0 ? (
+                    <p className="px-1 text-sm text-muted-foreground">
+                      No participants yet.
+                    </p>
+                  ) : (
+                    <ul className="space-y-1">
+                      {(activeConversation?.participants ?? []).map((person) => (
+                        <li
+                          key={person.id}
+                          className="flex items-center gap-3 rounded-md px-1 py-2"
+                          data-testid={`participant-row-${person.id}`}
+                        >
+                          <Avatar className="h-9 w-9">
+                            <AvatarImage
+                              src={person.profileImageUrl || undefined}
+                            />
+                            <AvatarFallback>
+                              {messagingInitials(person)}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium">
+                              {messagingDisplayName(person)}
+                              {person.id === user?.id ? " (you)" : ""}
+                            </p>
+                            <p className="truncate text-xs text-muted-foreground">
+                              {getTeamRoleDisplayLabel(person.role || "")}
+                              {person.online ? " · Online" : ""}
+                            </p>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </ScrollArea>
+              </SheetContent>
+            </Sheet>
 
             {searchOpen && (
               <div className="border-b p-2">

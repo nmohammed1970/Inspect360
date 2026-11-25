@@ -175,6 +175,17 @@ export async function acceptWorkOrderOffer(input: {
     },
   });
 
+  if (workOrder.maintenanceRequestId && assignedToId) {
+    void import("../messaging/maintenanceThreads").then(
+      ({ scheduleAddUserToMaintenanceDiscussion }) =>
+        scheduleAddUserToMaintenanceDiscussion({
+          organizationId: input.tokenRow.organizationId,
+          maintenanceRequestId: workOrder.maintenanceRequestId!,
+          userId: assignedToId,
+        }),
+    );
+  }
+
   return { ok: true, workOrder };
 }
 

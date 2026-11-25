@@ -15688,6 +15688,21 @@ ${optionalNotes || "No details provided."}`;
 
       // Use the new updateMaintenanceRequest method for full updates
       const request = await storage.updateMaintenanceRequest(id, safeUpdates);
+
+      if (
+        safeUpdates.assignedTo &&
+        safeUpdates.assignedTo !== existingRequest.assignedTo
+      ) {
+        void import("./messaging/maintenanceThreads").then(
+          ({ scheduleAddUserToMaintenanceDiscussion }) =>
+            scheduleAddUserToMaintenanceDiscussion({
+              organizationId: user.organizationId!,
+              maintenanceRequestId: id,
+              userId: safeUpdates.assignedTo,
+            }),
+        );
+      }
+
       res.json(request);
     } catch (error) {
       console.error("Error updating maintenance request:", error);
@@ -17858,6 +17873,20 @@ ${optionalNotes || "No details provided."}`;
         completionChecklistSnapshotJson: completionChecklistSnapshotJson as any,
       } as any;
       const workOrder = await storage.createWorkOrder(workOrderData);
+
+      if (
+        workOrder.maintenanceRequestId &&
+        (workOrder.assignedToId || validatedData.assignedToId)
+      ) {
+        void import("./messaging/maintenanceThreads").then(
+          ({ scheduleAddUserToMaintenanceDiscussion }) =>
+            scheduleAddUserToMaintenanceDiscussion({
+              organizationId: user.organizationId!,
+              maintenanceRequestId: workOrder.maintenanceRequestId!,
+              userId: workOrder.assignedToId || validatedData.assignedToId,
+            }),
+        );
+      }
 
       // Manual path: existing team/contractor emails. Auto path: member fan-out in offer service.
       if (assignmentMethod !== "auto" && validatedData.teamId) {

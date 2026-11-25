@@ -497,6 +497,21 @@ export async function updateWorkOrderFields(input: {
         auditErr?.message || auditErr,
       );
     }
+
+    if (
+      nextAssignedToId &&
+      nextAssignedToId !== ctx.workOrder.assignedToId &&
+      ctx.workOrder.maintenanceRequestId
+    ) {
+      void import("./messaging/maintenanceThreads").then(
+        ({ scheduleAddUserToMaintenanceDiscussion }) =>
+          scheduleAddUserToMaintenanceDiscussion({
+            organizationId: input.organizationId,
+            maintenanceRequestId: ctx.workOrder.maintenanceRequestId!,
+            userId: nextAssignedToId,
+          }),
+      );
+    }
   }
 
   return row;
