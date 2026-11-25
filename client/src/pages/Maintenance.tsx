@@ -1693,6 +1693,12 @@ export default function Maintenance() {
                       user?.role === "maintenance_admin";
                     const canOwnerAct =
                       isMaintenanceManager && request.status !== "completed";
+                    const canCreateWorkOrder =
+                      isWorkOrdersEnabled &&
+                      !linkedWorkOrder &&
+                      canSeeWorkOrders &&
+                      request.status !== "completed" &&
+                      request.status !== "closed";
                     return (
                       <PortfolioTableRow key={request.id} data-testid={`row-request-${request.id}`}>
                         <PortfolioTableCell className="py-2.5">
@@ -1782,6 +1788,19 @@ export default function Maintenance() {
                                 className="ml-1"
                               />
                             ) : null}
+                            {canCreateWorkOrder ? (
+                              <Button
+                                size="sm"
+                                className="h-8 px-2"
+                                onClick={() => {
+                                  setSelectedRequestForWorkOrder(request);
+                                  setIsWorkOrderDialogOpen(true);
+                                }}
+                                data-testid={`button-create-work-order-${request.id}`}
+                              >
+                                Create WO
+                              </Button>
+                            ) : null}
                             {canManage ? (
                               <>
                                 <Button
@@ -1826,6 +1845,12 @@ export default function Maintenance() {
                   user?.role === "maintenance_admin";
                 const canOwnerAct =
                   isMaintenanceManager && request.status !== "completed";
+                const canCreateWorkOrder =
+                  isWorkOrdersEnabled &&
+                  !linkedWorkOrder &&
+                  canSeeWorkOrders &&
+                  request.status !== "completed" &&
+                  request.status !== "closed";
                 const isHmoFinding =
                   request.source === "hmo_finding" ||
                   (request.aiAnalysisJson as any)?.source === "hmo_finding";
@@ -2041,7 +2066,7 @@ export default function Maintenance() {
                               <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
                             </Button>
                           )}
-                        {isWorkOrdersEnabled && !linkedWorkOrder && canOwnerAct && (
+                        {canCreateWorkOrder && (
                           <Button
                             size="sm"
                             className="h-8 rounded-full bg-primary px-3 text-xs text-primary-foreground hover:bg-[hsl(var(--primary-hover))]"
