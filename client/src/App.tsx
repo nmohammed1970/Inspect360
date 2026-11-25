@@ -83,6 +83,7 @@ import TenantCheckInReview from "@/pages/TenantCheckInReview";
 import TenantInspections from "@/pages/TenantInspections";
 import TenantCommunity from "@/pages/TenantCommunity";
 import TenantProfile from "@/pages/TenantProfile";
+import MessagesPage from "@/features/messaging/MessagesPage";
 import CommunityModeration from "@/pages/CommunityModeration";
 import MyFeedback from "@/pages/MyFeedback";
 import FeedbackPage from "@/pages/Feedback";
@@ -596,6 +597,8 @@ function AppContent() {
                   <Route path="/tenant/inspections/:id/capture" component={InspectionCapture} />
                   <Route path="/tenant/inspections" component={TenantInspections} />
                   <Route path="/tenant/profile" component={TenantProfile} />
+                  <Route path="/messages/:conversationId" component={MessagesPage} />
+                  <Route path="/messages" component={MessagesPage} />
                   <Route path="/dashboard" component={TenantHome} />
                   <Route component={NotFound} />
                 </Switch>
@@ -901,6 +904,8 @@ function AppContent() {
                 <Route path="/reports" component={Reports} />
                 <Route path="/comparisons/:id" component={ComparisonReportDetail} />
                 <Route path="/comparisons" component={ComparisonReports} />
+                <Route path="/messages/:conversationId" component={MessagesPage} />
+                <Route path="/messages" component={MessagesPage} />
                 <Route path="/team" component={Team} />
                 <Route path="/contacts" component={Contacts} />
                 <Route path="/asset-inventory" component={AssetInventory} />

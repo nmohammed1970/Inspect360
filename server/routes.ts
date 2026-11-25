@@ -21814,6 +21814,8 @@ ${optionalNotes || "No details provided."}`;
     "./maintenance/maintenanceMessageRoutes"
   );
   registerMaintenanceMessageRoutes(app);
+  const { registerMessagingRoutes } = await import("./messaging/routes");
+  registerMessagingRoutes(app);
   const { registerMaintenanceInboxRoutes } = await import(
     "./maintenance/maintenanceInboxRoutes"
   );

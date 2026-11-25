@@ -111,6 +111,7 @@ export const users = pgTable("users", {
   isActive: boolean("is_active").notNull().default(true),
   onboardingCompleted: boolean("onboarding_completed").notNull().default(false),
   biometricEnabled: boolean("biometric_enabled").notNull().default(false),
+  lastSeenAt: timestamp("last_seen_at"),
   resetToken: varchar("reset_token"),
   resetTokenExpiry: timestamp("reset_token_expiry"),
   createdAt: timestamp("created_at").defaultNow(),
@@ -4245,6 +4246,9 @@ export * from "./hmoSchema";
 
 /** Feedback & Feature Requests MVP tables + types */
 export * from "./feedbackSchema";
+
+/** Internal org messaging */
+export * from "./messagingSchema";
 
 /** Nov 2026 self-serve billing catalog + subscriptions */
 export * from "./billingCatalogSchema";

@@ -140,6 +140,10 @@ export function useNotifications() {
 
         ws.onopen = () => {
           reconnectAttempts.current = 0;
+
+          // Refresh messaging state after (re)connect
+          queryClient.invalidateQueries({ queryKey: ["/api/messaging/unread-count"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/messaging/conversations"] });
           
           // Send ping to keep connection alive
           const pingInterval = setInterval(() => {
@@ -180,6 +184,18 @@ export function useNotifications() {
                 });
               }
 
+              if (notification.type === "direct_message") {
+                queryClient.invalidateQueries({
+                  queryKey: ["/api/messaging/unread-count"],
+                });
+                queryClient.invalidateQueries({
+                  queryKey: ["/api/messaging/conversations"],
+                });
+                window.dispatchEvent(
+                  new CustomEvent("inspect360:messaging", { detail: { type: "notification", notification } }),
+                );
+              }
+
               // Show popup for tenant users
               if (user.role === "tenant") {
                 setPopupNotification(notification);
@@ -192,6 +208,26 @@ export function useNotifications() {
               }
             } else if (data.type === "unread_count") {
               setUnreadCount(data.count);
+            } else if (
+              data.type === "messaging_message" ||
+              data.type === "messaging_receipt" ||
+              data.type === "messaging_typing" ||
+              data.type === "messaging_presence" ||
+              data.type === "messaging_unread_count"
+            ) {
+              if (data.type === "messaging_unread_count") {
+                queryClient.invalidateQueries({
+                  queryKey: ["/api/messaging/unread-count"],
+                });
+              }
+              if (data.type === "messaging_message" || data.type === "messaging_receipt") {
+                queryClient.invalidateQueries({
+                  queryKey: ["/api/messaging/conversations"],
+                });
+              }
+              window.dispatchEvent(
+                new CustomEvent("inspect360:messaging", { detail: data }),
+              );
             } else if (data.type === "pong") {
               // Keepalive response
             }
@@ -236,7 +272,19 @@ export function useNotifications() {
 
     connectWebSocket();
 
+    const onOutbound = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      if (!detail || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+      try {
+        wsRef.current.send(JSON.stringify(detail));
+      } catch {
+        /* ignore */
+      }
+    };
+    window.addEventListener("inspect360:messaging-outbound", onOutbound as EventListener);
+
     return () => {
+      window.removeEventListener("inspect360:messaging-outbound", onOutbound as EventListener);
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
       }
@@ -297,6 +345,11 @@ export function useNotifications() {
       } else {
         window.location.href = "/maintenance";
       }
+    } else if (notification.type === "direct_message") {
+      const conversationId = notification.data?.conversationId;
+      window.location.href = conversationId
+        ? `/messages/${conversationId}`
+        : "/messages";
     }
 
     setPopupNotification(null);
