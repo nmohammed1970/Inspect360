@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { Loader2, Building2, Eye, EyeOff, FileCheck, Lock } from "lucide-react";
+import { Loader2, Building2, Eye, EyeOff, FileCheck } from "lucide-react";
 import { useLocation, useSearch } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -190,22 +190,22 @@ export default function Auth() {
             <img src={BRAND_LOGO_MASTER} alt="Inspect360" className="h-12 sm:h-14 w-auto object-contain" />
           </div>
           
-          <Card className="border-border/60">
-            <CardHeader className="space-y-3 pb-6">
-              <CardTitle className="text-2xl font-bold text-center">
+          <Card className="border-border/60 shadow-sm">
+            <CardHeader className="space-y-2 pb-6">
+              <CardTitle className="text-2xl font-bold text-center tracking-tight">
                 {isLogin ? "Welcome back" : "Create account"}
               </CardTitle>
-              <CardDescription className="text-center text-base">
+              <CardDescription className="text-center text-base text-muted-foreground">
                 {isLogin
-                  ? "Enter your credentials to access your account"
-                  : "Fill in your details to create your Inspect360 account"}
+                  ? "Sign in to your Inspect360 account."
+                  : "Create your Inspect360 account to get started."}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               {isLogin ? (
                 <form onSubmit={handleLogin} className="space-y-4" noValidate>
                   <div className="space-y-2">
-                    <Label htmlFor="login-email">Email Address</Label>
+                    <Label htmlFor="login-email" className="font-semibold">Email address</Label>
                     <Input
                       id="login-email"
                       type="email"
@@ -228,7 +228,7 @@ export default function Auth() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="login-password">Password</Label>
+                    <Label htmlFor="login-password" className="font-semibold">Password</Label>
                     <div className="relative">
                       <Input
                         id="login-password"
@@ -505,44 +505,39 @@ export default function Auth() {
                 </form>
               )}
 
-              <div className="relative">
-                <div className="absolute inset-0 flex items-center">
-                  <span className="w-full border-t" />
-                </div>
-                <div className="relative flex justify-center text-xs uppercase">
-                  <span className="bg-card px-2 text-muted-foreground">
-                    {isLogin ? "New to Inspect360?" : "Already a member?"}
-                  </span>
-                </div>
-              </div>
-
-              <div className="text-center">
+              <div className="pt-2 text-center text-sm text-muted-foreground">
                 {isLogin ? (
-                  <button
-                    type="button"
-                    className="text-sm text-primary hover:underline font-medium transition-all"
-                    onClick={() => {
-                      setIsLogin(false);
-                      setLoginErrors({});
-                      setRegisterErrors({});
-                    }}
-                    data-testid="button-switch-register"
-                  >
-                    Create your account
-                  </button>
+                  <>
+                    New to Inspect360?{" "}
+                    <button
+                      type="button"
+                      className="text-primary hover:underline font-medium transition-all"
+                      onClick={() => {
+                        setIsLogin(false);
+                        setLoginErrors({});
+                        setRegisterErrors({});
+                      }}
+                      data-testid="button-switch-register"
+                    >
+                      Create your account
+                    </button>
+                  </>
                 ) : (
-                  <button
-                    type="button"
-                    className="text-sm text-primary hover:underline font-medium transition-all"
-                    onClick={() => {
-                      setIsLogin(true);
-                      setLoginErrors({});
-                      setRegisterErrors({});
-                    }}
-                    data-testid="button-switch-login"
-                  >
-                    Sign in to your account
-                  </button>
+                  <>
+                    Already have an account?{" "}
+                    <button
+                      type="button"
+                      className="text-primary hover:underline font-medium transition-all"
+                      onClick={() => {
+                        setIsLogin(true);
+                        setLoginErrors({});
+                        setRegisterErrors({});
+                      }}
+                      data-testid="button-switch-login"
+                    >
+                      Sign in
+                    </button>
+                  </>
                 )}
               </div>
             </CardContent>
@@ -551,68 +546,62 @@ export default function Auth() {
       </div>
 
       {/* Right Column - Hero (hidden on mobile/tablet) */}
-      <div className="hidden lg:flex flex-1 items-center justify-center p-12 relative overflow-hidden">
-        {/* Inspect Navy → Signal Teal structure (brand digital product) */}
-        <div className="absolute inset-0 bg-gradient-to-br from-[hsl(207,98%,20%)] via-[hsl(207,70%,16%)] to-[hsl(207,93%,11%)]"></div>
-        <div className="absolute inset-0 bg-[hsl(177,96%,40%)]/15"></div>
+      <div className="hidden lg:flex flex-1 items-center justify-center p-12 xl:p-16 relative overflow-hidden">
+        <div className="absolute inset-0 bg-[hsl(192,55%,18%)]" />
+        <div className="absolute inset-0 bg-gradient-to-br from-[hsl(192,50%,22%)] via-[hsl(192,55%,16%)] to-[hsl(200,60%,12%)]" />
 
-        {/* Content */}
-        <div className="relative z-10 max-w-lg space-y-8 text-white">
-          <div className="mb-8">
-            <img src={BRAND_LOGO_ON_DARK} alt="Inspect360" className="h-16 w-auto object-contain" />
-          </div>
+        <div className="relative z-10 max-w-lg w-full space-y-10 text-white">
           <div>
-            <h1 className="font-heading text-4xl font-bold mb-4">AI-powered building inspections</h1>
-            <p className="text-lg text-white/90">
-              Streamline your Build-to-Rent operations with mobile-first inspections, AI photo analysis, and clear compliance tracking.
-            </p>
+            <img src={BRAND_LOGO_ON_DARK} alt="Inspect360" className="h-12 w-auto object-contain" />
           </div>
 
           <div className="space-y-4">
-            <div className="flex items-start gap-4">
-              <div className="bg-primary p-3 rounded-lg">
-                <Eye className="h-6 w-6 text-primary-foreground" />
+            <h1 className="font-heading text-4xl xl:text-[2.75rem] font-bold leading-tight tracking-tight">
+              See what&apos;s changed.
+              <br />
+              <span className="text-[hsl(177,70%,62%)]">Know what needs attention.</span>
+            </h1>
+            <p className="text-base xl:text-lg text-white/75 leading-relaxed max-w-md">
+              Bring inspection evidence, repairs and compliance into one view across your property
+              portfolio.
+            </p>
+          </div>
+
+          <div className="divide-y divide-white/15 border-t border-white/15">
+            <div className="flex items-start gap-4 py-5">
+              <div className="bg-primary/90 p-2.5 rounded-md shrink-0">
+                <Eye className="h-5 w-5 text-primary-foreground" />
               </div>
               <div>
-                <h3 className="font-heading font-semibold mb-1">AI photo analysis</h3>
-                <p className="text-sm text-white/80">
-                  Evidence-led condition assessments that help teams act faster
+                <h3 className="font-heading font-semibold mb-1">Capture condition on site</h3>
+                <p className="text-sm text-white/70 leading-relaxed">
+                  Use AI to draft inspection notes from photos while the details are fresh.
                 </p>
               </div>
             </div>
 
-            <div className="flex items-start gap-4">
-              <div className="bg-primary p-3 rounded-lg">
-                <Building2 className="h-6 w-6 text-primary-foreground" />
+            <div className="flex items-start gap-4 py-5">
+              <div className="bg-primary/90 p-2.5 rounded-md shrink-0">
+                <Building2 className="h-5 w-5 text-primary-foreground" />
               </div>
               <div>
-                <h3 className="font-heading font-semibold mb-1">Offline mobile inspections</h3>
-                <p className="text-sm text-white/80">
-                  Conduct field inspections without internet connectivity
+                <h3 className="font-heading font-semibold mb-1">See what changed between tenancies</h3>
+                <p className="text-sm text-white/70 leading-relaxed">
+                  Compare check-in and check-out photos side by side to resolve questions about
+                  damage.
                 </p>
               </div>
             </div>
 
-            <div className="flex items-start gap-4">
-              <div className="bg-primary p-3 rounded-lg">
-                <FileCheck className="h-6 w-6 text-primary-foreground" />
+            <div className="flex items-start gap-4 py-5">
+              <div className="bg-primary/90 p-2.5 rounded-md shrink-0">
+                <FileCheck className="h-5 w-5 text-primary-foreground" />
               </div>
               <div>
-                <h3 className="font-heading font-semibold mb-1">Compliance tracking</h3>
-                <p className="text-sm text-white/80">
-                  Automated expiry alerts for certifications and licenses
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-4">
-              <div className="bg-primary p-3 rounded-lg">
-                <Lock className="h-6 w-6 text-primary-foreground" />
-              </div>
-              <div>
-                <h3 className="font-heading font-semibold mb-1">Role-based access</h3>
-                <p className="text-sm text-white/80">
-                  Secure access for owners, inspectors, compliance officers, contractors, and tenants
+                <h3 className="font-heading font-semibold mb-1">Follow up across your portfolio</h3>
+                <p className="text-sm text-white/70 leading-relaxed">
+                  Raise work orders from inspection findings and see which properties have
+                  certificates coming up for renewal.
                 </p>
               </div>
             </div>

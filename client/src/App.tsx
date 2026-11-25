@@ -96,6 +96,15 @@ import BulkImport from "@/pages/BulkImport";
 import DisputeResolution from "@/pages/DisputeResolution";
 import HmoDashboard from "@/pages/HmoDashboard";
 import HmoRulesReview from "@/pages/HmoRulesReview";
+import CommunicationsInbox from "@/pages/communications/CommunicationsInbox";
+import CaseWorkspace from "@/pages/communications/CaseWorkspace";
+import CommunicationsAnalytics from "@/pages/communications/CommunicationsAnalytics";
+import CommunicationsSettings from "@/pages/communications/CommunicationsSettings";
+import NewCase from "@/pages/communications/NewCase";
+import TenantCaseDetail from "@/pages/communications/TenantCaseDetail";
+import TenantNewRequest from "@/pages/communications/TenantNewRequest";
+import RentManagement from "@/pages/rent/RentManagement";
+import TenantMyRent from "@/pages/rent/TenantMyRent";
 import { Loader2 } from "lucide-react";
 import { UserProfileMenu } from "@/components/UserProfileMenu";
 import { AppBreadcrumbs } from "@/navigation";
@@ -567,6 +576,11 @@ function AppContent() {
     const showMaintenance =
       (tenantOrganization?.tenantPortalMaintenanceEnabled ?? true) &&
       isCompanyModuleEnabled(tenantOrganization, "maintenance");
+    const showCommunications = isCompanyModuleEnabled(
+      tenantOrganization,
+      "communications",
+    );
+    const showRequests = showMaintenance || showCommunications;
     const showComparison = tenantOrganization?.tenantPortalComparisonEnabled ?? true;
     const showCommunity =
       (tenantOrganization?.tenantPortalCommunityEnabled ?? true) &&
@@ -591,7 +605,13 @@ function AppContent() {
                   <Route path="/tenant/home" component={TenantHome} />
                   {showMaintenance && <Route path="/tenant/maintenance" component={TenantMaintenance} />}
                   {showMaintenance && <Route path="/tenant/log-request" component={TenantLogRequest} />}
-                  {showMaintenance && <Route path="/tenant/requests" component={TenantRequests} />}
+                  {showCommunications && (
+                    <Route path="/tenant/requests/new" component={TenantNewRequest} />
+                  )}
+                  {showCommunications && (
+                    <Route path="/tenant/requests/:id" component={TenantCaseDetail} />
+                  )}
+                  {showRequests && <Route path="/tenant/requests" component={TenantRequests} />}
                   {showComparison && <Route path="/tenant/comparison-reports/:id" component={TenantComparisonReportDetail} />}
                   {showComparison && <Route path="/tenant/comparison-reports" component={TenantComparisonReports} />}
                   {showCommunity && <Route path="/tenant/community" component={TenantCommunity} />}
@@ -600,6 +620,9 @@ function AppContent() {
                   <Route path="/tenant/inspections/:id/capture" component={InspectionCapture} />
                   <Route path="/tenant/inspections" component={TenantInspections} />
                   <Route path="/tenant/profile" component={TenantProfile} />
+                  {isCompanyModuleEnabled(tenantOrganization, "rentals") && (
+                    <Route path="/tenant/rent" component={TenantMyRent} />
+                  )}
                   <Route path="/messages/:conversationId" component={MessagesPage} />
                   <Route path="/messages" component={MessagesPage} />
                   <Route path="/dashboard" component={TenantHome} />
@@ -876,6 +899,48 @@ function AppContent() {
                   {() => (
                     <CompanyModuleRoute module="maintenance">
                       <Maintenance />
+                    </CompanyModuleRoute>
+                  )}
+                </Route>
+                <Route path="/communications/cases/new">
+                  {() => (
+                    <CompanyModuleRoute module="communications">
+                      <NewCase />
+                    </CompanyModuleRoute>
+                  )}
+                </Route>
+                <Route path="/communications/cases/:id">
+                  {() => (
+                    <CompanyModuleRoute module="communications">
+                      <CaseWorkspace />
+                    </CompanyModuleRoute>
+                  )}
+                </Route>
+                <Route path="/communications/analytics">
+                  {() => (
+                    <CompanyModuleRoute module="communications">
+                      <CommunicationsAnalytics />
+                    </CompanyModuleRoute>
+                  )}
+                </Route>
+                <Route path="/communications/settings">
+                  {() => (
+                    <CompanyModuleRoute module="communications">
+                      <CommunicationsSettings />
+                    </CompanyModuleRoute>
+                  )}
+                </Route>
+                <Route path="/communications">
+                  {() => (
+                    <CompanyModuleRoute module="communications">
+                      <CommunicationsInbox />
+                    </CompanyModuleRoute>
+                  )}
+                </Route>
+                <Route path="/rent">
+                  {() => (
+                    <CompanyModuleRoute module="rentals">
+                      <RentManagement />
                     </CompanyModuleRoute>
                   )}
                 </Route>

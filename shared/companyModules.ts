@@ -20,6 +20,7 @@ export const COMPANY_MODULE_KEYS = [
   "compliance",
   "maintenance",
   "hmo_compliance",
+  "communications",
 ] as const;
 
 export type CompanyModuleKey = (typeof COMPANY_MODULE_KEYS)[number];
@@ -81,6 +82,7 @@ export function aiPlanForcedCompanyModuleFlags(): {
   complianceEnabled: false;
   maintenanceEnabled: false;
   hmoComplianceEnabled: false;
+  communicationsEnabled: false;
 } {
   return {
     rentalsEnabled: false,
@@ -88,6 +90,7 @@ export function aiPlanForcedCompanyModuleFlags(): {
     complianceEnabled: false,
     maintenanceEnabled: false,
     hmoComplianceEnabled: false,
+    communicationsEnabled: false,
   };
 }
 
@@ -98,6 +101,8 @@ export type CompanyModuleFlags = {
   maintenanceEnabled?: boolean | null;
   /** Opt-in HMO Compliance Intelligence (default OFF). */
   hmoComplianceEnabled?: boolean | null;
+  /** Opt-in Communications Hub (default OFF). */
+  communicationsEnabled?: boolean | null;
 };
 
 const FLAG_BY_KEY: Record<CompanyModuleKey, keyof CompanyModuleFlags> = {
@@ -106,6 +111,7 @@ const FLAG_BY_KEY: Record<CompanyModuleKey, keyof CompanyModuleFlags> = {
   compliance: "complianceEnabled",
   maintenance: "maintenanceEnabled",
   hmo_compliance: "hmoComplianceEnabled",
+  communications: "communicationsEnabled",
 };
 
 function flagOn(value: boolean | null | undefined): boolean {
@@ -134,6 +140,9 @@ export function isCompanyModuleEnabled(
   if (key === "hmo_compliance") {
     return org.hmoComplianceEnabled === true;
   }
+  if (key === "communications") {
+    return org.communicationsEnabled === true;
+  }
   return flagOn(org[FLAG_BY_KEY[key]]);
 }
 
@@ -157,12 +166,14 @@ export function normalizeCompanyModuleFlags(input: {
   complianceEnabled?: boolean;
   maintenanceEnabled?: boolean;
   hmoComplianceEnabled?: boolean;
+  communicationsEnabled?: boolean;
 }): {
   rentalsEnabled?: boolean;
   tenanciesEnabled?: boolean;
   complianceEnabled?: boolean;
   maintenanceEnabled?: boolean;
   hmoComplianceEnabled?: boolean;
+  communicationsEnabled?: boolean;
 } {
   const out: {
     rentalsEnabled?: boolean;
@@ -170,6 +181,7 @@ export function normalizeCompanyModuleFlags(input: {
     complianceEnabled?: boolean;
     maintenanceEnabled?: boolean;
     hmoComplianceEnabled?: boolean;
+    communicationsEnabled?: boolean;
   } = {};
 
   if (typeof input.tenanciesEnabled === "boolean") {
@@ -183,6 +195,9 @@ export function normalizeCompanyModuleFlags(input: {
   }
   if (typeof input.hmoComplianceEnabled === "boolean") {
     out.hmoComplianceEnabled = input.hmoComplianceEnabled;
+  }
+  if (typeof input.communicationsEnabled === "boolean") {
+    out.communicationsEnabled = input.communicationsEnabled;
   }
   if (typeof input.rentalsEnabled === "boolean" || typeof input.tenanciesEnabled === "boolean") {
     const tenanciesOn =
@@ -239,6 +254,8 @@ export function companyModuleAccessFromPlan(
     compliance: flag(modules.compliance),
     maintenance: flag(modules.work_orders),
     hmo_compliance: flag(modules.hmo, !!opts?.hmoAddon),
+    // Communications follows property-management inclusion (work orders / tenant portal).
+    communications: flag(modules.communications ?? modules.work_orders ?? true),
   };
 }
 
@@ -277,7 +294,7 @@ export const COMPANY_MODULE_META: Record<
   rentals: {
     label: "Rentals",
     description:
-      "Manage deposits, rent collection, expenses, and late-rent reminders on properties. Requires Tenancies.",
+      "Finance › Rent management ledger (schedules, receipts, arrears, statements), plus deposits, expenses, and rent reminders. Requires Tenancies.",
   },
   tenancies: {
     label: "Tenancies",
@@ -298,5 +315,10 @@ export const COMPANY_MODULE_META: Record<
     label: "HMO Compliance",
     description:
       "HMO Compliance Intelligence: licence upload, extraction, assessments, findings, remediation cases, and portfolio oversight. Opt-in; turning off hides HMO screens without deleting data.",
+  },
+  communications: {
+    label: "Communications",
+    description:
+      "Operational inbox for tenant requests across categories, with assignment, approvals, and linked maintenance. Opt-in; turning off hides Communications without deleting cases.",
   },
 };

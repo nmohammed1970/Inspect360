@@ -62,7 +62,9 @@ import {
   LayoutDashboard,
   ShieldAlert,
   ImagePlus,
+  MessageSquare,
 } from "lucide-react";
+import { CommunicationsActivityTimeline } from "@/components/communications/ActivityTimeline";
 import { Label } from "@/components/ui/label";
 import { PropertyFormDialog } from "@/components/PropertyFormDialog";
 import { useToast } from "@/hooks/use-toast";
@@ -207,7 +209,7 @@ export default function PropertyDetail() {
   const searchParams = useSearch();
   const urlTab = new URLSearchParams(searchParams).get("tab");
   const backHref = useBackHref("/properties");
-  const { rentalsEnabled, tenanciesEnabled, complianceEnabled, maintenanceEnabled, hmoComplianceEnabled } = useCompanyModules();
+  const { rentalsEnabled, tenanciesEnabled, complianceEnabled, maintenanceEnabled, hmoComplianceEnabled, communicationsEnabled } = useCompanyModules();
   const propertyTabs = useMemo(() => {
     const tabs = new Set([
       "overview",
@@ -219,13 +221,14 @@ export default function PropertyDetail() {
     if (tenanciesEnabled) tabs.add("tenants");
     if (complianceEnabled) tabs.add("compliance-schedule");
     if (hmoComplianceEnabled) tabs.add("hmo");
+    if (communicationsEnabled) tabs.add("activity");
     if (rentalsEnabled) {
       tabs.add("deposit");
       tabs.add("rent-collection");
       tabs.add("expenses");
     }
     return tabs;
-  }, [rentalsEnabled, tenanciesEnabled, complianceEnabled, maintenanceEnabled, hmoComplianceEnabled]);
+  }, [rentalsEnabled, tenanciesEnabled, complianceEnabled, maintenanceEnabled, hmoComplianceEnabled, communicationsEnabled]);
   const resolvedTab = (() => {
     const requested =
       urlTab === "compliance" ? "compliance-schedule" : urlTab;
@@ -803,6 +806,7 @@ export default function PropertyDetail() {
               { value: "compliance-schedule", testId: "tab-compliance-schedule", icon: FileCheck, label: "Compliance Documents", show: complianceEnabled },
               { value: "hmo", testId: "tab-hmo", icon: ShieldAlert, label: "HMO", show: hmoComplianceEnabled },
               { value: "maintenance", testId: "tab-maintenance", icon: Wrench, label: "Maintenance", show: maintenanceEnabled },
+              { value: "activity", testId: "tab-activity", icon: MessageSquare, label: "Activity", show: communicationsEnabled },
               { value: "deposit", testId: "tab-deposit", icon: Wallet, label: "Deposit", show: rentalsEnabled },
               { value: "rent-collection", testId: "tab-rent-collection", icon: Banknote, label: "Rent Collection", show: rentalsEnabled },
               { value: "expenses", testId: "tab-expenses", icon: Receipt, label: "Expenses", show: rentalsEnabled },
@@ -1238,6 +1242,13 @@ export default function PropertyDetail() {
             </div>
           )}
         </TabsContent>
+
+        {communicationsEnabled && propertyId ? (
+          <TabsContent value="activity" className="space-y-4">
+            <h2 className="text-xl font-semibold">Communications activity</h2>
+            <CommunicationsActivityTimeline scope="properties" entityId={propertyId} />
+          </TabsContent>
+        ) : null}
 
         {/* Maintenance Tab */}
         {maintenanceEnabled && (

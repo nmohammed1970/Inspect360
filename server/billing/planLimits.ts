@@ -771,6 +771,7 @@ export async function stripPlanCompanyModules(organizationId: string): Promise<v
     tenanciesEnabled: false,
     rentalsEnabled: false,
     hmoComplianceEnabled: false,
+    communicationsEnabled: false,
   } as any);
 }
 

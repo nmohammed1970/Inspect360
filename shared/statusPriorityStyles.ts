@@ -91,6 +91,44 @@ export function priorityTone(priority: string | null | undefined): SemanticTone 
   }
 }
 
+/** Communications Hub case status */
+export function communicationCaseStatusTone(
+  status: string | null | undefined,
+): SemanticTone {
+  switch ((status || "").toLowerCase()) {
+    case "resolved":
+    case "closed":
+      return "success";
+    case "cancelled":
+    case "duplicate":
+      return "muted";
+    case "awaiting_tenant":
+    case "awaiting_approval":
+    case "awaiting_third_party":
+      return "action";
+    case "in_progress":
+    case "assigned":
+      return "warning";
+    case "new":
+    case "triaged":
+      return "info";
+    default:
+      return "muted";
+  }
+}
+
+/** Tenant-facing public case status labels */
+export function publicCaseStatusTone(
+  publicOrInternal: string | null | undefined,
+): SemanticTone {
+  const s = (publicOrInternal || "").toLowerCase();
+  if (s === "resolved" || s === "closed") return "success";
+  if (s === "waiting for you" || s === "awaiting_tenant") return "action";
+  if (s === "in progress" || s === "in_progress") return "warning";
+  if (s === "received" || s === "under review" || s === "new" || s === "triaged") return "info";
+  return communicationCaseStatusTone(s);
+}
+
 /** Maintenance request status (open / in_progress / completed / closed) */
 export function maintenanceRequestStatusTone(
   status: string | null | undefined,

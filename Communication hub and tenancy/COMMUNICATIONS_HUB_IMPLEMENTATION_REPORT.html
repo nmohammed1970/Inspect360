@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Inspect360 Communications Hub — Implementation Report</title>
+  <style>
+    @page { size: A4; margin: 18mm 16mm; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Segoe UI", Calibri, Arial, sans-serif;
+      color: #1a2332;
+      line-height: 1.45;
+      font-size: 10.5pt;
+      margin: 0;
+    }
+    h1 {
+      font-size: 20pt;
+      margin: 0 0 6px;
+      color: #0f3d4c;
+    }
+    h2 {
+      font-size: 13pt;
+      color: #0f3d4c;
+      border-bottom: 1.5px solid #c5d6dc;
+      padding-bottom: 4px;
+      margin: 22px 0 10px;
+      page-break-after: avoid;
+    }
+    h3 {
+      font-size: 11pt;
+      color: #1e5a6c;
+      margin: 14px 0 6px;
+      page-break-after: avoid;
+    }
+    p, li { margin: 0 0 6px; }
+    ul, ol { margin: 0 0 10px; padding-left: 18px; }
+    .meta {
+      color: #5a6a75;
+      font-size: 9.5pt;
+      margin-bottom: 16px;
+    }
+    .banner {
+      background: #e8f3f5;
+      border-left: 4px solid #1e7a8c;
+      padding: 10px 12px;
+      margin: 12px 0 18px;
+      border-radius: 0 6px 6px 0;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 8px 0 14px;
+      font-size: 9.5pt;
+    }
+    th, td {
+      border: 1px solid #cfd8dc;
+      padding: 6px 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: #f0f5f7;
+      color: #0f3d4c;
+      font-weight: 600;
+    }
+    code, .mono {
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 8.5pt;
+      background: #f4f6f8;
+      padding: 1px 4px;
+      border-radius: 3px;
+    }
+    .path { font-family: Consolas, monospace; font-size: 8.5pt; color: #334; }
+    .flow {
+      background: #fafbfc;
+      border: 1px solid #dde5e8;
+      border-radius: 6px;
+      padding: 10px 12px;
+      margin: 8px 0 14px;
+      font-size: 9.5pt;
+    }
+    .flow strong { color: #0f3d4c; }
+    .tag {
+      display: inline-block;
+      font-size: 8pt;
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 999px;
+      margin-right: 4px;
+      background: #e0f2f1;
+      color: #00695c;
+    }
+    .tag.warn { background: #fff3e0; color: #e65100; }
+    .tag.info { background: #e3f2fd; color: #1565c0; }
+    .footer {
+      margin-top: 28px;
+      padding-top: 10px;
+      border-top: 1px solid #cfd8dc;
+      font-size: 8.5pt;
+      color: #6a7780;
+    }
+    .avoid-break { page-break-inside: avoid; }
+  </style>
+</head>
+<body>
+
+  <h1>Communications Hub — Implementation Report</h1>
+  <p class="meta">
+    Inspect360 · Product / engineering handover<br />
+    Date: 25 November 2026 · Spec reference: <span class="mono">COMMUNICATIONS_HUB_SPEC.md</span> v1.0
+  </p>
+
+  <div class="banner">
+    <strong>Summary.</strong> Communications Hub is a new first-class case domain that wraps
+    (does not replace) maintenance, tenant portal, and portfolio records. It is gated by an
+    organisation module flag that defaults <strong>OFF</strong>. Staff get an operational inbox and
+    case workspace; tenants get unified requests with public statuses only.
+  </div>
+
+  <h2>1. What we added</h2>
+
+  <h3>1.1 Database &amp; module</h3>
+  <ul>
+    <li>Migration: <span class="path">server/migrations/addCommunicationsHub.sql</span></li>
+    <li>Org columns: <span class="mono">communications_enabled</span> (default false),
+      emergency guidance, default-landing flag</li>
+    <li>Tables: categories, cases, messages, actions, approvals, case links, audit events,
+      SLA events, channel events, document sequences (<span class="mono">COM-YYYY-#####</span>)</li>
+    <li>Company module key <span class="mono">communications</span> (opt-in, like HMO)</li>
+  </ul>
+
+  <h3>1.2 Backend (<span class="path">server/communications/</span>)</h3>
+  <table class="avoid-break">
+    <thead>
+      <tr><th>Area</th><th>What it does</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Case service</td><td>Create / list / patch (optimistic <span class="mono">version</span>), assign, messages, notes, actions, approvals, resolve/reopen, cancel/duplicate, escalate</td></tr>
+      <tr><td>Maintenance bridge</td><td>On maintenance create, idempotently create/link one Maintenance-category case</td></tr>
+      <tr><td>Audit &amp; SLA</td><td>Append-only audit; first-response / resolution timers; audited pause/resume</td></tr>
+      <tr><td>Channels</td><td>Email/WhatsApp/stub adapters, signed webhooks, delivery status, identity review &amp; dead-letter queues</td></tr>
+      <tr><td>AI (Ivy-assisted)</td><td>Suggestion only (category, priority, draft, risk flags); safety keywords independent of model; never auto-apply / auto-send</td></tr>
+      <tr><td>Analytics</td><td>Volume, SLA %, median response/resolution, reopen rate, category/owner breakdown, attention list, logged export</td></tr>
+    </tbody>
+  </table>
+
+  <h3>1.3 Staff UI</h3>
+  <ul>
+    <li><strong>Inbox</strong> — <span class="path">/communications</span> (queues | list | preview)</li>
+    <li><strong>Case workspace</strong> — conversation, internal notes, actions, approvals, links, audit, channel log, AI panel</li>
+    <li><strong>Analytics</strong> — <span class="path">/communications/analytics</span></li>
+    <li><strong>Workflow settings</strong> — <span class="path">/communications/settings</span></li>
+    <li>Sidebar group: Inbox, My work, Approvals, Analytics, Settings (permission-gated)</li>
+    <li><strong>Activity</strong> tabs on Property and Tenant detail; tenancy-scoped activity under tenancy history</li>
+    <li><strong>Linked cases</strong> panel on maintenance request, work order, and inspection records</li>
+  </ul>
+
+  <h3>1.4 Tenant UI</h3>
+  <ul>
+    <li>Unified <strong>My requests</strong> when Communications is ON</li>
+    <li><strong>New request</strong> with shortcuts (repair → maintenance bridge; rent/tenancy/general → case only)</li>
+    <li>Request detail: tenant-visible thread only; reply + “Issue still persists”</li>
+    <li>Public statuses only: Received, Under review, In progress, Waiting for you, Resolved, Closed</li>
+  </ul>
+
+  <h2>2. How it works day-to-day</h2>
+
+  <h3>2.1 Enable for an organisation</h3>
+  <ol>
+    <li>Apply SQL migration on Contabo as <span class="mono">creativecloud</span> (dev/prod DB), grants already in the migration for app user <span class="mono">inspect360</span>.</li>
+    <li>Settings → Internal Modules → turn on <strong>Communications</strong> → Save.</li>
+    <li>Default categories are seeded (Maintenance, Rent &amp; payments, Tenancy, … Internal).</li>
+  </ol>
+
+  <h3>2.2 Tenant submits a request</h3>
+  <div class="flow avoid-break">
+    Tenant → <strong>New request</strong> → chooses shortcut + subject/details<br />
+    → API creates a <strong>case</strong> with reference <span class="mono">COM-YYYY-#####</span><br />
+    → If shortcut is <em>repair/maintenance</em>: also creates a maintenance request and
+    <strong>links the case once</strong> (no duplicate WO/case on retry)<br />
+    → Tenant sees public status only; confirmation uses the case reference
+  </div>
+
+  <h3>2.3 Operator works a case</h3>
+  <div class="flow avoid-break">
+    <strong>Inbox</strong> queues (All / My cases / Unassigned / Urgent / Overdue / Approvals / Awaiting tenant / Closed)<br />
+    → Open <strong>workspace</strong><br />
+    → Assign · Reply (tenant-visible) · Internal note (never to tenant) · Tasks · Request approval<br />
+    → Optional: log phone/email/WhatsApp · escalate · link records · apply AI suggestion manually<br />
+    → <strong>Resolve</strong> only with resolution summary; blocked if required tasks open or required approval missing<br />
+    → Reopen keeps prior closure data and records a new reason
+  </div>
+
+  <h3>2.4 Maintenance relationship (non-negotiable)</h3>
+  <ul>
+    <li>Communications does <strong>not</strong> replace Fixflo / maintenance chat / WO process.</li>
+    <li>Existing maintenance create paths auto-bridge to a case when the module is ON.</li>
+    <li>At most <strong>one</strong> work order may be created-from-case (409 on second).</li>
+    <li>Case workspace deep-links into the linked maintenance discussion.</li>
+  </ul>
+
+  <h3>2.5 Visibility &amp; security rules</h3>
+  <table class="avoid-break">
+    <thead>
+      <tr><th>Rule</th><th>Behaviour</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Module OFF</td><td>All <span class="mono">/api/communications/*</span> routes return 403; nav hidden</td></tr>
+      <tr><td>Org scope</td><td>Every read/write is organisation-scoped</td></tr>
+      <tr><td>Optimistic locking</td><td>PATCH / resolve / assign require current <span class="mono">version</span> (409 on stale)</td></tr>
+      <tr><td>Internal notes</td><td>Stored as <span class="mono">visibility=internal</span>; tenant APIs never return them</td></tr>
+      <tr><td>Reply ≠ resolve</td><td>Messages do not close a case; resolve is a deliberate action</td></tr>
+      <tr><td>Closed reply</td><td>Tenant message on closed case alerts owner to review/reopen</td></tr>
+      <tr><td>Notifications</td><td>Assignment, tenant reply, approval, overdue — no sensitive subjects</td></tr>
+    </tbody>
+  </table>
+
+  <h2>3. Lifecycle &amp; categories</h2>
+
+  <p><strong>Statuses:</strong> new → triaged → assigned → in progress → resolved → closed;
+    waiting: awaiting_tenant · awaiting_approval · awaiting_third_party;
+    terminal extras: cancelled · duplicate (require reason; duplicate links canonical case).</p>
+
+  <p><strong>Seeded categories:</strong> Maintenance; Rent &amp; payments; Tenancy; Complaints;
+    Health &amp; safety; Access; Property alterations; Documentation; Inspections; Move-in;
+    Move-out; General; Internal.</p>
+
+  <p>Workflow settings store routing defaults, SLA hours, approval policy, and notify/escalate
+    toggles. Each new case snapshots the policy version used at creation.</p>
+
+  <h2>4. Channels, AI, analytics (later phases included)</h2>
+
+  <p>
+    <span class="tag info">Phase 2</span> Webhooks under
+    <span class="mono">/api/communications/webhooks/:provider</span> with signature check and
+    idempotent event IDs; identity review for unmatched senders; dead-letter UI in settings.
+  </p>
+  <p>
+    <span class="tag info">Phase 3</span> AI triage panel on the case workspace — human accept/edit only;
+    safety keyword fallback (e.g. gas leak) even if the model is down.
+  </p>
+  <p>
+    <span class="tag info">Phase 4–5</span> Configurable SLAs / escalations; analytics dashboard with
+    documented denominators; optional org setting to land staff on the Communications inbox.
+  </p>
+
+  <h2>5. Key routes (staff)</h2>
+  <table class="avoid-break">
+    <thead><tr><th>Method</th><th>Path</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td>GET/POST</td><td class="mono">/api/communications/cases</td><td>List / create</td></tr>
+      <tr><td>GET/PATCH</td><td class="mono">/api/communications/cases/:id</td><td>Detail / update (version)</td></tr>
+      <tr><td>POST</td><td class="mono">…/messages · /notes · /assign · /resolve · /reopen</td><td>Core actions</td></tr>
+      <tr><td>POST</td><td class="mono">…/log-channel</td><td>Manual phone/email/WhatsApp log</td></tr>
+      <tr><td>GET</td><td class="mono">/api/communications/tenants|properties|tenancies/:id/activity</td><td>Timelines</td></tr>
+      <tr><td>GET</td><td class="mono">/api/communications/links?entityType&amp;entityId</td><td>Linked case panel</td></tr>
+      <tr><td>GET</td><td class="mono">/api/communications/analytics</td><td>Metrics</td></tr>
+    </tbody>
+  </table>
+
+  <h2>6. Key files</h2>
+  <ul>
+    <li class="path">shared/communicationsSchema.ts · shared/companyModules.ts</li>
+    <li class="path">server/migrations/addCommunicationsHub.sql</li>
+    <li class="path">server/communications/* (service, routes, bridge, AI, channels, analytics)</li>
+    <li class="path">client/src/pages/communications/*</li>
+    <li class="path">client/src/components/communications/LinkedCasesPanel.tsx · ActivityTimeline.tsx</li>
+  </ul>
+
+  <h2>7. Operator checklist after deploy</h2>
+  <ol>
+    <li>Run migration on Contabo (<span class="mono">creativecloud</span>).</li>
+    <li>Enable Communications for a pilot org.</li>
+    <li>Confirm categories appear under Workflow settings.</li>
+    <li>Tenant: submit repair + general request; verify references and public statuses.</li>
+    <li>Staff: assign, internal note, resolve; confirm tenant cannot see the note.</li>
+    <li>Create maintenance request twice / retry bridge — still one linked case.</li>
+    <li>Optional: set emergency guidance and default landing in Communications settings.</li>
+  </ol>
+
+  <div class="footer">
+    This report describes the Inspect360 Communications Hub as implemented against
+    COMMUNICATIONS_HUB_SPEC.md. HTML/PNG files in this folder remain design references only;
+    production UI uses the existing Inspect360 shell and design system.
+  </div>
+
+</body>
+</html>

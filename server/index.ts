@@ -271,10 +271,13 @@ app.use((req, res, next) => {
     try {
       const rentInterval = 60 * 60 * 1000;
       const { processRentFinanceJobs } = await import("./propertyFinanceService");
+      const { processRentLedgerJobs } = await import("./rent/jobs");
       setImmediate(async () => {
         try {
           console.log("[RentFinance] Running initial scan...");
           await processRentFinanceJobs();
+          const ledger = await processRentLedgerJobs();
+          console.log("[RentLedger] Initial:", ledger);
         } catch (error) {
           console.error("[RentFinance] Initial scan failed:", error);
         }
@@ -283,11 +286,13 @@ app.use((req, res, next) => {
         try {
           console.log("[RentFinance] Running scheduled scan...");
           await processRentFinanceJobs();
+          const ledger = await processRentLedgerJobs();
+          console.log("[RentLedger] Scheduled:", ledger);
         } catch (error) {
           console.error("[RentFinance] Scheduled scan failed:", error);
         }
       }, rentInterval);
-      console.log("✅ Rent finance scheduler initialized (reconcile + reminders, hourly)");
+      console.log("✅ Rent finance scheduler initialized (legacy periods + ledger, hourly)");
     } catch (error) {
       console.error("❌ Failed to initialize rent finance scheduler:", error);
     }

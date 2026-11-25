@@ -1275,188 +1275,162 @@ export function PropertyExpensesPanel({ propertyId, preferredCurrency = "GBP" }:
 
 export function PropertyRentCollectionPanel({ propertyId }: { propertyId: string }) {
   const { toast } = useToast();
-  const [filter, setFilter] = useState<"outstanding" | "all" | "collected">("outstanding");
-  const [confirmPeriod, setConfirmPeriod] = useState<any | null>(null);
+  const [receiptAccountId, setReceiptAccountId] = useState<string | null>(null);
+  const [receiptAmount, setReceiptAmount] = useState("");
+  const [receiptRef, setReceiptRef] = useState("");
 
-  const { data: periods = [], isLoading } = useQuery<any[]>({
-    queryKey: ["/api/properties", propertyId, "rent-periods"],
+  const { data: accounts = [], isLoading } = useQuery<any[]>({
+    queryKey: ["/api/rent/accounts", { propertyId }],
     queryFn: async () => {
-      const res = await fetch(`/api/properties/${propertyId}/rent-periods`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to load rent periods");
+      const res = await apiRequest("GET", `/api/rent/accounts?propertyId=${propertyId}`);
       return res.json();
     },
   });
 
-  const filtered = useMemo(() => {
-    return periods.filter((p) => {
-      if (filter === "all") return true;
-      if (filter === "collected") return p.status === "collected";
-      return p.status === "due" || p.status === "partial";
-    });
-  }, [periods, filter]);
-
-  const collectMutation = useMutation({
-    mutationFn: async (periodId: string) =>
-      apiRequest("PATCH", `/api/properties/${propertyId}/rent-periods/${periodId}`, {
-        status: "collected",
-      }),
+  const provisionMutation = useMutation({
+    mutationFn: async () => (await apiRequest("POST", "/api/rent/accounts/provision", {})).json(),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/properties", propertyId, "rent-periods"] });
-      toast({ title: "Marked as collected" });
+      queryClient.invalidateQueries({ queryKey: ["/api/rent/accounts", { propertyId }] });
+      toast({ title: "Rent accounts provisioned" });
     },
-    onError: (e: Error) => toast({ variant: "destructive", title: "Error", description: e.message }),
+    onError: (e: Error) => toast({ variant: "destructive", title: e.message }),
   });
 
-  const reminderMutation = useMutation({
-    mutationFn: async (periodId: string) =>
-      apiRequest("POST", `/api/properties/${propertyId}/rent-periods/${periodId}/send-reminder`, {}),
+  const receiptMutation = useMutation({
+    mutationFn: async () =>
+      (
+        await apiRequest("POST", "/api/rent/receipts", {
+          accountId: receiptAccountId,
+          amount: receiptAmount,
+          reference: receiptRef || undefined,
+          confirm: true,
+          allocateOldestFirst: true,
+          creditExcess: true,
+        })
+      ).json(),
     onSuccess: () => {
-      setConfirmPeriod(null);
-      toast({ title: "Reminder sent successfully." });
+      toast({ title: "Receipt recorded" });
+      setReceiptAccountId(null);
+      setReceiptAmount("");
+      setReceiptRef("");
+      queryClient.invalidateQueries({ queryKey: ["/api/rent/accounts", { propertyId }] });
     },
-    onError: (e: Error) => toast({ variant: "destructive", title: "Error", description: e.message }),
+    onError: (e: Error) => toast({ variant: "destructive", title: e.message }),
   });
+
+  const formatMinor = (minor: number) =>
+    new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" }).format((minor || 0) / 100);
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Banknote className="h-5 w-5" />
-          Rent Collection
-        </CardTitle>
-        <CardDescription>
-          Outstanding rent for this property. Amounts are full monthly rent (no automatic proration) — edit a
-          period to adjust. Periods are created when a lease is saved, not when you open this tab.
-        </CardDescription>
+      <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 space-y-0">
+        <div>
+          <CardTitle className="flex items-center gap-2">
+            <Banknote className="h-5 w-5" />
+            Rent ledger
+          </CardTitle>
+          <CardDescription>
+            Same canonical rent ledger as Finance › Rent management. Record a receipt — do not toggle Paid.
+          </CardDescription>
+        </div>
+        <Button variant="outline" size="sm" asChild>
+          <a href="/rent">Open rent management</a>
+        </Button>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="flex flex-wrap gap-2">
-          {(["outstanding", "all", "collected"] as const).map((f) => (
-            <Button
-              key={f}
-              size="sm"
-              variant={filter === f ? "default" : "outline"}
-              onClick={() => setFilter(f)}
-              className="capitalize"
-            >
-              {f}
-            </Button>
-          ))}
-        </div>
-
         {isLoading ? (
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-        ) : filtered.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No rent periods yet. Set monthly rent and lease dates on the Tenants tab, then save the lease.
-          </p>
+        ) : accounts.length === 0 ? (
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              No rent accounts for this property yet. Provision from active tenancies, or save a lease with
+              monthly rent.
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => provisionMutation.mutate()}
+              disabled={provisionMutation.isPending}
+            >
+              {provisionMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Provision accounts
+            </Button>
+          </div>
         ) : (
           <div className="overflow-x-auto -mx-1 px-1 min-w-0">
             <Table className="[&_th]:bg-muted/40 [&_td]:py-3">
               <TableHeader>
                 <TableRow>
-                  <TableHead className="min-w-[8rem]">Tenant</TableHead>
-                  <TableHead className="min-w-[6rem] hidden sm:table-cell">Period</TableHead>
-                  <TableHead className="hidden md:table-cell">Due</TableHead>
-                  <TableHead>Rent</TableHead>
-                  <TableHead className="hidden sm:table-cell">Paid</TableHead>
-                  <TableHead>Outstanding</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right min-w-[10rem]">Actions</TableHead>
+                  <TableHead>Tenant</TableHead>
+                  <TableHead className="text-right">Rent</TableHead>
+                  <TableHead className="text-right">Collected</TableHead>
+                  <TableHead className="text-right">Arrears</TableHead>
+                  <TableHead className="text-right">Upcoming</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filtered.map((p) => {
-                  const canRemind =
-                    (p.status === "due" || p.status === "partial") && p.hasTenantEmail;
-                  const statusLabel = p.isOverdue ? "Overdue" : p.status;
-                  return (
-                    <TableRow key={p.id}>
-                      <TableCell className={cn(textBreak, "max-w-[12rem]")}>
-                        <div className="font-medium">{p.tenantName}</div>
-                        {!p.hasTenantEmail && (
-                          <div className="flex items-center gap-1 text-xs text-amber-700 dark:text-amber-400 mt-1">
-                            <AlertTriangle className="h-3 w-3" />
-                            No tenant email address
-                          </div>
-                        )}
-                      </TableCell>
-                      <TableCell className="hidden sm:table-cell">{p.periodLabel}</TableCell>
-                      <TableCell className="hidden md:table-cell">{new Date(p.dueDate).toLocaleDateString()}</TableCell>
-                      <TableCell>{money(p.amountDue, p.currency)}</TableCell>
-                      <TableCell className="hidden sm:table-cell">{money(p.amountPaid, p.currency)}</TableCell>
-                      <TableCell className="font-medium">{money(p.amountOutstanding, p.currency)}</TableCell>
-                      <TableCell>
-                        <Badge variant={p.isOverdue ? "destructive" : "secondary"} className="capitalize">
-                          {statusLabel}
-                          {p.isOverdue && p.daysOverdue > 0 ? ` (${p.daysOverdue}d)` : ""}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex flex-col sm:flex-row sm:justify-end gap-1">
-                        {(p.status === "due" || p.status === "partial") && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={collectMutation.isPending}
-                            onClick={() => collectMutation.mutate(p.id)}
-                          >
-                            Mark Collected
-                          </Button>
-                        )}
-                        {(p.status === "due" || p.status === "partial") && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={!canRemind || reminderMutation.isPending}
-                            title={!p.hasTenantEmail ? "No tenant email address" : undefined}
-                            onClick={() => setConfirmPeriod(p)}
-                          >
-                            <Mail className="h-3 w-3 mr-1" />
-                            Send Reminder
-                          </Button>
-                        )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
+                {accounts.map((a) => (
+                  <TableRow key={a.id}>
+                    <TableCell>
+                      <div className="font-medium">{a.tenantName}</div>
+                      <div className="text-xs text-muted-foreground">{a.payerReference}</div>
+                    </TableCell>
+                    <TableCell className="text-right">{formatMinor(a.monthlyRentMinor)}</TableCell>
+                    <TableCell className="text-right">{formatMinor(a.collectedMinor)}</TableCell>
+                    <TableCell
+                      className={cn("text-right font-medium", a.arrearsMinor ? "text-red-700" : "")}
+                    >
+                      {formatMinor(a.arrearsMinor)}
+                    </TableCell>
+                    <TableCell className="text-right">{formatMinor(a.upcomingMinor)}</TableCell>
+                    <TableCell className="text-right">
+                      <Button size="sm" variant="outline" onClick={() => setReceiptAccountId(a.id)}>
+                        Record receipt
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
               </TableBody>
             </Table>
           </div>
         )}
       </CardContent>
 
-      <Dialog open={!!confirmPeriod} onOpenChange={(o) => !o && setConfirmPeriod(null)}>
+      <Dialog open={!!receiptAccountId} onOpenChange={(o) => !o && setReceiptAccountId(null)}>
         <DialogContent className={cn(dialogContentBase, "max-w-md")}>
           <DialogHeader>
-            <DialogTitle>Send Rent Reminder?</DialogTitle>
-            <DialogDescription>Uses the overdue reminder template from Settings.</DialogDescription>
+            <DialogTitle>Record rent receipt</DialogTitle>
+            <DialogDescription>
+              Confirmed receipt allocates oldest due first. Excess becomes unapplied credit — never deposit.
+            </DialogDescription>
           </DialogHeader>
-          {confirmPeriod && (
-            <div className={cn("space-y-2 text-sm", textBreak)}>
-              <p>
-                <span className="text-muted-foreground">Tenant:</span> {confirmPeriod.tenantName}
-              </p>
-              <p>
-                <span className="text-muted-foreground">Rent period:</span> {confirmPeriod.periodLabel}
-              </p>
-              <p>
-                <span className="text-muted-foreground">Amount outstanding:</span>{" "}
-                {money(confirmPeriod.amountOutstanding, confirmPeriod.currency)}
-              </p>
+          <div className="space-y-3">
+            <div>
+              <Label>Amount (£)</Label>
+              <Input
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={receiptAmount}
+                onChange={(e) => setReceiptAmount(e.target.value)}
+              />
             </div>
-          )}
-          <DialogFooter className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <Button variant="outline" onClick={() => setConfirmPeriod(null)}>
+            <div>
+              <Label>Reference</Label>
+              <Input value={receiptRef} onChange={(e) => setReceiptRef(e.target.value)} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReceiptAccountId(null)}>
               Cancel
             </Button>
             <Button
-              disabled={reminderMutation.isPending}
-              onClick={() => confirmPeriod && reminderMutation.mutate(confirmPeriod.id)}
+              disabled={!receiptAmount || receiptMutation.isPending}
+              onClick={() => receiptMutation.mutate()}
             >
-              {reminderMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              Send Reminder
+              {receiptMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Save receipt
             </Button>
           </DialogFooter>
         </DialogContent>

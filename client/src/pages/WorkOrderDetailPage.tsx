@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { createSignatureValue, parseSignatureValue } from "@shared/signature";
 import { PageHeader } from "@/components/PageHeader";
+import { LinkedCasesPanel } from "@/components/communications/LinkedCasesPanel";
 import { WorkOrderCertificatePanel } from "@/components/WorkOrderCertificatePanel";
 import {
   WorkOrderCompletionChecklistPanel,
@@ -368,6 +369,16 @@ const WorkOrderDetailPage = () => {
           ) : null
         }
       />
+
+      {workOrderId ? (
+        <LinkedCasesPanel entityType="work_order" entityId={workOrderId} />
+      ) : null}
+      {workOrder.maintenanceRequest?.id ? (
+        <LinkedCasesPanel
+          entityType="maintenance_request"
+          entityId={workOrder.maintenanceRequest.id}
+        />
+      ) : null}
 
       <div className="space-y-4">
         <div className="flex flex-wrap gap-2">

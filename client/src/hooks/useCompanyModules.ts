@@ -71,5 +71,6 @@ export function useCompanyModules() {
     complianceEnabled: isEnabled("compliance"),
     maintenanceEnabled: isEnabled("maintenance"),
     hmoComplianceEnabled: isEnabled("hmo_compliance"),
+    communicationsEnabled: isEnabled("communications"),
   };
 }
