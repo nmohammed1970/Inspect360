@@ -44,6 +44,8 @@ import {
   Trash2
 } from "lucide-react";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
+import { StatusBadge } from "@/components/StatusBadge";
+import { comparisonReportStatusTone } from "@shared/statusPriorityStyles";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
@@ -133,12 +135,12 @@ interface Comment {
   createdAt: string;
 }
 
-const statusConfig: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
-  draft: { label: "Draft", variant: "secondary" },
-  under_review: { label: "Under Review", variant: "default" },
-  awaiting_signatures: { label: "Awaiting Signatures", variant: "destructive" },
-  signed: { label: "Signed", variant: "outline" },
-  filed: { label: "Filed", variant: "secondary" },
+const statusConfig: Record<string, { label: string }> = {
+  draft: { label: "Draft" },
+  under_review: { label: "Under Review" },
+  awaiting_signatures: { label: "Awaiting Signatures" },
+  signed: { label: "Signed" },
+  filed: { label: "Filed" },
 };
 
 const itemStatusOptions = [
@@ -602,9 +604,13 @@ export default function ComparisonReportDetail() {
               </SelectContent>
             </Select>
           )}
-          <Badge variant={statusInfo.variant} className="h-9 px-4 text-sm font-medium inline-flex items-center">
+          <StatusBadge
+            tone={comparisonReportStatusTone(report.status)}
+            appearance="solid"
+            className="h-9 px-4 text-sm font-medium inline-flex items-center"
+          >
             {statusInfo.label}
-          </Badge>
+          </StatusBadge>
         </div>
       </div>
 

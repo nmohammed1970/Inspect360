@@ -267,6 +267,129 @@ export async function sendInspectionCompleteEmail(
   }
 }
 
+/** Notify assignee (inspector, contractor, or tenant) that an inspection was assigned to them. */
+export async function sendInspectionAssignedEmail(
+  recipientEmail: string,
+  recipientName: string,
+  details: {
+    templateOrTypeLabel: string;
+    propertyName?: string;
+    blockName?: string;
+    scheduledDate?: Date | null;
+    notes?: string | null;
+    inspectionId: string;
+    /** Deep-link path after BASE_URL (no leading slash required). */
+    portalPath: string;
+    assigneeRole: "clerk" | "contractor" | "tenant" | string;
+  },
+) {
+  try {
+    const { client, fromEmail } = await getUncachableResendClient();
+    const subject = `Inspection assigned: ${details.templateOrTypeLabel}`;
+    const location = details.propertyName || details.blockName || "Unknown location";
+    const baseUrl = (process.env.BASE_URL || "https://portal.inspect360.ai").replace(/\/$/, "");
+    const path = details.portalPath.replace(/^\//, "");
+    const openUrl = `${baseUrl}/${path}`;
+    const roleLabel =
+      details.assigneeRole === "tenant"
+        ? "tenant"
+        : details.assigneeRole === "contractor"
+          ? "contractor"
+          : "inspector";
+
+    const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${subject}</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f5f5f5;">
+  <div style="background-color: #ffffff; border-radius: 8px; padding: 32px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+    <div style="text-align: center; margin-bottom: 32px;">
+      <div style="width: 64px; height: 64px; background: linear-gradient(135deg, #00D5CC 0%, #3B7A8C 100%); border-radius: 50%; margin: 0 auto 16px; display: flex; align-items: center; justify-content: center;">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+          <path d="M9 11l3 3L22 4"></path>
+          <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"></path>
+        </svg>
+      </div>
+      <h1 style="margin: 0; font-size: 24px; font-weight: 700; color: #1a1a1a;">Inspection Assigned</h1>
+    </div>
+
+    <div style="margin-bottom: 24px;">
+      <p style="margin: 0 0 16px 0; font-size: 16px;">Hi ${recipientName},</p>
+      <p style="margin: 0 0 24px 0; font-size: 16px;">
+        An inspection has been assigned to you as ${roleLabel}. Please open it in Inspect360 to complete the inspection.
+      </p>
+
+      <div style="background-color: #f8f9fa; border-left: 4px solid #00D5CC; padding: 20px; border-radius: 4px; margin-bottom: 24px;">
+        <h2 style="margin: 0 0 16px 0; font-size: 18px; font-weight: 600; color: #1a1a1a;">Inspection Details</h2>
+        <div style="margin-bottom: 12px;">
+          <span style="font-weight: 600; color: #555;">Type:</span>
+          <span style="color: #333; margin-left: 8px;">${details.templateOrTypeLabel}</span>
+        </div>
+        <div style="margin-bottom: 12px;">
+          <span style="font-weight: 600; color: #555;">Location:</span>
+          <span style="color: #333; margin-left: 8px;">${location}</span>
+        </div>
+        ${
+          details.scheduledDate
+            ? `<div style="margin-bottom: 12px;">
+          <span style="font-weight: 600; color: #555;">Scheduled:</span>
+          <span style="color: #333; margin-left: 8px;">${new Date(details.scheduledDate).toLocaleString("en-US", {
+            dateStyle: "medium",
+            timeStyle: "short",
+          })}</span>
+        </div>`
+            : ""
+        }
+        ${
+          details.notes
+            ? `<div>
+          <span style="font-weight: 600; color: #555;">Notes:</span>
+          <span style="color: #333; margin-left: 8px;">${details.notes}</span>
+        </div>`
+            : ""
+        }
+      </div>
+
+      <div style="text-align: center; margin: 32px 0;">
+        <a href="${openUrl}"
+           style="display: inline-block; background: linear-gradient(135deg, #00D5CC 0%, #3B7A8C 100%); color: white; text-decoration: none; padding: 14px 32px; border-radius: 6px; font-weight: 600; font-size: 16px;">
+          Open Inspection
+        </a>
+      </div>
+    </div>
+
+    <div style="border-top: 1px solid #e5e5e5; padding-top: 20px; margin-top: 32px;">
+      <p style="margin: 0; font-size: 13px; color: #888; text-align: center;">
+        This email was sent from <strong style="color: #00D5CC;">Inspect360</strong> — Your AI-Powered Building Inspection Platform
+      </p>
+      <p style="margin: 8px 0 0 0; font-size: 12px; color: #aaa; text-align: center;">
+        © ${new Date().getFullYear()} Inspect360. All rights reserved.
+      </p>
+    </div>
+  </div>
+</body>
+</html>
+    `;
+
+    const response = await client.emails.send({
+      from: fromEmail,
+      to: recipientEmail,
+      subject,
+      html,
+    });
+
+    console.log("Inspection assigned email sent:", response);
+    return response;
+  } catch (error) {
+    console.error("Failed to send inspection assigned email:", error);
+    throw error;
+  }
+}
+
 export async function sendTeamWorkOrderNotification(
   teamEmail: string,
   teamName: string,

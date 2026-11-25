@@ -2,6 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import SignatureCanvas from "react-signature-canvas";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "wouter";
+import { useBackHref } from "@/navigation";
+import { StatusBadge } from "@/components/StatusBadge";
+import {
+  priorityTone,
+  toneClass,
+  workOrderStatusTone,
+} from "@shared/statusPriorityStyles";
+import { cn } from "@/lib/utils";
 import {
   ArrowLeft,
   Calendar,
@@ -39,7 +47,6 @@ import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { dialogContentBase } from "@/lib/responsive";
-import { cn } from "@/lib/utils";
 
 interface WorkOrderDetail {
   id: string;
@@ -63,24 +70,11 @@ interface WorkOrderDetail {
   block?: { id?: string; name?: string } | null;
 }
 
-const workOrderStatusColors: Record<string, string> = {
-  assigned: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300",
-  in_progress: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300",
-  waiting_parts: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300",
-  completed: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300",
-  rejected: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300",
-};
-
-const priorityColors: Record<string, string> = {
-  low: "bg-gray-100 text-gray-800",
-  medium: "bg-blue-100 text-blue-800",
-  high: "bg-orange-100 text-orange-800",
-  urgent: "bg-red-100 text-red-800",
-};
 
 const WorkOrderDetailPage = () => {
   const params = useParams<{ workOrderId: string }>();
   const workOrderId = params.workOrderId;
+  const backHref = useBackHref("/maintenance?tab=work-orders");
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -291,7 +285,7 @@ const WorkOrderDetailPage = () => {
     return (
       <div className="space-y-4 p-4 sm:p-6">
         <Button variant="ghost" asChild>
-          <Link href="/maintenance?tab=work-orders">
+          <Link href={backHref}>
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back to work orders
           </Link>
@@ -308,7 +302,7 @@ const WorkOrderDetailPage = () => {
       <PageHeader
         leading={
           <Button variant="ghost" size="sm" className="-ml-2" asChild>
-            <Link href="/maintenance?tab=work-orders">
+            <Link href={backHref}>
               <ArrowLeft className="mr-2 h-4 w-4" />
               Back
             </Link>
@@ -341,12 +335,20 @@ const WorkOrderDetailPage = () => {
 
       <div className="space-y-4">
         <div className="flex flex-wrap gap-2">
-          <Badge className={priorityColors[workOrder.maintenanceRequest.priority]}>
+          <StatusBadge
+            tone={priorityTone(workOrder.maintenanceRequest.priority)}
+            appearance="soft"
+            className="capitalize"
+          >
             {workOrder.maintenanceRequest.priority}
-          </Badge>
-          <Badge className={workOrderStatusColors[workOrder.status]}>
+          </StatusBadge>
+          <StatusBadge
+            tone={workOrderStatusTone(workOrder.status)}
+            appearance="soft"
+            className="capitalize"
+          >
             {workOrder.status.replace("_", " ")}
-          </Badge>
+          </StatusBadge>
         </div>
 
         {completeError && (
@@ -372,7 +374,10 @@ const WorkOrderDetailPage = () => {
               }}
             >
               <SelectTrigger
-                className="w-full sm:w-auto sm:min-w-[12rem] h-9"
+                className={cn(
+                  "w-full sm:w-auto sm:min-w-[12rem] h-9 rounded-full text-xs font-medium",
+                  toneClass(workOrderStatusTone(workOrder.status)),
+                )}
                 data-testid="select-work-order-status-detail"
               >
                 <SelectValue />
@@ -406,7 +411,7 @@ const WorkOrderDetailPage = () => {
         )}
 
         {workOrder.arrivedAt && (
-          <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm dark:border-emerald-900 dark:bg-emerald-950/40">
+          <div className="rounded-md border border-primary/25 bg-primary/[0.04] p-3 text-sm">
             <p className="font-medium">Arrived on site</p>
             <p className="text-muted-foreground">
               {new Date(workOrder.arrivedAt).toLocaleString(undefined, {

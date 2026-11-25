@@ -32,9 +32,14 @@ import {
   formatEnumLabel,
   formatInspectionStatus,
   formatMaintenanceStatus,
-  inspectionStatusBadgeVariant,
-  maintenanceStatusBadgeVariant,
 } from "@shared/inspectionLabels";
+import {
+  inspectionStatusTone,
+  maintenanceRequestStatusTone,
+  priorityTone,
+  type SemanticTone,
+} from "@shared/statusPriorityStyles";
+import { StatusBadge } from "@/components/StatusBadge";
 import EditTenantDialog from "@/components/EditTenantDialog";
 import { queryClient } from "@/lib/queryClient";
 
@@ -181,50 +186,42 @@ export default function TenantDetail() {
   const getStatusBadge = (status: string) => {
     if (status === "scheduled" || status === "draft" || status === "reviewed" || status === "cancelled") {
       return (
-        <Badge variant={inspectionStatusBadgeVariant(status)}>
+        <StatusBadge tone={inspectionStatusTone(status)} appearance="solid">
           {formatInspectionStatus(status)}
-        </Badge>
+        </StatusBadge>
       );
     }
-    if (status === "open" || status === "closed") {
+    if (status === "open" || status === "closed" || status === "in_progress" || status === "completed") {
       return (
-        <Badge variant={maintenanceStatusBadgeVariant(status)}>
+        <StatusBadge tone={maintenanceRequestStatusTone(status)} appearance="solid">
           {formatMaintenanceStatus(status)}
-        </Badge>
+        </StatusBadge>
       );
     }
-    if (status === "in_progress" || status === "completed") {
-      // Shared by inspections and maintenance — same wording/variants
-      return (
-        <Badge variant={inspectionStatusBadgeVariant(status)}>
-          {formatInspectionStatus(status)}
-        </Badge>
-      );
-    }
-    const statusConfig: Record<string, { variant: "default" | "secondary" | "destructive" | "outline" | "success"; label: string }> = {
-      active: { variant: "success", label: "Active" },
-      current: { variant: "success", label: "Current" },
-      notice_served: { variant: "secondary", label: "Notice Served" },
-      ended: { variant: "outline", label: "Ended" },
-      resolved: { variant: "outline", label: "Resolved" },
-      disputed: { variant: "destructive", label: "Disputed" },
-      pending: { variant: "secondary", label: "Pending" },
-      paid: { variant: "outline", label: "Paid" },
-      overdue: { variant: "destructive", label: "Overdue" },
+    const statusConfig: Record<string, { tone: SemanticTone; label: string }> = {
+      active: { tone: "success", label: "Active" },
+      current: { tone: "success", label: "Current" },
+      notice_served: { tone: "warning", label: "Notice Served" },
+      ended: { tone: "muted", label: "Ended" },
+      resolved: { tone: "success", label: "Resolved" },
+      disputed: { tone: "critical", label: "Disputed" },
+      pending: { tone: "info", label: "Pending" },
+      paid: { tone: "success", label: "Paid" },
+      overdue: { tone: "critical", label: "Overdue" },
     };
-    const config = statusConfig[status] || { variant: "secondary" as const, label: formatEnumLabel(status) };
-    return <Badge variant={config.variant}>{config.label}</Badge>;
+    const config = statusConfig[status] || { tone: "muted" as const, label: formatEnumLabel(status) };
+    return (
+      <StatusBadge tone={config.tone} appearance="solid">
+        {config.label}
+      </StatusBadge>
+    );
   };
 
-  const getPriorityBadge = (priority: string) => {
-    const priorityConfig: Record<string, { variant: "default" | "secondary" | "destructive"; label: string }> = {
-      low: { variant: "secondary", label: "Low" },
-      medium: { variant: "default", label: "Medium" },
-      high: { variant: "destructive", label: "High" },
-    };
-    const config = priorityConfig[priority] || { variant: "secondary", label: priority };
-    return <Badge variant={config.variant}>{config.label}</Badge>;
-  };
+  const getPriorityBadge = (priority: string) => (
+    <StatusBadge tone={priorityTone(priority)} appearance="solid" className="capitalize">
+      {priority}
+    </StatusBadge>
+  );
 
   if (tenantLoading) {
     return (
@@ -557,9 +554,9 @@ export default function TenantDetail() {
                             </p>
                             <p className="text-sm text-muted-foreground">{formatCurrency(tenancy.monthlyRent)}/month</p>
                             {tenancy.isActive ? (
-                              <Badge variant="default">Active</Badge>
+                              <StatusBadge tone="success" appearance="solid">Active</StatusBadge>
                             ) : (
-                              <Badge variant="outline">Ended</Badge>
+                              <StatusBadge tone="muted" appearance="solid">Ended</StatusBadge>
                             )}
                           </div>
                         </div>

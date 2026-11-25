@@ -28,8 +28,10 @@ import {
   Loader2,
   Building2,
   Home,
+  AlertTriangle,
   X
 } from "lucide-react";
+import { MetricSummaryCard } from "@/components/workspace";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Link } from "wouter";
 import { format } from "date-fns";
@@ -227,30 +229,34 @@ export default function InventoryReport() {
 
       {/* Summary Statistics */}
       <div className="grid gap-3 sm:gap-4 grid-cols-2 md:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription className="text-xs sm:text-sm">Total Assets</CardDescription>
-            <CardTitle className="text-xl sm:text-2xl md:text-3xl" data-testid="stat-total-assets">{totalAssets}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription className="text-xs sm:text-sm">Block Assets</CardDescription>
-            <CardTitle className="text-xl sm:text-2xl md:text-3xl text-primary" data-testid="stat-block-assets">{blockAssets}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription className="text-xs sm:text-sm">Property Assets</CardDescription>
-            <CardTitle className="text-xl sm:text-2xl md:text-3xl text-accent" data-testid="stat-property-assets">{propertyAssets}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription className="text-xs sm:text-sm">Needs Attention</CardDescription>
-            <CardTitle className="text-xl sm:text-2xl md:text-3xl text-destructive" data-testid="stat-needs-attention">{damagedAssets}</CardTitle>
-          </CardHeader>
-        </Card>
+        <MetricSummaryCard
+          value={totalAssets}
+          valueTestId="stat-total-assets"
+          label="Total Assets"
+          tone="muted"
+          icon={Package}
+        />
+        <MetricSummaryCard
+          value={blockAssets}
+          valueTestId="stat-block-assets"
+          label="Block Assets"
+          tone="primary"
+          icon={Building2}
+        />
+        <MetricSummaryCard
+          value={propertyAssets}
+          valueTestId="stat-property-assets"
+          label="Property Assets"
+          tone="info"
+          icon={Home}
+        />
+        <MetricSummaryCard
+          value={damagedAssets}
+          valueTestId="stat-needs-attention"
+          label="Needs Attention"
+          tone="critical"
+          icon={AlertTriangle}
+        />
       </div>
 
       <FiltersSection headingId="inventory-report-filters-heading">

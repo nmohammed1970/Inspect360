@@ -116,14 +116,22 @@ export async function assertInspectionGalleryAccess(
   user: User,
   mode: "read" | "write",
 ): Promise<{ inspection: Inspection; organizationId: string }> {
-  if (!user.organizationId) throw httpError("No organization found", 403);
-
   const inspection = await storage.getInspection(inspectionId);
   if (!inspection) throw httpError("Inspection not found", 404);
 
   const organizationId = await resolveOrgId(inspection);
-  if (!organizationId || organizationId !== user.organizationId) {
+  if (!organizationId) throw httpError("Access denied", 403);
+
+  const isAssignee = inspection.inspectorId === user.id;
+  const sameOrg = !!user.organizationId && user.organizationId === organizationId;
+
+  // Tenant performers may lack organizationId on their user row — allow via assignee + inspection org
+  if (user.role === "tenant") {
+    if (!isAssignee) throw httpError("Access denied", 403);
+  } else if (!sameOrg) {
     throw httpError("Access denied", 403);
+  } else if (!user.organizationId) {
+    throw httpError("No organization found", 403);
   }
 
   if (mode === "write") {
@@ -131,7 +139,7 @@ export async function assertInspectionGalleryAccess(
       throw httpError("Completed inspections cannot be edited", 403);
     }
     if (user.role !== "owner" && user.role !== "compliance") {
-      if (inspection.inspectorId !== user.id) {
+      if (!isAssignee) {
         throw httpError("Access denied: Inspection not assigned to you", 403);
       }
     }

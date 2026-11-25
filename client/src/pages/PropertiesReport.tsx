@@ -27,8 +27,10 @@ import {
   Filter,
   Loader2,
   Building2,
+  Wrench,
   X
 } from "lucide-react";
+import { MetricSummaryCard } from "@/components/workspace";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Link } from "wouter";
 import { format } from "date-fns";
@@ -228,35 +230,39 @@ export default function PropertiesReport() {
 
       {/* Summary Statistics */}
       <div className="grid gap-3 sm:gap-4 grid-cols-2 md:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription className="text-xs sm:text-sm">Total Properties</CardDescription>
-            <CardTitle className="text-xl sm:text-2xl md:text-3xl" data-testid="stat-total-properties">{totalProperties}</CardTitle>
-          </CardHeader>
-        </Card>
+        <MetricSummaryCard
+          value={totalProperties}
+          valueTestId="stat-total-properties"
+          label="Total Properties"
+          tone="muted"
+          icon={Home}
+        />
         {tenanciesEnabled && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription className="text-xs sm:text-sm">Occupied</CardDescription>
-            <CardTitle className="text-xl sm:text-2xl md:text-3xl text-green-600" data-testid="stat-occupied">{occupiedProperties}</CardTitle>
-          </CardHeader>
-        </Card>
+          <MetricSummaryCard
+            value={occupiedProperties}
+            valueTestId="stat-occupied"
+            label="Occupied"
+            tone="success"
+            icon={Building2}
+          />
         )}
         {tenanciesEnabled && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription className="text-xs sm:text-sm">Vacant</CardDescription>
-            <CardTitle className="text-xl sm:text-2xl md:text-3xl text-orange-600" data-testid="stat-vacant">{vacantProperties}</CardTitle>
-          </CardHeader>
-        </Card>
+          <MetricSummaryCard
+            value={vacantProperties}
+            valueTestId="stat-vacant"
+            label="Vacant"
+            tone="warning"
+            icon={Home}
+          />
         )}
         {maintenanceEnabled && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription className="text-xs sm:text-sm">Open Maintenance</CardDescription>
-            <CardTitle className="text-xl sm:text-2xl md:text-3xl text-destructive" data-testid="stat-open-maintenance">{totalOpenMaintenance}</CardTitle>
-          </CardHeader>
-        </Card>
+          <MetricSummaryCard
+            value={totalOpenMaintenance}
+            valueTestId="stat-open-maintenance"
+            label="Open Maintenance"
+            tone="critical"
+            icon={Wrench}
+          />
         )}
       </div>
 

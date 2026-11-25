@@ -2,6 +2,9 @@ import { PreviewableImage } from "@/components/ImagePreview";
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, Link } from "wouter";
+import { ContextualLink, useBackHref } from "@/navigation";
+import { StatusBadge } from "@/components/StatusBadge";
+import { complianceDocTone } from "@shared/statusPriorityStyles";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -103,6 +106,7 @@ const uploadFormSchema = insertComplianceDocumentSchema.extend({
 type UploadFormValues = z.infer<typeof uploadFormSchema>;
 
 export default function BlockDetail() {
+  const backHref = useBackHref("/blocks");
   const [, params] = useRoute("/blocks/:id");
   const blockId = params?.id;
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
@@ -283,16 +287,28 @@ export default function BlockDetail() {
   };
 
   const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'valid':
-        return <Badge variant="success"><CheckCircle2 className="h-3 w-3 mr-1" />Valid</Badge>;
-      case 'expiring':
-        return <Badge variant="secondary" className="text-yellow-600"><Clock className="h-3 w-3 mr-1" />Expiring Soon</Badge>;
-      case 'expired':
-        return <Badge variant="destructive"><AlertCircle className="h-3 w-3 mr-1" />Expired</Badge>;
-      default:
-        return <Badge variant="outline">{status}</Badge>;
-    }
+    const label =
+      status === "valid"
+        ? "Valid"
+        : status === "expiring"
+          ? "Expiring Soon"
+          : status === "expired"
+            ? "Expired"
+            : status;
+    const Icon =
+      status === "valid"
+        ? CheckCircle2
+        : status === "expiring"
+          ? Clock
+          : status === "expired"
+            ? AlertCircle
+            : null;
+    return (
+      <StatusBadge tone={complianceDocTone(status)} appearance="solid">
+        {Icon ? <Icon className="h-3 w-3 mr-1" /> : null}
+        {label}
+      </StatusBadge>
+    );
   };
 
   if (blockLoading || propertiesLoading) {
@@ -308,7 +324,7 @@ export default function BlockDetail() {
       <div className={cn("container mx-auto min-w-0", pagePad)}>
         <div className="text-center py-12">
           <p className="text-muted-foreground">Block not found</p>
-          <Link href="/blocks">
+          <Link href={backHref}>
             <Button variant="outline" className="mt-4">
               <ArrowLeft className="mr-2 h-4 w-4" />
               Back to Blocks
@@ -323,7 +339,7 @@ export default function BlockDetail() {
     <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
       {/* Header */}
       <div className="flex items-center gap-2 md:gap-4">
-        <Link href="/blocks">
+        <Link href={backHref}>
           <Button variant="ghost" size="sm" className="text-xs md:text-sm" data-testid="button-back-to-blocks">
             <ArrowLeft className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" />
             <span className="hidden sm:inline">Back to Blocks</span>
@@ -514,8 +530,12 @@ export default function BlockDetail() {
           ) : (
             <div className="grid gap-4">
               {properties.map((property) => (
-                <Link key={property.id} href={`/properties/${property.id}`}>
-                  <Card className="hover-elevate cursor-pointer" data-testid={`card-property-${property.id}`}>
+                <ContextualLink
+                  key={property.id}
+                  href={`/properties/${property.id}`}
+                  fromLabel={block?.name ?? "Block"}
+                >
+                  <Card className="rounded-lg border-border/80 shadow-sm cursor-pointer" data-testid={`card-property-${property.id}`}>
                     <CardHeader>
                       <div className="flex items-start justify-between">
                         <div>
@@ -584,7 +604,7 @@ export default function BlockDetail() {
                       </div>
                     </CardContent>
                   </Card>
-                </Link>
+                </ContextualLink>
               ))}
             </div>
           )}

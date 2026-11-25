@@ -5,6 +5,7 @@ import {
   FileCheck,
   Users,
   ClipboardList,
+  ClipboardCheck,
 } from "lucide-react";
 import {
   Sidebar,
@@ -56,6 +57,12 @@ export function TenantSidebar() {
       url: "/dashboard",
       icon: Home,
       enabled: true, // Always enabled
+    },
+    {
+      title: "My Inspections",
+      url: "/tenant/inspections",
+      icon: ClipboardCheck,
+      enabled: true,
     },
     {
       title: "AI Maintenance Help",

@@ -23,6 +23,7 @@ import {
 import { FileText, ArrowRight, User, Building2, Calendar, Plus, Loader2, GitCompare } from "lucide-react";
 import { format } from "date-fns";
 import { Link } from "wouter";
+import { ContextualLink } from "@/navigation";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { useCompanyModules } from "@/hooks/useCompanyModules";
@@ -30,6 +31,9 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 import { pagePad } from "@/lib/responsive";
 import { PageHeader } from "@/components/PageHeader";
+import { StatusBadge } from "@/components/StatusBadge";
+import { comparisonReportStatusTone } from "@shared/statusPriorityStyles";
+import { formatEnumLabel } from "@shared/inspectionLabels";
 
 interface ComparisonReport {
   id: string;
@@ -54,12 +58,12 @@ interface ComparisonReportItem {
   status: string;
 }
 
-const statusConfig = {
-  draft: { label: "Draft", color: "bg-gray-500" },
-  under_review: { label: "Under Review", color: "bg-blue-500" },
-  awaiting_signatures: { label: "Awaiting Signatures", color: "bg-amber-500" },
-  signed: { label: "Signed", color: "bg-green-500" },
-  filed: { label: "Filed", color: "bg-slate-600" },
+const statusConfig: Record<string, { label: string }> = {
+  draft: { label: "Draft" },
+  under_review: { label: "Under Review" },
+  awaiting_signatures: { label: "Awaiting Signatures" },
+  signed: { label: "Signed" },
+  filed: { label: "Filed" },
 };
 
 export default function ComparisonReports() {
@@ -287,7 +291,7 @@ export default function ComparisonReports() {
         actions={
         <Dialog open={isDialogOpen} onOpenChange={handleDialogOpenChange}>
           <DialogTrigger asChild>
-            <Button variant="brand" className="w-full sm:w-auto shrink-0" data-testid="button-generate-report">
+            <Button className="w-full sm:w-auto shrink-0" data-testid="button-generate-report">
               <Plus className="w-4 h-4 mr-2" />
               Generate Report
             </Button>
@@ -365,7 +369,6 @@ export default function ComparisonReports() {
               )}
 
               <Button
-                variant="brand"
                 className="w-full"
                 onClick={() => generateReportMutation.mutate()}
                 disabled={!selectedPropertyId || !selectedCheckInId || !selectedCheckOutId || generateReportMutation.isPending}
@@ -448,7 +451,7 @@ export default function ComparisonReports() {
             <p className="text-muted-foreground text-center max-w-md mb-4">
               Generate comparison reports to analyze check-in vs check-out inspections with AI-powered cost estimation.
             </p>
-            <Button variant="brand" onClick={() => setIsDialogOpen(true)} data-testid="button-generate-first">
+            <Button onClick={() => setIsDialogOpen(true)} data-testid="button-generate-first">
               <Plus className="w-4 h-4 mr-2" />
               Generate Your First Report
             </Button>
@@ -463,7 +466,7 @@ export default function ComparisonReports() {
             return (
               <Card 
                 key={report.id} 
-                className="hover-elevate transition-all duration-150"
+                className="rounded-lg border-border/80 shadow-sm transition-all duration-150"
                 data-testid={`card-report-${report.id}`}
               >
                 <CardContent className="p-4 md:p-6">
@@ -471,9 +474,13 @@ export default function ComparisonReports() {
                     <div className="flex-1 space-y-3 w-full min-w-0">
                       {/* Status and Date */}
                       <div className="flex items-center gap-2 md:gap-3 flex-wrap">
-                        <Badge className={`${statusInfo.color} text-white text-xs`}>
-                          {statusInfo.label}
-                        </Badge>
+                        <StatusBadge
+                          tone={comparisonReportStatusTone(report.status)}
+                          appearance="solid"
+                          className="text-xs"
+                        >
+                          {statusInfo?.label || formatEnumLabel(report.status)}
+                        </StatusBadge>
                         <div className="flex items-center gap-1.5 md:gap-2 text-xs md:text-sm text-muted-foreground">
                           <Calendar className="w-3 h-3 md:w-4 md:h-4 shrink-0" />
                           <span>{format(new Date(report.createdAt), "MMM d, yyyy")}</span>
@@ -501,7 +508,7 @@ export default function ComparisonReports() {
                           <User className="w-3 h-3 md:w-4 md:h-4 text-muted-foreground shrink-0" />
                           <span className="text-muted-foreground">Operator:</span>
                           {report.operatorSignature ? (
-                            <Badge variant="outline" className="text-green-600 border-green-600 text-xs">
+                            <Badge variant="outline" className="border-[color:var(--brand-success)]/30 text-[color:var(--brand-success)] text-xs">
                               Signed
                             </Badge>
                           ) : (
@@ -512,7 +519,7 @@ export default function ComparisonReports() {
                           <User className="w-3 h-3 md:w-4 md:h-4 text-muted-foreground shrink-0" />
                           <span className="text-muted-foreground">Tenant:</span>
                           {report.tenantSignature ? (
-                            <Badge variant="outline" className="text-green-600 border-green-600 text-xs">
+                            <Badge variant="outline" className="border-[color:var(--brand-success)]/30 text-[color:var(--brand-success)] text-xs">
                               Signed
                             </Badge>
                           ) : (
@@ -526,7 +533,11 @@ export default function ComparisonReports() {
                     </div>
 
                     {/* View Button */}
-                    <Link href={`/comparisons/${report.id}`} className="inline-block w-full sm:w-auto">
+                    <ContextualLink
+                      href={`/comparisons/${report.id}`}
+                      fromLabel="Comparisons"
+                      className="inline-block w-full sm:w-auto"
+                    >
                       <Button 
                         variant="outline" 
                         size="sm" 
@@ -536,7 +547,7 @@ export default function ComparisonReports() {
                         View Details
                         <ArrowRight className="w-4 h-4 ml-2" />
                       </Button>
-                    </Link>
+                    </ContextualLink>
                   </div>
                 </CardContent>
               </Card>

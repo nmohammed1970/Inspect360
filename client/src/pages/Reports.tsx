@@ -113,7 +113,7 @@ export default function Reports() {
           const Icon = report.icon;
           const cardContent = (
             <Card
-              className={`clean-card transition-all h-full ${report.available ? "hover-elevate cursor-pointer" : "opacity-60"}`}
+              className={`rounded-lg border-border/80 shadow-sm transition-all h-full ${report.available ? "cursor-pointer hover:border-primary/30" : "opacity-60"}`}
               data-testid={`card-report-${report.title.toLowerCase().replace(/\s+/g, "-")}`}
             >
               <CardHeader className="p-4 md:p-6">

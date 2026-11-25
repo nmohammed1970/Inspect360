@@ -3,11 +3,12 @@ import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { useLocation, useSearch, useParams } from "wouter";
+import { navigateWithContext } from "@/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Wrench, Upload, Sparkles, Loader2, X, Check, ChevronsUpDown, Pencil, Trash2, Clipboard, Calendar, User as UserIcon, AlertCircle, AlertTriangle, CheckCircle2, Clock, Filter, Building2, MoreVertical, ArrowRight, MessageSquare } from "lucide-react";
+import { Plus, Wrench, Upload, Sparkles, Loader2, X, Check, ChevronsUpDown, Pencil, Trash2, Clipboard, Calendar, User as UserIcon, AlertCircle, AlertTriangle, CheckCircle2, Clock, Building2, MoreVertical, ArrowRight, MessageSquare } from "lucide-react";
 import { MaintenanceRequestDiscussion } from "@/components/MaintenanceRequestDiscussion";
 import {
   DropdownMenu,
@@ -18,7 +19,6 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { WorkOrderFinanceLinks } from "@/components/maintenance-quotes/WorkOrderFinanceLinks";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { formatDistanceToNow } from "date-fns";
@@ -31,8 +31,14 @@ import {
 import { formatInspectionNote, parseInspectionNote } from "@shared/inspectionNoteSections";
 import {
   formatMaintenanceStatus,
-  maintenanceStatusBadgeVariant,
 } from "@shared/inspectionLabels";
+import {
+  maintenanceRequestStatusTone,
+  priorityTone as sharedPriorityTone,
+  toneClass,
+  workOrderStatusTone,
+} from "@shared/statusPriorityStyles";
+import { StatusBadge } from "@/components/StatusBadge";
 import {
   Dialog,
   DialogContent,
@@ -84,9 +90,20 @@ import { useModules } from "@/hooks/use-modules";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { WorkOrderCompleteDialog } from "@/components/WorkOrderCompleteDialog";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
-import { FiltersSection } from "@/components/FiltersSection";
 import { pagePad, dialogContentBase } from "@/lib/responsive";
 import { PageHeader } from "@/components/PageHeader";
+import {
+  PillFilterTabs,
+  FilterToolbar,
+  StatusPill,
+  PortfolioDataTable,
+  PortfolioTableHeader,
+  PortfolioTableBody,
+  PortfolioTableRow,
+  PortfolioTableHead,
+  PortfolioTableCell,
+  OpenRowLink,
+} from "@/components/workspace";
 
 type MaintenanceRequestWithDetails = MaintenanceRequest & {
   property?: { name: string; address: string };
@@ -130,21 +147,6 @@ interface WorkOrder {
   } | null;
 }
 
-const workOrderStatusColors: Record<string, string> = {
-  assigned: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300",
-  in_progress: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300",
-  waiting_parts: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300",
-  completed: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300",
-  rejected: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300",
-};
-
-const priorityColors: Record<string, string> = {
-  low: "bg-gray-100 text-gray-800",
-  medium: "bg-blue-100 text-blue-800",
-  high: "bg-orange-100 text-orange-800",
-  urgent: "bg-red-100 text-red-800",
-};
-
 const createMaintenanceSchema = insertMaintenanceRequestSchema
   .omit({ organizationId: true }) // Backend adds this from session
   .extend({
@@ -162,7 +164,7 @@ export default function Maintenance() {
   const { user } = useAuth();
   const { toast } = useToast();
   const locale = useLocale();
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
   const searchParams = useSearch();
   const params = useParams<{ id?: string }>();
   const maintenanceId = params?.id;
@@ -888,54 +890,29 @@ export default function Maintenance() {
   };
 
   const getPriorityBadge = (priority: string) => {
-    const config: Record<
-      string,
-      { label: string; className: string; icon?: typeof AlertTriangle }
-    > = {
-      low: {
-        label: "Low",
-        className:
-          "rounded-full border-border bg-muted px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground",
-      },
-      medium: {
-        label: "Medium",
-        className:
-          "rounded-full border-[color:var(--brand-warning)]/40 bg-[color:var(--brand-warning)]/15 px-2.5 py-0.5 text-[11px] font-medium text-[color:var(--brand-slate)]",
-      },
-      high: {
-        label: "High",
-        className:
-          "rounded-full border-[color:var(--brand-critical)]/30 bg-[color:var(--brand-critical)]/10 px-2.5 py-0.5 text-[11px] font-medium text-[color:var(--brand-critical)]",
-        icon: AlertTriangle,
-      },
-      urgent: {
-        label: "Urgent",
-        className:
-          "rounded-full border-[color:var(--brand-critical)]/30 bg-[color:var(--brand-critical)]/10 px-2.5 py-0.5 text-[11px] font-medium text-[color:var(--brand-critical)]",
-        icon: AlertTriangle,
-      },
-    };
-    const item = config[priority] || config.medium;
-    const Icon = item.icon;
+    const label = priority.charAt(0).toUpperCase() + priority.slice(1);
+    const showIcon = priority === "high" || priority === "urgent";
     return (
-      <Badge
-        variant="outline"
-        className={cn("gap-1 shadow-none", item.className)}
-        data-testid={`badge-priority-${priority}`}
+      <StatusBadge
+        tone={sharedPriorityTone(priority)}
+        appearance="pill"
+        testId={`badge-priority-${priority}`}
+        className="gap-1"
       >
-        {Icon ? <Icon className="h-3 w-3" /> : null}
-        {item.label}
-      </Badge>
+        {showIcon ? <AlertTriangle className="h-3 w-3" /> : null}
+        {label}
+      </StatusBadge>
     );
   };
 
   const getStatusBadge = (status: string) => (
-    <Badge
-      variant={maintenanceStatusBadgeVariant(status)}
-      data-testid={`badge-status-${status}`}
+    <StatusBadge
+      tone={maintenanceRequestStatusTone(status)}
+      appearance="solid"
+      testId={`badge-status-${status}`}
     >
       {formatMaintenanceStatus(status)}
-    </Badge>
+    </StatusBadge>
   );
 
   const priorityAccentClass = (priority: string) => {
@@ -944,15 +921,8 @@ export default function Maintenance() {
     return "border-l-[color:var(--brand-teal)]";
   };
 
-  const statusSelectClass = (status: string) => {
-    if (status === "in_progress") {
-      return "border-[color:var(--brand-success)]/30 bg-[color:var(--brand-success)]/10 text-[color:var(--brand-success)]";
-    }
-    if (status === "completed" || status === "closed") {
-      return "border-border bg-muted text-muted-foreground";
-    }
-    return "border-[color:var(--brand-info)]/30 bg-[color:var(--brand-info)]/10 text-[color:var(--brand-info)]";
-  };
+  const statusSelectClass = (status: string) =>
+    toneClass(maintenanceRequestStatusTone(status));
 
   const reporterInitials = (req: MaintenanceRequestWithDetails) => {
     const f = req.reportedByUser?.firstName?.[0] ?? "";
@@ -991,6 +961,33 @@ export default function Maintenance() {
     selectedStatus === "all"
       ? scopedRequests
       : scopedRequests.filter((r) => r.status === selectedStatus);
+
+  const requestStatusTabs = [
+    { id: "all", label: "All", count: scopedRequests.length },
+    {
+      id: "open",
+      label: "Open",
+      count: scopedRequests.filter((r) => r.status === "open").length,
+    },
+    {
+      id: "in_progress",
+      label: "In progress",
+      count: scopedRequests.filter((r) => r.status === "in_progress").length,
+    },
+    {
+      id: "completed",
+      label: "Completed",
+      count: scopedRequests.filter((r) => r.status === "completed").length,
+    },
+    {
+      id: "closed",
+      label: "Closed",
+      count: scopedRequests.filter((r) => r.status === "closed").length,
+    },
+  ];
+
+  const priorityTone = sharedPriorityTone;
+  const statusTone = maintenanceRequestStatusTone;
 
   let scopedWorkOrders = workOrders;
   if (filterProperty !== "all") {
@@ -1040,7 +1037,7 @@ export default function Maintenance() {
         actions={
           <Dialog open={isCreateOpen} onOpenChange={handleDialogChange}>
           <DialogTrigger asChild>
-            <Button variant="brand" data-testid="button-create-request" className="w-full sm:w-auto shrink-0">
+            <Button data-testid="button-create-request" className="w-full sm:w-auto shrink-0">
               <Plus className="w-3.5 h-3.5 md:w-4 md:h-4 mr-1.5" />
               <span className="hidden sm:inline">New Request</span>
               <span className="sm:hidden">New</span>
@@ -1585,56 +1582,17 @@ export default function Maintenance() {
 
         {/* REQUESTS TAB */}
         <TabsContent value="requests" className="space-y-6 md:space-y-8">
-          {/* Filters (hidden for tenants) */}
           {user?.role !== "tenant" && (
-            <FiltersSection headingId="maint-filters-heading">
-                <div className="hidden md:flex flex-wrap gap-3 items-center">
-                  <div className="flex gap-2 flex-wrap">
-                    {["all", "open", "in_progress", "completed", "closed"].map((status) => (
-                      <Button
-                        key={status}
-                        variant={selectedStatus === status ? "default" : "outline"}
-                        size="sm"
-                        className="h-8"
-                        onClick={() => setSelectedStatus(status)}
-                        data-testid={`button-filter-${status}`}
-                      >
-                        {status === "all" ? "All" : status.charAt(0).toUpperCase() + status.slice(1).replace("_", " ")}
-                      </Button>
-                    ))}
-                  </div>
-
-                  <Select value={filterBlock} onValueChange={setFilterBlock}>
-                    <SelectTrigger className="w-full sm:w-auto sm:min-w-0 sm:max-w-[11rem] h-8" data-testid="select-filter-block">
-                      <SelectValue placeholder="All Blocks" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Blocks</SelectItem>
-                      {blocks.map((block) => (
-                        <SelectItem key={block.id} value={block.id}>
-                          {block.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-
-                  <Select value={filterProperty} onValueChange={setFilterProperty}>
-                    <SelectTrigger className="w-full sm:w-auto sm:min-w-0 sm:max-w-[11rem] h-8" data-testid="select-filter-property">
-                      <SelectValue placeholder="All Properties" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Properties</SelectItem>
-                      {properties
-                        .filter((p) => filterBlock === "all" || p.blockId === filterBlock)
-                        .map((property) => (
-                          <SelectItem key={property.id} value={property.id}>
-                            {property.name}
-                          </SelectItem>
-                        ))}
-                    </SelectContent>
-                  </Select>
-
-                  {(filterBlock !== "all" || filterProperty !== "all" || selectedStatus !== "all") && (
+            <div className="space-y-3">
+              <PillFilterTabs
+                tabs={requestStatusTabs}
+                value={selectedStatus}
+                onChange={setSelectedStatus}
+                testIdPrefix="button-filter"
+              />
+              <FilterToolbar
+                end={
+                  (filterBlock !== "all" || filterProperty !== "all" || selectedStatus !== "all") ? (
                     <ClearFiltersButton
                       onClick={() => {
                         setSelectedStatus("all");
@@ -1643,99 +1601,43 @@ export default function Maintenance() {
                       }}
                       data-testid="button-clear-filters"
                     />
-                  )}
-                </div>
-
-                <div className="flex md:hidden gap-2 items-center">
-                  <Sheet>
-                    <SheetTrigger asChild>
-                      <Button variant="outline" size="sm" className="relative">
-                        <Filter className="w-4 h-4 mr-2" />
-                        Filters
-                        {(selectedStatus !== "all" || filterBlock !== "all" || filterProperty !== "all") && (
-                          <span className="absolute -top-1 -right-1 w-2 h-2 bg-primary rounded-full" />
-                        )}
-                      </Button>
-                    </SheetTrigger>
-                    <SheetContent side="bottom" className="h-[85vh] overflow-y-auto">
-                      <SheetHeader>
-                        <SheetTitle>Filters</SheetTitle>
-                        <SheetDescription>
-                          Filter maintenance requests by status, block, or property
-                        </SheetDescription>
-                      </SheetHeader>
-                      <div className="space-y-4 mt-6">
-                        <div className="space-y-2">
-                          <label className="text-sm font-medium">Status</label>
-                          <div className="flex gap-2 flex-wrap">
-                            {["all", "open", "in_progress", "completed", "closed"].map((status) => (
-                              <Button
-                                key={status}
-                                variant={selectedStatus === status ? "default" : "outline"}
-                                size="sm"
-                                onClick={() => setSelectedStatus(status)}
-                                className="w-full sm:w-auto sm:min-w-0"
-                              >
-                                {status === "all" ? "All" : status.charAt(0).toUpperCase() + status.slice(1).replace("_", " ")}
-                              </Button>
-                            ))}
-                          </div>
-                        </div>
-
-                        <div className="space-y-2">
-                          <label className="text-sm font-medium">Block</label>
-                          <Select value={filterBlock} onValueChange={setFilterBlock}>
-                            <SelectTrigger>
-                              <SelectValue placeholder="All Blocks" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="all">All Blocks</SelectItem>
-                              {blocks.map((block) => (
-                                <SelectItem key={block.id} value={block.id}>
-                                  {block.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        <div className="space-y-2">
-                          <label className="text-sm font-medium">Property</label>
-                          <Select value={filterProperty} onValueChange={setFilterProperty}>
-                            <SelectTrigger>
-                              <SelectValue placeholder="All Properties" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="all">All Properties</SelectItem>
-                              {properties
-                                .filter((p) => filterBlock === "all" || p.blockId === filterBlock)
-                                .map((property) => (
-                                  <SelectItem key={property.id} value={property.id}>
-                                    {property.name}
-                                  </SelectItem>
-                                ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        {(selectedStatus !== "all" || filterBlock !== "all" || filterProperty !== "all") && (
-                          <ClearFiltersButton
-                            className="w-full"
-                            onClick={() => {
-                              setSelectedStatus("all");
-                              setFilterBlock("all");
-                              setFilterProperty("all");
-                            }}
-                          />
-                        )}
-                      </div>
-                    </SheetContent>
-                  </Sheet>
-                  <p className="text-xs text-muted-foreground truncate">
-                    {filteredRequests.length} shown
-                  </p>
-                </div>
-            </FiltersSection>
+                  ) : (
+                    <span className="text-xs text-muted-foreground tabular-nums">
+                      {filteredRequests.length} shown
+                    </span>
+                  )
+                }
+              >
+                <Select value={filterBlock} onValueChange={setFilterBlock}>
+                  <SelectTrigger className="h-9 w-full sm:w-[11rem]" data-testid="select-filter-block">
+                    <SelectValue placeholder="All Blocks" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Blocks</SelectItem>
+                    {blocks.map((block) => (
+                      <SelectItem key={block.id} value={block.id}>
+                        {block.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={filterProperty} onValueChange={setFilterProperty}>
+                  <SelectTrigger className="h-9 w-full sm:w-[11rem]" data-testid="select-filter-property">
+                    <SelectValue placeholder="All Properties" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Properties</SelectItem>
+                    {properties
+                      .filter((p) => filterBlock === "all" || p.blockId === filterBlock)
+                      .map((property) => (
+                        <SelectItem key={property.id} value={property.id}>
+                          {property.name}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </FilterToolbar>
+            </div>
           )}
 
           {/* Maintenance Requests List */}
@@ -1750,7 +1652,6 @@ export default function Maintenance() {
                 {filteredRequests.length}
               </span>
             </div>
-            <div className="space-y-3">
             {isLoading ? (
               <div className="text-center py-8 text-muted-foreground">Loading...</div>
             ) : filteredRequests.length === 0 ? (
@@ -1766,7 +1667,156 @@ export default function Maintenance() {
                 </CardContent>
               </Card>
             ) : (
-              filteredRequests.map((request) => {
+              <>
+            {/* Desktop table */}
+            <div className="hidden md:block">
+              <PortfolioDataTable minWidth="900px">
+                <PortfolioTableHeader>
+                  <PortfolioTableRow>
+                    <PortfolioTableHead className="h-9">Request</PortfolioTableHead>
+                    <PortfolioTableHead className="h-9">Priority</PortfolioTableHead>
+                    <PortfolioTableHead className="h-9">Status</PortfolioTableHead>
+                    <PortfolioTableHead className="h-9">Property</PortfolioTableHead>
+                    <PortfolioTableHead className="h-9">Age</PortfolioTableHead>
+                    <PortfolioTableHead className="h-9">Assignee</PortfolioTableHead>
+                    <PortfolioTableHead className="h-9 text-right">Actions</PortfolioTableHead>
+                  </PortfolioTableRow>
+                </PortfolioTableHeader>
+                <PortfolioTableBody>
+                  {filteredRequests.map((request) => {
+                    const linkedWorkOrder = workOrders.find(
+                      (wo) => wo.maintenanceRequest?.id === request.id,
+                    );
+                    const canManage =
+                      user?.role === "owner" ||
+                      user?.role === "clerk" ||
+                      user?.role === "maintenance_admin";
+                    const canOwnerAct =
+                      isMaintenanceManager && request.status !== "completed";
+                    return (
+                      <PortfolioTableRow key={request.id} data-testid={`row-request-${request.id}`}>
+                        <PortfolioTableCell className="py-2.5">
+                          <div className="min-w-0 max-w-[18rem]">
+                            <p className="truncate text-sm font-medium text-foreground">
+                              {request.title}
+                            </p>
+                            {request.reportedByUser ? (
+                              <p className="truncate text-xs text-muted-foreground">
+                                {request.reportedByUser.firstName}{" "}
+                                {request.reportedByUser.lastName}
+                              </p>
+                            ) : null}
+                          </div>
+                        </PortfolioTableCell>
+                        <PortfolioTableCell className="py-2.5">
+                          <StatusPill tone={priorityTone(request.priority)}>
+                            {request.priority?.charAt(0).toUpperCase() +
+                              (request.priority?.slice(1) || "")}
+                          </StatusPill>
+                        </PortfolioTableCell>
+                        <PortfolioTableCell className="py-2.5">
+                          {canOwnerAct ? (
+                            <Select
+                              value={request.status}
+                              onValueChange={(status) =>
+                                updateStatusMutation.mutate({ id: request.id, status })
+                              }
+                            >
+                              <SelectTrigger
+                                className={cn(
+                                  "h-7 w-auto min-w-[7rem] gap-1 rounded-full border px-2.5 text-[11px] font-medium shadow-none [&>svg]:h-3 [&>svg]:w-3",
+                                  statusSelectClass(request.status),
+                                )}
+                                data-testid={`select-status-${request.id}`}
+                              >
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="open">Open</SelectItem>
+                                <SelectItem value="in_progress">In Progress</SelectItem>
+                                <SelectItem value="completed">Completed</SelectItem>
+                                <SelectItem value="closed">Closed</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <StatusPill tone={statusTone(request.status)}>
+                              {formatMaintenanceStatus(request.status)}
+                            </StatusPill>
+                          )}
+                        </PortfolioTableCell>
+                        <PortfolioTableCell className="py-2.5">
+                          <span className="line-clamp-1 max-w-[10rem] text-sm">
+                            {request.property?.name || "Unknown"}
+                          </span>
+                        </PortfolioTableCell>
+                        <PortfolioTableCell className="py-2.5 whitespace-nowrap text-xs text-muted-foreground">
+                          {daysOpenLabel(request.createdAt)}
+                        </PortfolioTableCell>
+                        <PortfolioTableCell className="py-2.5 text-sm">
+                          {request.assignedToUser
+                            ? `${request.assignedToUser.firstName} ${request.assignedToUser.lastName}`
+                            : "—"}
+                        </PortfolioTableCell>
+                        <PortfolioTableCell className="py-2.5">
+                          <div className="flex items-center justify-end gap-0.5">
+                            {(isMaintenanceManager ||
+                              isAssigneeRole ||
+                              user?.role === "tenant") && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 px-2 text-primary"
+                                onClick={() => setDiscussionRequest(request)}
+                                data-testid={`button-discussion-${request.id}`}
+                              >
+                                Open
+                                <ArrowRight className="ml-1 h-3.5 w-3.5" />
+                              </Button>
+                            )}
+                            {linkedWorkOrder && (canOwnerAct || canFieldAct) ? (
+                              <OpenRowLink
+                                href={`/maintenance/work-orders/${linkedWorkOrder.id}`}
+                                label="WO"
+                                fromLabel="Maintenance"
+                                testId={`button-view-work-order-${request.id}`}
+                                className="ml-1"
+                              />
+                            ) : null}
+                            {canManage ? (
+                              <>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                                  onClick={() => handleEdit(request)}
+                                  data-testid={`button-edit-${request.id}`}
+                                  aria-label="Edit request"
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                                  onClick={() => setRequestToDelete(request)}
+                                  data-testid={`button-delete-${request.id}`}
+                                  aria-label="Delete request"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </>
+                            ) : null}
+                          </div>
+                        </PortfolioTableCell>
+                      </PortfolioTableRow>
+                    );
+                  })}
+                </PortfolioTableBody>
+              </PortfolioDataTable>
+            </div>
+            {/* Mobile cards */}
+            <div className="space-y-3 md:hidden">
+              {filteredRequests.map((request) => {
                 const linkedWorkOrder = workOrders.find(
                   (wo) => wo.maintenanceRequest?.id === request.id,
                 );
@@ -1785,7 +1835,7 @@ export default function Maintenance() {
                   key={request.id}
                   data-testid={`card-request-${request.id}`}
                   className={cn(
-                    "overflow-hidden rounded-2xl border border-border/80 bg-card shadow-sm border-l-4",
+                    "overflow-hidden rounded-lg border border-border/80 bg-card shadow-sm border-l-4",
                     priorityAccentClass(request.priority),
                   )}
                 >
@@ -1976,10 +2026,14 @@ export default function Maintenance() {
                                 "h-8 rounded-full px-3 text-xs",
                                 linkedWorkOrder.status !== "completed" &&
                                   linkedWorkOrder.status !== "rejected" &&
-                                  "bg-emerald-600 text-white hover:bg-emerald-700",
+                                  "bg-primary text-primary-foreground hover:bg-[hsl(var(--primary-hover))]",
                               )}
                               onClick={() => {
-                                navigate(`/maintenance/work-orders/${linkedWorkOrder.id}`);
+                                navigateWithContext(navigate, {
+                                  href: `/maintenance/work-orders/${linkedWorkOrder.id}`,
+                                  fromPath: location,
+                                  fromLabel: "Maintenance",
+                                });
                               }}
                               data-testid={`button-view-work-order-${request.id}`}
                             >
@@ -2067,9 +2121,10 @@ export default function Maintenance() {
                   </CardContent>
                 </Card>
                 );
-              })
-            )}
+              })}
             </div>
+              </>
+            )}
           </section>
         </TabsContent>
 
@@ -2142,9 +2197,13 @@ export default function Maintenance() {
                                 <CardTitle className="text-base md:text-lg font-semibold leading-snug">
                                   {workOrder.maintenanceRequest.title}
                                 </CardTitle>
-                                <Badge className={priorityColors[workOrder.maintenanceRequest.priority]}>
+                                <StatusBadge
+                                  tone={sharedPriorityTone(workOrder.maintenanceRequest.priority)}
+                                  appearance="soft"
+                                  className="capitalize"
+                                >
                                   {workOrder.maintenanceRequest.priority}
-                                </Badge>
+                                </StatusBadge>
                               </div>
                               <CardDescription className="line-clamp-2">
                                 {workOrder.maintenanceRequest.description || "No description provided"}
@@ -2165,16 +2224,20 @@ export default function Maintenance() {
                                   <Trash2 className="w-4 h-4" />
                                 </Button>
                               )}
-                              <Badge className={cn(workOrderStatusColors[workOrder.status], "capitalize")}>
+                              <StatusBadge
+                                tone={workOrderStatusTone(workOrder.status)}
+                                appearance="soft"
+                                className="capitalize"
+                              >
                                 {workOrder.status.replace("_", " ")}
-                              </Badge>
+                              </StatusBadge>
                               {(workOrder as any).authorisationStatus === "quote_required" ? (
                                 <Badge variant="outline" className="bg-amber-50 text-amber-900 border-amber-200">
                                   Quote required
                                 </Badge>
                               ) : null}
                               {(workOrder as any).authorisationStatus === "authorised" ? (
-                                <Badge variant="outline" className="bg-emerald-50 text-emerald-900 border-emerald-200">
+                                <Badge variant="outline" className="border-primary/25 bg-primary/10 text-primary">
                                   Authorised
                                 </Badge>
                               ) : null}
@@ -2302,7 +2365,13 @@ export default function Maintenance() {
                                     updateWorkOrderStatusMutation.mutate({ id: workOrder.id, status });
                                   }}
                                 >
-                                  <SelectTrigger className="w-full sm:w-auto sm:min-w-0 sm:max-w-[12rem] h-8" data-testid={`select-work-order-status-${workOrder.id}`}>
+                                  <SelectTrigger
+                                    className={cn(
+                                      "w-full sm:w-auto sm:min-w-0 sm:max-w-[12rem] h-8 rounded-full text-[11px] font-medium",
+                                      toneClass(workOrderStatusTone(workOrder.status)),
+                                    )}
+                                    data-testid={`select-work-order-status-${workOrder.id}`}
+                                  >
                                     <SelectValue />
                                   </SelectTrigger>
                                   <SelectContent>
@@ -2318,7 +2387,13 @@ export default function Maintenance() {
                               variant="outline"
                               size="sm"
                               className="h-8"
-                              onClick={() => navigate(`/maintenance/work-orders/${workOrder.id}`)}
+                              onClick={() =>
+                                navigateWithContext(navigate, {
+                                  href: `/maintenance/work-orders/${workOrder.id}`,
+                                  fromPath: location,
+                                  fromLabel: "Maintenance",
+                                })
+                              }
                               data-testid={`button-view-work-order-${workOrder.id}`}
                             >
                               View details

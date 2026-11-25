@@ -38,6 +38,8 @@ import {
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { StatusBadge } from "@/components/StatusBadge";
+import { comparisonReportStatusTone } from "@shared/statusPriorityStyles";
 import { useLocale } from "@/contexts/LocaleContext";
 import {
   Breadcrumb,
@@ -112,12 +114,12 @@ interface Comment {
   createdAt: string;
 }
 
-const statusConfig: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
-  draft: { label: "Draft", variant: "secondary" },
-  under_review: { label: "Under Review", variant: "default" },
-  awaiting_signatures: { label: "Awaiting Signatures", variant: "destructive" },
-  signed: { label: "Signed", variant: "outline" },
-  filed: { label: "Filed", variant: "secondary" },
+const statusConfig: Record<string, { label: string }> = {
+  draft: { label: "Draft" },
+  under_review: { label: "Under Review" },
+  awaiting_signatures: { label: "Awaiting Signatures" },
+  signed: { label: "Signed" },
+  filed: { label: "Filed" },
 };
 
 const itemStatusConfig: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
@@ -375,9 +377,13 @@ export default function TenantComparisonReportDetail() {
             <Download className="w-4 h-4 mr-2" />
             Download PDF
           </Button>
-          <Badge variant={statusInfo.variant} className="text-sm sm:text-lg px-3 sm:px-4 py-1.5 sm:py-2">
+          <StatusBadge
+            tone={comparisonReportStatusTone(report.status)}
+            appearance="solid"
+            className="text-sm sm:text-lg px-3 sm:px-4 py-1.5 sm:py-2"
+          >
             {statusInfo.label}
-          </Badge>
+          </StatusBadge>
         </div>
       </div>
 

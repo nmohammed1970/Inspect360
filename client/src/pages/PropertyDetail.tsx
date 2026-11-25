@@ -8,6 +8,18 @@ import { SiteMaintenanceFinancePanel } from "@/components/maintenance-quotes/Sit
 import { HmoPropertyPanel } from "@/components/hmo/HmoPropertyPanel";
 import { useState, useEffect, useMemo } from "react";
 import { useRoute, Link, useSearch } from "wouter";
+import { useBackHref } from "@/navigation";
+import { StatusBadge } from "@/components/StatusBadge";
+import {
+  formatInspectionStatus,
+  formatMaintenanceStatus,
+} from "@shared/inspectionLabels";
+import {
+  complianceDocTone,
+  inspectionStatusTone,
+  maintenanceRequestStatusTone,
+  priorityTone,
+} from "@shared/statusPriorityStyles";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -194,6 +206,7 @@ export default function PropertyDetail() {
   const propertyId = params?.id;
   const searchParams = useSearch();
   const urlTab = new URLSearchParams(searchParams).get("tab");
+  const backHref = useBackHref("/properties");
   const { rentalsEnabled, tenanciesEnabled, complianceEnabled, maintenanceEnabled, hmoComplianceEnabled } = useCompanyModules();
   const propertyTabs = useMemo(() => {
     const tabs = new Set([
@@ -560,10 +573,10 @@ export default function PropertyDetail() {
       <div className={cn("container mx-auto min-w-0", pagePad)}>
         <div className="text-center py-12">
           <p className="text-muted-foreground">Property not found</p>
-          <Link href="/properties">
+          <Link href={backHref}>
             <Button variant="outline" className="mt-4">
               <ArrowLeft className="mr-2 h-4 w-4" />
-              Back to Properties
+              Back
             </Button>
           </Link>
         </div>
@@ -575,10 +588,16 @@ export default function PropertyDetail() {
     <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
       {/* Header */}
       <div className="flex items-center gap-2 md:gap-4">
-        <Link href={property.blockId ? `/blocks/${property.blockId}` : "/properties"}>
+        <Link href={backHref}>
           <Button variant="ghost" size="sm" className="text-xs md:text-sm" data-testid="button-back">
             <ArrowLeft className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" />
-            <span className="hidden sm:inline">{property.blockId && property.blockName ? `Back to ${property.blockName}` : "Back to Properties"}</span>
+            <span className="hidden sm:inline">
+              {backHref.startsWith("/blocks/") && property.blockName
+                ? `Back to ${property.blockName}`
+                : backHref.startsWith("/blocks")
+                  ? "Back to Blocks"
+                  : "Back to Properties"}
+            </span>
             <span className="sm:hidden">Back</span>
           </Button>
         </Link>
@@ -681,7 +700,6 @@ export default function PropertyDetail() {
             </Button>
           </Link>
           <Button
-            variant="brand"
             className="gap-2"
             onClick={() => setEditDialogOpen(true)}
             data-testid="button-edit-property"
@@ -918,7 +936,7 @@ export default function PropertyDetail() {
             <div className="space-y-4">
               {inspections.map((inspection) => (
                 <Link key={inspection.id} href={`/inspections/${inspection.id}`}>
-                  <Card className="hover-elevate cursor-pointer" data-testid={`card-inspection-${inspection.id}`}>
+                  <Card className="rounded-lg border-border/80 shadow-sm cursor-pointer" data-testid={`card-inspection-${inspection.id}`}>
                     <CardHeader>
                       <div className="flex items-start justify-between gap-4">
                         <div className="space-y-2 flex-1">
@@ -936,16 +954,13 @@ export default function PropertyDetail() {
                             )}
                           </div>
                         </div>
-                        <Badge 
-                          variant={
-                            inspection.status === 'completed' ? 'default' :
-                            inspection.status === 'in_progress' ? 'secondary' :
-                            'outline'
-                          }
-                          className={inspection.status === 'completed' ? 'bg-primary text-primary-foreground' : ''}
+                        <StatusBadge
+                          tone={inspectionStatusTone(inspection.status)}
+                          appearance="solid"
+                          className="capitalize"
                         >
-                          {inspection.status.replace('_', ' ')}
-                        </Badge>
+                          {formatInspectionStatus(inspection.status)}
+                        </StatusBadge>
                       </div>
                     </CardHeader>
                   </Card>
@@ -1001,7 +1016,7 @@ export default function PropertyDetail() {
                 <Link key={tenant.id} href={`/tenants/${tenant.id}`}>
                   <Card 
                     data-testid={`card-tenant-${tenant.id}`} 
-                    className="hover-elevate cursor-pointer"
+                    className="rounded-lg border-border/80 shadow-sm cursor-pointer"
                   >
                     <CardHeader>
                       <div className="flex items-start gap-3">
@@ -1056,7 +1071,7 @@ export default function PropertyDetail() {
                 <Card 
                   key={item.id} 
                   data-testid={`card-inventory-${item.id}`}
-                  className="hover-elevate cursor-pointer"
+                  className="rounded-lg border-border/80 shadow-sm cursor-pointer"
                   onClick={() => {
                     const fullAsset = fullAssetInventory.find(asset => asset.id === item.id);
                     if (fullAsset) {
@@ -1199,7 +1214,7 @@ export default function PropertyDetail() {
                                   </>
                                 ) : (
                                   <>
-                                    <CheckCircle2 className="h-3 w-3 text-green-600" />
+                                    <CheckCircle2 className="h-3 w-3 text-[color:var(--brand-success)]" />
                                     <span className="text-muted-foreground">
                                       Expires: {new Date(expiryDate).toLocaleDateString()}
                                     </span>
@@ -1209,13 +1224,12 @@ export default function PropertyDetail() {
                             </div>
                           )}
                         </div>
-                        <Badge variant={
-                          doc.status === 'expired' ? 'destructive' :
-                          doc.status === 'expiring' ? 'outline' :
-                          'default'
-                        }>
+                        <StatusBadge
+                          tone={complianceDocTone(doc.status)}
+                          appearance="solid"
+                        >
                           {doc.status === 'expired' ? 'Expired' : doc.status === 'expiring' ? 'Expiring Soon' : 'Valid'}
-                        </Badge>
+                        </StatusBadge>
                       </div>
                     </CardHeader>
                   </Card>
@@ -1250,7 +1264,7 @@ export default function PropertyDetail() {
             <div className="space-y-3">
               {maintenance.map((request) => (
                 <Link key={request.id} href={`/maintenance/${request.id}`}>
-                  <Card className="hover-elevate cursor-pointer" data-testid={`card-maintenance-${request.id}`}>
+                  <Card className="rounded-lg border-border/80 shadow-sm cursor-pointer" data-testid={`card-maintenance-${request.id}`}>
                     <CardHeader>
                       <div className="flex items-start justify-between gap-4">
                         <div className="space-y-2 flex-1">
@@ -1272,14 +1286,20 @@ export default function PropertyDetail() {
                           </div>
                         </div>
                         <div className="flex flex-col items-end gap-2">
-                          <Badge variant={
-                            request.priority === 'urgent' ? 'destructive' :
-                            request.priority === 'high' ? 'default' :
-                            'secondary'
-                          }>
+                          <StatusBadge
+                            tone={priorityTone(request.priority)}
+                            appearance="solid"
+                            className="capitalize"
+                          >
                             {request.priority}
-                          </Badge>
-                          <Badge variant="outline">{request.status.replace('_', ' ')}</Badge>
+                          </StatusBadge>
+                          <StatusBadge
+                            tone={maintenanceRequestStatusTone(request.status)}
+                            appearance="solid"
+                            className="capitalize"
+                          >
+                            {formatMaintenanceStatus(request.status)}
+                          </StatusBadge>
                         </div>
                       </div>
                     </CardHeader>

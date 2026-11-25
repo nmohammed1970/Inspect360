@@ -79,6 +79,7 @@ import TenantRequests from "@/pages/TenantRequests";
 import TenantComparisonReports from "@/pages/TenantComparisonReports";
 import TenantComparisonReportDetail from "@/pages/TenantComparisonReportDetail";
 import TenantCheckInReview from "@/pages/TenantCheckInReview";
+import TenantInspections from "@/pages/TenantInspections";
 import TenantCommunity from "@/pages/TenantCommunity";
 import TenantProfile from "@/pages/TenantProfile";
 import CommunityModeration from "@/pages/CommunityModeration";
@@ -95,6 +96,8 @@ import HmoDashboard from "@/pages/HmoDashboard";
 import HmoRulesReview from "@/pages/HmoRulesReview";
 import { Loader2 } from "lucide-react";
 import { UserProfileMenu } from "@/components/UserProfileMenu";
+import { AppBreadcrumbs } from "@/navigation";
+import { HeaderNotifications } from "@/components/workspace/HeaderNotifications";
 import { TenantProfileMenu } from "@/components/TenantProfileMenu";
 import { AIChatbot } from "@/components/AIChatbot";
 import { IvyChatbot } from "@/components/IvyChatbot";
@@ -229,21 +232,21 @@ function AppContent() {
           </Route>
           <Route path="/admin/dashboard">
             {() => (
-              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard" }]}>
+              <AdminPageWrapper>
                 <AdminDashboard />
               </AdminPageWrapper>
             )}
           </Route>
           <Route path="/admin/team">
             {() => (
-              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Team" }]}>
+              <AdminPageWrapper>
                 <AdminTeam />
               </AdminPageWrapper>
             )}
           </Route>
           <Route path="/admin/knowledge-base">
             {() => (
-              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Knowledge Base" }]}>
+              <AdminPageWrapper>
                 <KnowledgeBase />
               </AdminPageWrapper>
             )}
@@ -262,7 +265,7 @@ function AppContent() {
           </Route>
           <Route path="/admin/extensive">
             {() => (
-              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Extensive" }]}>
+              <AdminPageWrapper>
                 <div className="container mx-auto max-w-7xl min-w-0 p-4 md:p-6">
                   <div className="mb-6 min-w-0">
                     <h1 className="text-2xl md:text-3xl font-bold mb-2">Extensive Inspections</h1>
@@ -275,7 +278,7 @@ function AppContent() {
           </Route>
           <Route path="/admin/modules">
             {() => (
-              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Modules" }]}>
+              <AdminPageWrapper>
                 <div className="container mx-auto max-w-7xl min-w-0 p-4 md:p-6">
                   <div className="mb-6 min-w-0">
                     <h1 className="text-2xl md:text-3xl font-bold mb-2">Modules</h1>
@@ -288,35 +291,35 @@ function AppContent() {
           </Route>
           <Route path="/admin/templates">
             {() => (
-              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Inspection Templates" }]}>
+              <AdminPageWrapper>
                 <AdminInspectionTemplates />
               </AdminPageWrapper>
             )}
           </Route>
           <Route path="/admin/unit-pricing">
             {() => (
-              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Unit Pricing" }]}>
+              <AdminPageWrapper>
                 <AdminUnitPricing />
               </AdminPageWrapper>
             )}
           </Route>
           <Route path="/admin/billing-pricing">
             {() => (
-              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Billing Catalog" }]}>
+              <AdminPageWrapper>
                 <AdminBillingPricing />
               </AdminPageWrapper>
             )}
           </Route>
           <Route path="/admin/credit-requests">
             {() => (
-              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Credit Requests" }]}>
+              <AdminPageWrapper>
                 <AdminCreditRequests />
               </AdminPageWrapper>
             )}
           </Route>
           <Route path="/admin/quotations">
             {() => (
-              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Quotations" }]}>
+              <AdminPageWrapper>
                 <div className="container mx-auto max-w-7xl min-w-0 p-4 md:p-6">
                   <div className="mb-6 min-w-0">
                     <h1 className="text-2xl md:text-3xl font-bold mb-2">Quotations</h1>
@@ -329,28 +332,28 @@ function AppContent() {
           </Route>
           <Route path="/admin/feedback/feature-requests">
             {() => (
-              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Feedback", href: "/admin/feedback" }, { label: "Feature Requests" }]}>
+              <AdminPageWrapper>
                 <AdminFeatureRequests />
               </AdminPageWrapper>
             )}
           </Route>
           <Route path="/admin/feedback/team">
             {() => (
-              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Feedback", href: "/admin/feedback" }, { label: "Team" }]}>
+              <AdminPageWrapper>
                 <AdminFeedbackTeam />
               </AdminPageWrapper>
             )}
           </Route>
           <Route path="/admin/feedback/:id">
             {() => (
-              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Feedback", href: "/admin/feedback" }, { label: "Case" }]}>
+              <AdminPageWrapper>
                 <AdminFeedbackDetail />
               </AdminPageWrapper>
             )}
           </Route>
           <Route path="/admin/feedback">
             {() => (
-              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Feedback" }]}>
+              <AdminPageWrapper>
                 <AdminFeedbackInbox />
               </AdminPageWrapper>
             )}
@@ -407,21 +410,21 @@ function AppContent() {
           </Route>
           <Route path="/admin/dashboard">
             {() => (
-              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard" }]}>
+              <AdminPageWrapper>
                 <AdminDashboard />
               </AdminPageWrapper>
             )}
           </Route>
           <Route path="/admin/team">
             {() => (
-              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Team" }]}>
+              <AdminPageWrapper>
                 <AdminTeam />
               </AdminPageWrapper>
             )}
           </Route>
           <Route path="/admin/knowledge-base">
             {() => (
-              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Knowledge Base" }]}>
+              <AdminPageWrapper>
                 <KnowledgeBase />
               </AdminPageWrapper>
             )}
@@ -440,7 +443,7 @@ function AppContent() {
           </Route>
           <Route path="/admin/extensive">
             {() => (
-              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Extensive" }]}>
+              <AdminPageWrapper>
                 <div className="container mx-auto max-w-7xl min-w-0 p-4 md:p-6">
                   <div className="mb-6 min-w-0">
                     <h1 className="text-2xl md:text-3xl font-bold mb-2">Extensive Inspections</h1>
@@ -453,7 +456,7 @@ function AppContent() {
           </Route>
           <Route path="/admin/modules">
             {() => (
-              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Modules" }]}>
+              <AdminPageWrapper>
                 <div className="container mx-auto max-w-7xl min-w-0 p-4 md:p-6">
                   <div className="mb-6 min-w-0">
                     <h1 className="text-2xl md:text-3xl font-bold mb-2">Modules</h1>
@@ -466,35 +469,35 @@ function AppContent() {
           </Route>
           <Route path="/admin/templates">
             {() => (
-              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Inspection Templates" }]}>
+              <AdminPageWrapper>
                 <AdminInspectionTemplates />
               </AdminPageWrapper>
             )}
           </Route>
           <Route path="/admin/unit-pricing">
             {() => (
-              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Unit Pricing" }]}>
+              <AdminPageWrapper>
                 <AdminUnitPricing />
               </AdminPageWrapper>
             )}
           </Route>
           <Route path="/admin/billing-pricing">
             {() => (
-              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Billing Catalog" }]}>
+              <AdminPageWrapper>
                 <AdminBillingPricing />
               </AdminPageWrapper>
             )}
           </Route>
           <Route path="/admin/credit-requests">
             {() => (
-              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Credit Requests" }]}>
+              <AdminPageWrapper>
                 <AdminCreditRequests />
               </AdminPageWrapper>
             )}
           </Route>
           <Route path="/admin/quotations">
             {() => (
-              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Quotations" }]}>
+              <AdminPageWrapper>
                 <div className="container mx-auto max-w-7xl min-w-0 p-4 md:p-6">
                   <div className="mb-6 min-w-0">
                     <h1 className="text-2xl md:text-3xl font-bold mb-2">Quotations</h1>
@@ -507,28 +510,28 @@ function AppContent() {
           </Route>
           <Route path="/admin/feedback/feature-requests">
             {() => (
-              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Feedback", href: "/admin/feedback" }, { label: "Feature Requests" }]}>
+              <AdminPageWrapper>
                 <AdminFeatureRequests />
               </AdminPageWrapper>
             )}
           </Route>
           <Route path="/admin/feedback/team">
             {() => (
-              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Feedback", href: "/admin/feedback" }, { label: "Team" }]}>
+              <AdminPageWrapper>
                 <AdminFeedbackTeam />
               </AdminPageWrapper>
             )}
           </Route>
           <Route path="/admin/feedback/:id">
             {() => (
-              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Feedback", href: "/admin/feedback" }, { label: "Case" }]}>
+              <AdminPageWrapper>
                 <AdminFeedbackDetail />
               </AdminPageWrapper>
             )}
           </Route>
           <Route path="/admin/feedback">
             {() => (
-              <AdminPageWrapper breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" }, { label: "Feedback" }]}>
+              <AdminPageWrapper>
                 <AdminFeedbackInbox />
               </AdminPageWrapper>
             )}
@@ -569,8 +572,10 @@ function AppContent() {
           <div className="flex h-screen w-full min-w-0">
             <TenantSidebar />
             <div className="flex flex-col flex-1 min-w-0">
-              <header className="flex items-center justify-between gap-2 p-3 sm:p-4 border-b bg-card shrink-0 min-w-0">
+              <header className="flex items-center gap-2 p-3 sm:p-4 border-b bg-card shrink-0 min-w-0">
                 <SidebarTrigger data-testid="button-sidebar-toggle" className="shrink-0" />
+                <AppBreadcrumbs />
+                <div className="flex-1 min-w-0" />
                 <TenantProfileMenu />
               </header>
               <main className="flex-1 overflow-auto bg-background min-w-0">
@@ -585,6 +590,8 @@ function AppContent() {
                   {showCommunity && <Route path="/tenant/community" component={TenantCommunity} />}
                   <Route path="/tenant/inspection-review/:id" component={TenantCheckInReview} />
                   <Route path="/tenant/check-in-review/:id" component={TenantCheckInReview} />
+                  <Route path="/tenant/inspections/:id/capture" component={InspectionCapture} />
+                  <Route path="/tenant/inspections" component={TenantInspections} />
                   <Route path="/tenant/profile" component={TenantProfile} />
                   <Route path="/dashboard" component={TenantHome} />
                   <Route component={NotFound} />
@@ -650,9 +657,23 @@ function AppContent() {
         <div className="flex h-screen w-full min-w-0">
           <AppSidebar />
           <div className="flex flex-col flex-1 min-w-0">
-            <header className="flex items-center justify-between gap-2 px-3 py-2.5 sm:px-4 sm:py-3 border-b bg-card/95 backdrop-blur-sm shrink-0 min-w-0 z-10">
+            <header className="flex items-center gap-2 px-3 py-2.5 sm:px-4 sm:py-3 border-b bg-card/95 backdrop-blur-sm shrink-0 min-w-0 z-10">
               <SidebarTrigger data-testid="button-sidebar-toggle" className="shrink-0" />
-              <UserProfileMenu />
+              <AppBreadcrumbs />
+              <div className="flex-1 min-w-0" />
+              <div className="flex items-center gap-0.5 sm:gap-1 shrink-0">
+                <a
+                  href="https://inspect360.ai"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="hidden sm:inline-flex h-9 items-center px-2.5 text-sm text-muted-foreground hover:text-foreground rounded-md hover:bg-muted/60"
+                  data-testid="link-header-help"
+                >
+                  Help
+                </a>
+                <HeaderNotifications />
+                <UserProfileMenu />
+              </div>
             </header>
             <main className="flex-1 overflow-auto bg-mist/40 dark:bg-background min-w-0">
               <Switch>

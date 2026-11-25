@@ -10,6 +10,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTr
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Link, useSearch } from "wouter";
+import { ContextualLink } from "@/navigation";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 import { FiltersSection } from "@/components/FiltersSection";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
@@ -223,7 +224,6 @@ export default function Properties() {
         }
         actions={
           <Button
-            variant="brand"
             data-testid="button-create-property"
             onClick={handleOpenCreate}
           >
@@ -339,8 +339,12 @@ export default function Properties() {
           {filteredProperties.map((property: any) => {
             const propertyBlock = blocks.find((b: any) => b.id === property.blockId);
             return (
-              <Card key={property.id} className="hover-elevate flex h-full flex-col" data-testid={`card-property-${property.id}`}>
-                <Link href={`/properties/${property.id}`} className="flex flex-1 flex-col min-h-0">
+              <Card key={property.id} className="flex h-full flex-col rounded-lg border-border/80 shadow-sm" data-testid={`card-property-${property.id}`}>
+                <ContextualLink
+                  href={`/properties/${property.id}`}
+                  fromLabel="Properties"
+                  className="flex flex-1 flex-col min-h-0"
+                >
                   <CardHeader className="cursor-pointer">
                     <CardTitle className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2 min-w-0">
@@ -433,7 +437,7 @@ export default function Properties() {
                       </div>
                     )}
                   </CardContent>
-                </Link>
+                </ContextualLink>
                 <CardContent className="pt-0 border-t mt-auto">
                   <CardQuickActions
                     className="pt-4"

@@ -26,6 +26,9 @@ import { cn } from "@/lib/utils";
 import { pagePad, dialogContentBase, formGrid2, dialogFooterSticky } from "@/lib/responsive";
 import { FiltersSection } from "@/components/FiltersSection";
 import { PageHeader } from "@/components/PageHeader";
+import { MetricSummaryCard } from "@/components/workspace";
+import { StatusBadge } from "@/components/StatusBadge";
+import { priorityTone } from "@shared/statusPriorityStyles";
 
 interface WorkOrderAnalytics {
   total: number;
@@ -97,22 +100,6 @@ interface Team {
   isActive: boolean;
 }
 
-const statusColors: Record<string, string> = {
-  pending: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300",
-  assigned: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300",
-  scheduled: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300",
-  in_progress: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300",
-  waiting_parts: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300",
-  completed: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300",
-  rejected: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300",
-};
-
-const priorityColors: Record<string, string> = {
-  low: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300",
-  medium: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300",
-  high: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300",
-  urgent: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300",
-};
 
 const statusCategories = {
   open: ["assigned"],
@@ -504,10 +491,10 @@ export default function Analytics() {
       title: "Completed",
       empty: "No completed work orders",
       count: completedCount,
-      accent: "bg-emerald-500",
-      headerBg: "bg-emerald-50 dark:bg-emerald-950/40",
-      bodyBg: "bg-emerald-50/40 dark:bg-emerald-950/20",
-      border: "border-emerald-200 dark:border-emerald-900",
+      accent: "bg-primary",
+      headerBg: "bg-primary/5",
+      bodyBg: "bg-primary/[0.03]",
+      border: "border-primary/20",
       compact: true,
       limit: 5,
     },
@@ -582,92 +569,52 @@ export default function Analytics() {
           <div className="h-px flex-1 bg-border" />
         </div>
         <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
-          <Card data-testid="card-total-work-orders" className="shadow-sm">
-            <CardContent className="p-4">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground">Total</p>
-                  <p className="text-2xl font-bold tabular-nums mt-1" data-testid="text-total-count">
-                    {filteredWorkOrders.length}
-                  </p>
-                </div>
-                <div className="rounded-lg bg-muted p-2">
-                  <BarChart3 className="h-4 w-4 text-muted-foreground" />
-                </div>
-              </div>
-              <p className="text-[11px] text-muted-foreground mt-2">
-                {selectedTeamId !== "all" ? "Selected team" : "All teams"}
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card data-testid="card-open-work-orders" className="shadow-sm border-t-4 border-t-blue-500">
-            <CardContent className="p-4">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground">Open</p>
-                  <p className="text-2xl font-bold tabular-nums mt-1 text-blue-700 dark:text-blue-300" data-testid="text-open-count">
-                    {openCount}
-                  </p>
-                </div>
-                <div className="rounded-lg bg-blue-50 dark:bg-blue-950/50 p-2">
-                  <User className="h-4 w-4 text-blue-600" />
-                </div>
-              </div>
-              <p className="text-[11px] text-muted-foreground mt-2">Assigned</p>
-            </CardContent>
-          </Card>
-
-          <Card data-testid="card-waiting-work-orders" className="shadow-sm border-t-4 border-t-orange-500">
-            <CardContent className="p-4">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground">Waiting</p>
-                  <p className="text-2xl font-bold tabular-nums mt-1 text-orange-700 dark:text-orange-300" data-testid="text-waiting-count">
-                    {waitingCount}
-                  </p>
-                </div>
-                <div className="rounded-lg bg-orange-50 dark:bg-orange-950/50 p-2">
-                  <Pause className="h-4 w-4 text-orange-600" />
-                </div>
-              </div>
-              <p className="text-[11px] text-muted-foreground mt-2">Parts needed</p>
-            </CardContent>
-          </Card>
-
-          <Card data-testid="card-in-progress-work-orders" className="shadow-sm border-t-4 border-t-amber-500">
-            <CardContent className="p-4">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground">In Progress</p>
-                  <p className="text-2xl font-bold tabular-nums mt-1 text-amber-700 dark:text-amber-300" data-testid="text-in-progress-count">
-                    {inProgressCount}
-                  </p>
-                </div>
-                <div className="rounded-lg bg-amber-50 dark:bg-amber-950/50 p-2">
-                  <TrendingUp className="h-4 w-4 text-amber-600" />
-                </div>
-              </div>
-              <p className="text-[11px] text-muted-foreground mt-2">Active now</p>
-            </CardContent>
-          </Card>
-
-          <Card data-testid="card-completed-work-orders" className="shadow-sm border-t-4 border-t-emerald-500 col-span-2 sm:col-span-1">
-            <CardContent className="p-4">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground">Completed</p>
-                  <p className="text-2xl font-bold tabular-nums mt-1 text-emerald-700 dark:text-emerald-300" data-testid="text-completed-count">
-                    {completedCount}
-                  </p>
-                </div>
-                <div className="rounded-lg bg-emerald-50 dark:bg-emerald-950/50 p-2">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                </div>
-              </div>
-              <p className="text-[11px] text-muted-foreground mt-2">Finished</p>
-            </CardContent>
-          </Card>
+          <MetricSummaryCard
+            testId="card-total-work-orders"
+            valueTestId="text-total-count"
+            value={filteredWorkOrders.length}
+            label="Total"
+            subLabel={selectedTeamId !== "all" ? "Selected team" : "All teams"}
+            tone="muted"
+            icon={BarChart3}
+          />
+          <MetricSummaryCard
+            testId="card-open-work-orders"
+            valueTestId="text-open-count"
+            value={openCount}
+            label="Open"
+            subLabel="Assigned"
+            tone="info"
+            icon={User}
+          />
+          <MetricSummaryCard
+            testId="card-waiting-work-orders"
+            valueTestId="text-waiting-count"
+            value={waitingCount}
+            label="Waiting"
+            subLabel="Parts needed"
+            tone="action"
+            icon={Pause}
+          />
+          <MetricSummaryCard
+            testId="card-in-progress-work-orders"
+            valueTestId="text-in-progress-count"
+            value={inProgressCount}
+            label="In Progress"
+            subLabel="Active now"
+            tone="warning"
+            icon={TrendingUp}
+          />
+          <MetricSummaryCard
+            testId="card-completed-work-orders"
+            valueTestId="text-completed-count"
+            value={completedCount}
+            label="Completed"
+            subLabel="Finished"
+            tone="success"
+            icon={CheckCircle2}
+            className="col-span-2 sm:col-span-1"
+          />
         </div>
       </section>
 
@@ -1246,9 +1193,13 @@ function WorkOrderCard({
           </div>
           
           <div className="flex items-center gap-1.5 flex-wrap">
-            <Badge className={cn(priorityColors[workOrder.maintenanceRequest.priority], "text-[10px] px-1.5 py-0")} variant="secondary">
+            <StatusBadge
+              tone={priorityTone(workOrder.maintenanceRequest.priority)}
+              appearance="soft"
+              className="text-[10px] px-1.5 py-0 capitalize"
+            >
               {workOrder.maintenanceRequest.priority}
-            </Badge>
+            </StatusBadge>
             {workOrder.team && (
               <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-normal">
                 {workOrder.team.name}

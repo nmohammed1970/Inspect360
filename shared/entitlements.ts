@@ -51,6 +51,7 @@ export const LOCKED_APP_PATHS = [
   "/tenant/comparison-reports",
   "/tenant/inspection-review",
   "/tenant/check-in-review",
+  "/tenant/inspections",
   "/tenant/community",
 ] as const;
 
