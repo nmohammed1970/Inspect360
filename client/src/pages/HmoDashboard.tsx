@@ -382,7 +382,7 @@ export default function HmoDashboard() {
               active={quick === "verify"}
               onClick={() => setQuickAndScroll("verify")}
             />
-          </div>
+                  </div>
 
           <PillFilterTabs
             value={quick}
@@ -400,49 +400,49 @@ export default function HmoDashboard() {
           <FilterToolbar
             end={
               <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground whitespace-nowrap">
-                  {filtered.length} shown
-                </span>
+              <span className="text-xs text-muted-foreground whitespace-nowrap">
+                {filtered.length} shown
+              </span>
                 {hasActiveFilters && <ClearFiltersButton onClick={clearFilters} />}
               </div>
             }
           >
             <div className="relative min-w-0 flex-1 sm:max-w-xs">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
+                    <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
                 value={searchQ}
                 onChange={(e) => setSearchQ(e.target.value)}
                 placeholder="Search property, landlord, postcode…"
                 className="h-9 pl-8"
                 aria-label="Search HMO properties"
-              />
-            </div>
-            <Select
+                    />
+                  </div>
+                  <Select
               value={String(windowDays)}
               onValueChange={(v) => setWindowDays(Number(v))}
-            >
+                  >
               <SelectTrigger className="h-9 w-full sm:w-[10.5rem]">
                 <SelectValue placeholder="Forward view" />
-              </SelectTrigger>
-              <SelectContent>
+                    </SelectTrigger>
+                    <SelectContent>
                 <SelectItem value="30">Next 30 days</SelectItem>
                 <SelectItem value="60">Next 60 days</SelectItem>
                 <SelectItem value="90">Next 90 days</SelectItem>
-              </SelectContent>
-            </Select>
+                    </SelectContent>
+                  </Select>
             <Select
               value={sortMode}
               onValueChange={(v) => setSortMode(v as SortMode)}
             >
               <SelectTrigger className="h-9 w-full sm:w-[10.5rem]">
                 <SelectValue placeholder="Sort" />
-              </SelectTrigger>
-              <SelectContent>
+                    </SelectTrigger>
+                    <SelectContent>
                 <SelectItem value="priority">Priority first</SelectItem>
                 <SelectItem value="due">Next deadline</SelectItem>
                 <SelectItem value="name">Property A–Z</SelectItem>
-              </SelectContent>
-            </Select>
+                    </SelectContent>
+                  </Select>
           </FilterToolbar>
 
           {/* Work grid */}
@@ -539,7 +539,7 @@ export default function HmoDashboard() {
                   </PortfolioTableBody>
                 </PortfolioDataTable>
               )}
-            </div>
+                    </div>
 
             <aside className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-1">
           <Card>
@@ -547,7 +547,7 @@ export default function HmoDashboard() {
                   <div className="flex items-center justify-between gap-2">
                     <h3 className="text-sm font-semibold">Deadlines ahead</h3>
                     <span className="text-xs text-muted-foreground">Next {windowDays} days</span>
-                </div>
+                    </div>
                   {deadlines.length === 0 ? (
                     <p className="text-sm text-muted-foreground">
                       No recorded deadlines in this forward window.
@@ -563,20 +563,20 @@ export default function HmoDashboard() {
                           <div className="w-11 shrink-0 rounded-md bg-muted py-1 text-center text-muted-foreground">
                             <b className="block text-base leading-none">{parts.day}</b>
                             <span className="text-xs uppercase">{parts.mon}</span>
-                          </div>
+                    </div>
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-sm font-medium">
                               {displayAddress(item.p)}
                             </p>
                             <p className="text-xs text-muted-foreground">{item.type}</p>
-                          </div>
+                    </div>
                   <Link
                             href={`/properties/${item.p.propertyId}?tab=hmo`}
                             className="text-sm font-medium text-primary"
                           >
                             View
                           </Link>
-                        </div>
+                    </div>
                       );
                     })
                   )}
@@ -614,18 +614,18 @@ export default function HmoDashboard() {
                 onValueChange={(v) => setReportScope(v as "visible" | "all")}
               >
                 <SelectTrigger className="h-9 w-full sm:w-[240px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
                   <SelectItem value="visible">Current filtered selection</SelectItem>
                   <SelectItem value="all">Entire HMO portfolio</SelectItem>
-                </SelectContent>
-              </Select>
+                        </SelectContent>
+                      </Select>
             </label>
             <span className="text-xs text-muted-foreground sm:ml-auto">
               As at {data?.asOf ? new Date(data.asOf).toLocaleString() : "—"}
             </span>
-                      </div>
+                    </div>
 
           <div className="min-w-0 rounded-lg border border-border/80 bg-card p-3 sm:p-5">
             <div className="mb-4 flex items-start justify-between gap-3 border-b border-border pb-3">
@@ -672,7 +672,7 @@ export default function HmoDashboard() {
                 icon={Calendar}
                 className="p-3"
               />
-            </div>
+              </div>
 
             <div className="max-h-[min(40vh,360px)] overflow-auto -mx-1 px-1 sm:mx-0 sm:px-0">
               <table className="w-full min-w-[560px] border-collapse text-left text-sm">
@@ -765,8 +765,8 @@ export default function HmoDashboard() {
                   )}
                 </tbody>
               </table>
-            </div>
-          </div>
+                  </div>
+                </div>
 
           <DialogFooter className="flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <Button

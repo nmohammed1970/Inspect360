@@ -27,6 +27,8 @@ import {
   CreditCard,
   MessageSquare,
   Check,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -34,7 +36,6 @@ import { pagePad } from "@/lib/responsive";
 import { PageHeader } from "@/components/PageHeader";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Switch } from "@/components/ui/switch";
 import {
   COMPANY_MODULE_META,
   companyModuleAccessFromPlan,
@@ -66,6 +67,131 @@ const PLAN_CARD_MODULE_ORDER: CompanyModuleKey[] = [
   "hmo_compliance",
 ];
 
+/** Marketing chrome for Property Operations cards (catalog-aligned only). */
+const PM_PLAN_UI: Record<
+  string,
+  {
+    eyebrow: string;
+    tagline: string;
+    inheritLabel?: string;
+    features: string[];
+    enterpriseQuotas?: Array<{ value: string; label: string }>;
+  }
+> = {
+  pm_essentials: {
+    eyebrow: "MANAGE",
+    tagline: "Core property management, inspections and compliance.",
+    features: [
+      "Property & block management",
+      "Tenancies & rental records",
+      "AI inspections & reports",
+      "Compliance & expiry alerts",
+      "Tenant portal & app",
+      "Intelligent scheduling",
+    ],
+  },
+  pm_professional: {
+    eyebrow: "AUTOMATE",
+    tagline: "Reduce manual work across your property operations.",
+    inheritLabel: "Everything in Essentials, plus",
+    features: [
+      "Intelligent maintenance management",
+      "Work orders & contractor allocation",
+      "Maintenance quotations & approvals",
+    ],
+  },
+  pm_business: {
+    eyebrow: "CONTROL",
+    tagline: "Oversee complex operations, compliance and portfolio risk.",
+    inheritLabel: "Everything in Professional, plus",
+    features: ["HMO Compliance Intelligence"],
+  },
+  pm_enterprise: {
+    eyebrow: "SCALE",
+    tagline: "Connect multiple teams and larger property portfolios.",
+    inheritLabel: "Everything in Business, plus",
+    features: ["Custom integrations & dedicated support"],
+    enterpriseQuotas: [
+      { value: "100+", label: "Properties" },
+      { value: "Custom", label: "Internal Users" },
+      { value: "Volume", label: "Inspection pricing" },
+      { value: "Custom", label: "SMS allowance" },
+    ],
+  },
+};
+
+type ComparisonCell = "yes" | "no" | "addon";
+
+/** Comparison rows that already match catalog entitlements (no aspirational features). */
+const PM_COMPARISON_ROWS: Array<{
+  label: string;
+  cells: Record<"pm_essentials" | "pm_professional" | "pm_business" | "pm_enterprise", ComparisonCell>;
+}> = [
+  {
+    label: "AI inspections, reports & scheduling",
+    cells: {
+      pm_essentials: "yes",
+      pm_professional: "yes",
+      pm_business: "yes",
+      pm_enterprise: "yes",
+    },
+  },
+  {
+    label: "Tenancies, rentals & tenant portal",
+    cells: {
+      pm_essentials: "yes",
+      pm_professional: "yes",
+      pm_business: "yes",
+      pm_enterprise: "yes",
+    },
+  },
+  {
+    label: "Compliance & expiry alerts",
+    cells: {
+      pm_essentials: "yes",
+      pm_professional: "yes",
+      pm_business: "yes",
+      pm_enterprise: "yes",
+    },
+  },
+  {
+    label: "Work orders & maintenance",
+    cells: {
+      pm_essentials: "no",
+      pm_professional: "yes",
+      pm_business: "yes",
+      pm_enterprise: "yes",
+    },
+  },
+  {
+    label: "HMO Compliance Intelligence",
+    cells: {
+      pm_essentials: "addon",
+      pm_professional: "addon",
+      pm_business: "yes",
+      pm_enterprise: "yes",
+    },
+  },
+  {
+    label: "Extra user seats",
+    cells: {
+      pm_essentials: "no",
+      pm_professional: "yes",
+      pm_business: "yes",
+      pm_enterprise: "yes",
+    },
+  },
+  {
+    label: "Property packs (+10)",
+    cells: {
+      pm_essentials: "no",
+      pm_professional: "no",
+      pm_business: "yes",
+      pm_enterprise: "yes",
+    },
+  },
+];
+
 /** Internal Modules included on a plan (excludes add-ons until purchased). */
 function planIncludedModuleLines(
   modulesJson?: Record<string, CatalogModuleFlag> | null,
@@ -76,6 +202,12 @@ function planIncludedModuleLines(
     key,
     label: COMPANY_MODULE_META[key].label,
   }));
+}
+
+function perCreditLabel(amountMinor: number, quantity: number) {
+  if (!quantity) return null;
+  const per = amountMinor / quantity / 100;
+  return `£${per % 1 === 0 ? per.toFixed(0) : per.toFixed(2)} / credit`;
 }
 
 type ModuleRow = {
@@ -183,7 +315,7 @@ export default function Billing() {
   );
   const [billingCycle, setBillingCycle] = useState<"monthly" | "yearly">("monthly");
   const [cycleTouched, setCycleTouched] = useState(false);
-  const [topupKind, setTopupKind] = useState<"inspection" | "sms">("inspection");
+  const [showComparison, setShowComparison] = useState(true);
 
   const {
     data: balance,
@@ -347,7 +479,6 @@ export default function Billing() {
     [topupPacks],
   );
   const autoTopupPacks = allInspectionPacks.slice(0, 3);
-  const visibleTopups = topupKind === "sms" ? allSmsPacks : allInspectionPacks;
 
   async function openPortal() {
     setPortalBusy(true);
@@ -643,31 +774,31 @@ export default function Billing() {
       <div className={cn("container mx-auto min-w-0 space-y-6 md:space-y-8", pagePad)}>
         <PageHeader
           icon={CreditCard}
-          title="Billing"
+          title="Billing & subscription"
           titleTestId="text-page-title"
-          description="Plan, credits, pricing, invoices, and modules."
+          description="Choose the right level of control for your property operations."
           actions={
             <div className="flex flex-wrap items-center gap-2 shrink-0">
               {balanceFetching && !balanceLoading ? (
                 <span className="text-xs text-muted-foreground flex items-center gap-1.5 mr-1">
-              <Loader2 className="h-3 w-3 animate-spin" />
+                  <Loader2 className="h-3 w-3 animate-spin" />
                   Updating
-            </span>
+                </span>
               ) : null}
-                <Button variant="outline" asChild>
+              <Button variant="outline" asChild>
                 <a href="#plans">View plans</a>
-                </Button>
-                <Button onClick={openPortal} disabled={portalBusy}>
-                  {portalBusy ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <>
-                      <ExternalLink className="h-4 w-4 mr-2" />
-                      Manage billing
-                    </>
-                  )}
-                </Button>
-              </div>
+              </Button>
+              <Button onClick={openPortal} disabled={portalBusy}>
+                {portalBusy ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <>
+                    <ExternalLink className="h-4 w-4 mr-2" />
+                    Manage billing
+                  </>
+                )}
+              </Button>
+            </div>
           }
         />
 
@@ -910,17 +1041,30 @@ export default function Billing() {
         {/* Plans / pricing */}
         <section id="plans" className="scroll-mt-6 space-y-4">
           <div className="space-y-3">
-            <div className="space-y-1">
-              <h2 className="text-xl md:text-2xl font-bold tracking-tight">Plans & pricing</h2>
-              <p className="text-sm text-muted-foreground">
-                Subscribe or change plan.
-              </p>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+              <div className="space-y-1">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                  Account settings
+                </p>
+                <h2 className="text-xl md:text-2xl font-bold tracking-tight">
+                  Billing &amp; subscription
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  Choose the right level of control for your property operations.
+                </p>
+              </div>
+              {hasConfirmedPlan ? (
+                <p className="text-sm text-muted-foreground shrink-0">
+                  Current subscription:{" "}
+                  <span className="font-semibold text-foreground">{planName}</span>
+                </p>
+              ) : null}
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <Tabs value={planTab} onValueChange={(v) => setPlanTab(v as typeof planTab)}>
                 <TabsList>
-                  <TabsTrigger value="property_management">Property management</TabsTrigger>
-                  <TabsTrigger value="ai_inspections">AI inspections</TabsTrigger>
+                  <TabsTrigger value="property_management">Property Operations</TabsTrigger>
+                  <TabsTrigger value="ai_inspections">AI Inspections Only</TabsTrigger>
                 </TabsList>
               </Tabs>
               <Tabs
@@ -946,262 +1090,371 @@ export default function Billing() {
             <Card>
               <CardContent className="py-10 text-center text-muted-foreground text-sm">
                 Pricing catalog is not published yet.
-          </CardContent>
-        </Card>
+              </CardContent>
+            </Card>
           ) : (
-            <div className="grid gap-3 md:gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {plans.map((plan) => {
-                const price =
-                  plan.prices?.find((p) => p.cycle === billingCycle) || plan.prices?.[0];
-                const amount = price?.amountMinor ?? 0;
-                const subCycle = (v2?.subscription?.cycle as string | undefined) || null;
-                const isSamePlan =
-                  currentPlanCode === plan.code &&
-                  (v2?.subscription?.status === "active" ||
-                    v2?.subscription?.status === "trialing");
-                const isCurrentCycle = isSamePlan && (subCycle || billingCycle) === billingCycle;
-                const isCycleChange = isSamePlan && !isCurrentCycle;
-                const isPendingTarget = pendingPlanCode === plan.code;
-                const planCta = (() => {
-                  if (isCurrentCycle) return "Current plan";
-                  if (isPendingTarget || hasPendingUpgrade) {
-                    return isPendingTarget ? "Payment pending" : "Upgrade pending";
-                  }
-                  if (isCycleChange) {
-                    return billingCycle === "yearly" ? "Switch to yearly" : "Switch to monthly";
-                  }
-                  // AI Inspections → Property Management is always an upgrade (modules unlock now).
-                  if (
-                    hasActivePlan &&
-                    isAiInspectionsPlanCode(currentPlanCode) &&
-                    isPropertyManagementPlanCode(plan.code)
-                  ) {
-                    return "Upgrade";
-                  }
-                  if (hasActivePlan) return "Switch plan";
-                  return "Start trial";
-                })();
-                return (
-                  <Card
-                    key={plan.code}
-                    className={cn(
-                      "flex flex-col",
-                      plan.popular && "border-primary border-2",
-                      isSamePlan && "ring-2 ring-primary/40",
-                      isPendingTarget && "ring-2 ring-amber-500/40",
-                    )}
-                  >
-                    <CardHeader className="pb-3">
-                      <div className="flex items-start justify-between gap-2">
-                        <CardTitle className="text-xl">{plan.name}</CardTitle>
-                        <div className="flex flex-wrap gap-1 justify-end">
-                          {isSamePlan ? <Badge variant="secondary">Current</Badge> : null}
-                          {isPendingTarget ? (
-                            <Badge variant="outline" className="border-amber-500/40 text-amber-800 dark:text-amber-400">
-                              Pending
-                            </Badge>
-                          ) : null}
-                          {plan.popular ? <Badge>Most popular</Badge> : null}
-                        </div>
-                      </div>
-                      {plan.description ? (
-                        <CardDescription>{plan.description}</CardDescription>
-                      ) : null}
-                    </CardHeader>
-                    <CardContent className="space-y-4 flex-1">
-                      {plan.enquireOnly ? (
-                        <p className="text-2xl font-semibold">Custom</p>
-                      ) : (
-                        <p className="text-3xl font-bold tracking-tight">
-                          {formatGbp(amount)}
-                          <span className="text-sm font-normal text-muted-foreground">
-                            /{billingCycle === "yearly" ? "year" : "month"}
-                          </span>
-                        </p>
+            <>
+              <div
+                className={cn(
+                  "grid gap-3 md:gap-4 md:grid-cols-2",
+                  planTab === "property_management" ? "xl:grid-cols-4" : "xl:grid-cols-3",
+                )}
+              >
+                {plans.map((plan) => {
+                  const price =
+                    plan.prices?.find((p) => p.cycle === billingCycle) || plan.prices?.[0];
+                  const amount = price?.amountMinor ?? 0;
+                  const subCycle = (v2?.subscription?.cycle as string | undefined) || null;
+                  const isSamePlan =
+                    currentPlanCode === plan.code &&
+                    (v2?.subscription?.status === "active" ||
+                      v2?.subscription?.status === "trialing");
+                  const isCurrentCycle = isSamePlan && (subCycle || billingCycle) === billingCycle;
+                  const isCycleChange = isSamePlan && !isCurrentCycle;
+                  const isPendingTarget = pendingPlanCode === plan.code;
+                  const pmUi = PM_PLAN_UI[plan.code];
+                  const isPm = planTab === "property_management" && !!pmUi;
+                  const smsPerMonth =
+                    (plan.smsPerYear || 0) > 0
+                      ? Math.max(1, Math.floor((plan.smsPerYear || 0) / 12))
+                      : null;
+                  const planCta = (() => {
+                    if (isCurrentCycle) return "Current plan";
+                    if (isPendingTarget || hasPendingUpgrade) {
+                      return isPendingTarget ? "Payment pending" : "Upgrade pending";
+                    }
+                    if (isCycleChange) {
+                      return billingCycle === "yearly" ? "Switch to yearly" : "Switch to monthly";
+                    }
+                    if (plan.enquireOnly) return "Contact sales";
+                    if (
+                      hasActivePlan &&
+                      isAiInspectionsPlanCode(currentPlanCode) &&
+                      isPropertyManagementPlanCode(plan.code)
+                    ) {
+                      return `Upgrade to ${plan.name}`;
+                    }
+                    if (hasActivePlan) {
+                      if (plan.code === "pm_essentials") return "Choose Essentials";
+                      if (plan.code === "pm_professional") return "Choose Professional";
+                      if (plan.code === "pm_business") return "Upgrade to Business";
+                      return `Choose ${plan.name}`;
+                    }
+                    if (plan.code === "pm_essentials") return "Choose Essentials";
+                    if (plan.code === "pm_professional") return "Choose Professional";
+                    if (plan.code === "pm_business") return "Upgrade to Business";
+                    return `Choose ${plan.name}`;
+                  })();
+                  return (
+                    <Card
+                      key={plan.code}
+                      className={cn(
+                        "flex flex-col relative overflow-hidden",
+                        plan.popular && "border-primary border-2 shadow-sm",
+                        isSamePlan && "ring-2 ring-primary/40",
+                        isPendingTarget && "ring-2 ring-amber-500/40",
                       )}
-                      <ul className="space-y-2 text-sm text-muted-foreground">
-                        {plan.maxProperties != null && (
-                          <li className="flex gap-2">
-                            <Check className="h-4 w-4 text-primary shrink-0 mt-0.5" />
-                            Up to {plan.maxProperties} properties
-                          </li>
+                    >
+                      {plan.popular ? (
+                        <div className="absolute top-0 right-0">
+                          <Badge className="rounded-none rounded-bl-md px-2.5 py-1 text-[10px] tracking-wide uppercase">
+                            Recommended
+                          </Badge>
+                        </div>
+                      ) : null}
+                      <CardHeader className="pb-3 space-y-2">
+                        {pmUi ? (
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary">
+                            {pmUi.eyebrow}
+                          </p>
+                        ) : null}
+                        <div className="flex items-start justify-between gap-2 pr-16">
+                          <CardTitle className="text-xl">{plan.name}</CardTitle>
+                          <div className="flex flex-wrap gap-1 justify-end">
+                            {isSamePlan ? <Badge variant="secondary">Current</Badge> : null}
+                            {isPendingTarget ? (
+                              <Badge
+                                variant="outline"
+                                className="border-amber-500/40 text-amber-800 dark:text-amber-400"
+                              >
+                                Pending
+                              </Badge>
+                            ) : null}
+                          </div>
+                        </div>
+                        <CardDescription>
+                          {pmUi?.tagline || plan.description || null}
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-4 flex-1">
+                        {plan.enquireOnly ? (
+                          <p className="text-3xl font-bold tracking-tight">Custom</p>
+                        ) : (
+                          <p className="text-3xl font-bold tracking-tight">
+                            {formatGbp(amount)}
+                            <span className="text-sm font-normal text-muted-foreground">
+                              /{billingCycle === "yearly" ? "year" : "month"}
+                            </span>
+                          </p>
                         )}
-                        {plan.maxUsers != null && (
-                          <li className="flex gap-2">
-                            <Check className="h-4 w-4 text-primary shrink-0 mt-0.5" />
-                            Up to {plan.maxUsers} users
-                          </li>
-                        )}
-                        {(billingCycle === "yearly"
-                          ? plan.yearlyInspections
-                          : plan.monthlyInspections) != null && (
-                          <li className="flex gap-2">
-                            <Check className="h-4 w-4 text-primary shrink-0 mt-0.5" />
-                            {billingCycle === "yearly"
+
+                        {isPm && pmUi?.enterpriseQuotas ? (
+                          <div className="grid grid-cols-2 gap-2">
+                            {pmUi.enterpriseQuotas.map((q) => (
+                              <div
+                                key={q.label}
+                                className="rounded-lg border bg-muted/30 px-2.5 py-2 text-center"
+                              >
+                                <p className="text-sm font-semibold tabular-nums leading-tight">
+                                  {q.value}
+                                </p>
+                                <p className="text-[11px] text-muted-foreground mt-0.5 leading-tight">
+                                  {q.label}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        ) : isPm ? (
+                          <div className="grid grid-cols-2 gap-2">
+                            {plan.maxProperties != null ? (
+                              <div className="rounded-lg border bg-muted/30 px-2.5 py-2 text-center">
+                                <p className="text-sm font-semibold tabular-nums leading-tight">
+                                  {plan.maxProperties}
+                                </p>
+                                <p className="text-[11px] text-muted-foreground mt-0.5">Properties</p>
+                              </div>
+                            ) : null}
+                            {plan.maxUsers != null ? (
+                              <div className="rounded-lg border bg-muted/30 px-2.5 py-2 text-center">
+                                <p className="text-sm font-semibold tabular-nums leading-tight">
+                                  {plan.maxUsers}
+                                </p>
+                                <p className="text-[11px] text-muted-foreground mt-0.5">
+                                  Internal Users
+                                </p>
+                              </div>
+                            ) : null}
+                            {(billingCycle === "yearly"
                               ? plan.yearlyInspections
-                              : plan.monthlyInspections}{" "}
-                            inspections / {billingCycle === "yearly" ? "year" : "month"}
-                          </li>
+                              : plan.monthlyInspections) != null ? (
+                              <div className="rounded-lg border bg-muted/30 px-2.5 py-2 text-center">
+                                <p className="text-sm font-semibold tabular-nums leading-tight">
+                                  {billingCycle === "yearly"
+                                    ? plan.yearlyInspections
+                                    : plan.monthlyInspections}
+                                </p>
+                                <p className="text-[11px] text-muted-foreground mt-0.5">
+                                  Inspections/{billingCycle === "yearly" ? "yr" : "mo"}
+                                </p>
+                              </div>
+                            ) : null}
+                            {smsPerMonth != null || (plan.smsPerYear || 0) > 0 ? (
+                              <div className="rounded-lg border bg-muted/30 px-2.5 py-2 text-center">
+                                <p className="text-sm font-semibold tabular-nums leading-tight">
+                                  {billingCycle === "yearly" ? plan.smsPerYear : smsPerMonth}
+                                </p>
+                                <p className="text-[11px] text-muted-foreground mt-0.5">
+                                  SMS credits/{billingCycle === "yearly" ? "yr" : "mo"}
+                                </p>
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <ul className="space-y-2 text-sm text-muted-foreground">
+                            {plan.maxProperties != null && (
+                              <li className="flex gap-2">
+                                <Check className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+                                Up to {plan.maxProperties} properties
+                              </li>
+                            )}
+                            {plan.maxUsers != null && (
+                              <li className="flex gap-2">
+                                <Check className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+                                Up to {plan.maxUsers} users
+                              </li>
+                            )}
+                            {(billingCycle === "yearly"
+                              ? plan.yearlyInspections
+                              : plan.monthlyInspections) != null && (
+                              <li className="flex gap-2">
+                                <Check className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+                                {billingCycle === "yearly"
+                                  ? plan.yearlyInspections
+                                  : plan.monthlyInspections}{" "}
+                                inspections / {billingCycle === "yearly" ? "year" : "month"}
+                              </li>
+                            )}
+                            {(plan.smsPerYear || 0) > 0 && (
+                              <li className="flex gap-2">
+                                <Check className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+                                {billingCycle === "yearly"
+                                  ? plan.smsPerYear
+                                  : Math.max(1, Math.floor((plan.smsPerYear || 0) / 12))}{" "}
+                                SMS credits / {billingCycle === "yearly" ? "year" : "month"}
+                              </li>
+                            )}
+                          </ul>
                         )}
-                        {(plan.smsPerYear || 0) > 0 && (
-                          <li className="flex gap-2">
-                            <Check className="h-4 w-4 text-primary shrink-0 mt-0.5" />
-                            {billingCycle === "yearly"
-                              ? plan.smsPerYear
-                              : Math.max(1, Math.floor((plan.smsPerYear || 0) / 12))}{" "}
-                            SMS credits / {billingCycle === "yearly" ? "year" : "month"}
-                          </li>
-                        )}
-                      </ul>
-                      {(() => {
-                        const moduleLines = planIncludedModuleLines(plan.modulesJson);
-                        if (moduleLines.length === 0) return null;
-                        return (
+
+                        {isPm && pmUi ? (
                           <div className="space-y-2 pt-1 border-t">
-                            <p className="text-xs font-medium text-foreground">Included modules</p>
+                            {pmUi.inheritLabel ? (
+                              <p className="text-xs font-medium text-foreground">
+                                {pmUi.inheritLabel}
+                              </p>
+                            ) : (
+                              <p className="text-xs font-medium text-foreground">Includes</p>
+                            )}
                             <ul className="space-y-1.5 text-sm text-muted-foreground">
-                              {moduleLines.map((mod) => (
-                                <li key={mod.key} className="flex gap-2 items-start">
+                              {pmUi.features.map((line) => (
+                                <li key={line} className="flex gap-2 items-start">
                                   <Check className="h-4 w-4 text-primary shrink-0 mt-0.5" />
-                                  <span>{mod.label}</span>
+                                  <span>{line}</span>
                                 </li>
                               ))}
                             </ul>
                           </div>
-                        );
-                      })()}
-                    </CardContent>
-                    <CardFooter className="pt-0">
-                      {plan.enquireOnly ? (
-                        <Button
-                          className="w-full"
-                          variant="outline"
-                          onClick={() => trackEnquire(plan.code)}
-                        >
-                          Enquire
-                        </Button>
-                      ) : (
-                        <Button
-                          className="w-full"
-                          variant={isCurrentCycle || isPendingTarget ? "outline" : "default"}
-                          disabled={
-                            checkoutBusy === plan.code ||
-                            isCurrentCycle ||
-                            hasPendingUpgrade
-                          }
-                          onClick={() => startCheckout(plan.code)}
-                        >
-                          {checkoutBusy === plan.code ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            planCta
-                          )}
-                        </Button>
-                      )}
-                    </CardFooter>
-                  </Card>
-                );
-              })}
-            </div>
-          )}
-        </section>
-
-        {/* Credit top-ups */}
-        <section id="topups" className="scroll-mt-6 space-y-4 border-t pt-6 md:pt-8">
-          <div className="space-y-3">
-            <div className="space-y-1">
-              <h2 className="text-xl md:text-2xl font-bold tracking-tight">Credit top-ups</h2>
-              <p className="text-sm text-muted-foreground">
-                One-off prepaid packs — inspection or SMS (ex VAT).
-              </p>
-                    </div>
-            <Tabs value={topupKind} onValueChange={(v) => setTopupKind(v as typeof topupKind)}>
-              <TabsList>
-                <TabsTrigger value="inspection" className="gap-1.5">
-                  <CreditCard className="h-3.5 w-3.5" />
-                  Inspection
-                </TabsTrigger>
-                <TabsTrigger value="sms" className="gap-1.5">
-                  <MessageSquare className="h-3.5 w-3.5" />
-                  SMS
-                </TabsTrigger>
-              </TabsList>
-            </Tabs>
-          </div>
-
-          {visibleTopups.length === 0 ? (
-            <Card>
-              <CardContent className="py-10 text-center text-sm text-muted-foreground">
-                No {topupKind === "sms" ? "SMS" : "inspection"} packs available.
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="grid gap-3 md:gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              {visibleTopups.map((pack) => (
-                <Card
-                  key={pack.code}
-                  className={cn(
-                    "flex flex-col border-l-4",
-                    pack.kind === "sms" ? "border-l-primary" : "border-l-green-500",
-                  )}
-                >
-                  <CardHeader className="pb-2">
-                    <div className="flex items-start justify-between gap-2">
-                      <CardTitle className="text-base md:text-lg leading-snug">{pack.name}</CardTitle>
-                      <div
-                        className={cn(
-                          "p-1.5 rounded-full shrink-0",
-                          pack.kind === "sms" ? "bg-primary/10" : "bg-green-500/10",
-                        )}
-                      >
-                        {pack.kind === "sms" ? (
-                          <MessageSquare className="h-4 w-4 text-primary" />
                         ) : (
-                          <CreditCard className="h-4 w-4 text-green-600" />
+                          (() => {
+                            const moduleLines = planIncludedModuleLines(plan.modulesJson);
+                            if (moduleLines.length === 0) return null;
+                            return (
+                              <div className="space-y-2 pt-1 border-t">
+                                <p className="text-xs font-medium text-foreground">
+                                  Included modules
+                                </p>
+                                <ul className="space-y-1.5 text-sm text-muted-foreground">
+                                  {moduleLines.map((mod) => (
+                                    <li key={mod.key} className="flex gap-2 items-start">
+                                      <Check className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+                                      <span>{mod.label}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            );
+                          })()
                         )}
-                      </div>
+                      </CardContent>
+                      <CardFooter className="pt-0">
+                        {plan.enquireOnly ? (
+                          <Button
+                            className="w-full"
+                            variant="outline"
+                            onClick={() => trackEnquire(plan.code)}
+                          >
+                            Contact sales
+                          </Button>
+                        ) : (
+                          <Button
+                            className="w-full"
+                            variant={
+                              isCurrentCycle || isPendingTarget
+                                ? "default"
+                                : plan.popular
+                                  ? "default"
+                                  : "outline"
+                            }
+                            disabled={
+                              checkoutBusy === plan.code || isCurrentCycle || hasPendingUpgrade
+                            }
+                            onClick={() => startCheckout(plan.code)}
+                          >
+                            {checkoutBusy === plan.code ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              planCta
+                            )}
+                          </Button>
+                        )}
+                      </CardFooter>
+                    </Card>
+                  );
+                })}
+              </div>
+
+              {planTab === "property_management" ? (
+                <div className="space-y-3 pt-2">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
+                    onClick={() => setShowComparison((v) => !v)}
+                  >
+                    {showComparison ? "Hide comparison" : "Show comparison"}
+                    {showComparison ? (
+                      <ChevronUp className="h-4 w-4" />
+                    ) : (
+                      <ChevronDown className="h-4 w-4" />
+                    )}
+                  </button>
+                  {showComparison ? (
+                    <div className="overflow-x-auto rounded-xl border">
+                      <table className="w-full min-w-[640px] text-sm">
+                        <thead>
+                          <tr className="border-b bg-muted/40">
+                            <th className="text-left font-medium px-4 py-3 w-[40%]">Feature</th>
+                            {(["pm_essentials", "pm_professional", "pm_business", "pm_enterprise"] as const).map(
+                              (code) => (
+                                <th
+                                  key={code}
+                                  className="text-center font-medium px-3 py-3 whitespace-nowrap"
+                                >
+                                  {PLAN_LABELS[code]}
+                                </th>
+                              ),
+                            )}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {PM_COMPARISON_ROWS.map((row) => (
+                            <tr key={row.label} className="border-b last:border-0">
+                              <td className="px-4 py-3 text-muted-foreground">{row.label}</td>
+                              {(
+                                [
+                                  "pm_essentials",
+                                  "pm_professional",
+                                  "pm_business",
+                                  "pm_enterprise",
+                                ] as const
+                              ).map((code) => {
+                                const cell = row.cells[code];
+                                return (
+                                  <td key={code} className="px-3 py-3 text-center">
+                                    {cell === "yes" ? (
+                                      <Check className="h-4 w-4 text-primary mx-auto" />
+                                    ) : cell === "addon" ? (
+                                      <span className="text-xs font-medium text-amber-700 dark:text-amber-400">
+                                        Add-on
+                                      </span>
+                                    ) : (
+                                      <span className="text-muted-foreground/50">—</span>
+                                    )}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
-                    <CardDescription>
-                      {pack.quantity.toLocaleString()}{" "}
-                      {pack.kind === "sms" ? "SMS" : "inspection"} credits
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="pb-3 flex-1">
-                    <p className="text-2xl font-bold tracking-tight">
-                      {formatGbp(pack.amountMinor)}
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-1">Ex VAT · one-time</p>
-                  </CardContent>
-                  <CardFooter className="pt-0">
-                    <Button
-                      className="w-full"
-                      disabled={topupBusy === pack.code}
-                      onClick={() => startTopup(pack.code)}
-                    >
-                      {topupBusy === pack.code ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        "Buy pack"
-                      )}
-                    </Button>
-                  </CardFooter>
-                </Card>
-              ))}
-            </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </>
           )}
         </section>
 
         {(showHmoAddonCard || limits?.plan?.allowsPropertyPacks) && (
           <section id="plan-addons" className="scroll-mt-6 space-y-4 border-t pt-6 md:pt-8">
             <div className="space-y-1">
-              <h2 className="text-xl md:text-2xl font-bold tracking-tight">Plan add-ons</h2>
+              <h2 className="text-xl md:text-2xl font-bold tracking-tight">Specialist add-ons</h2>
               <p className="text-sm text-muted-foreground">
-                Optional extras billed on your subscription.
+                Optional modules billed monthly on your subscription.
               </p>
             </div>
             <div
               className={cn(
-                "grid gap-6",
+                "grid gap-4",
                 showHmoAddonCard && limits?.plan?.allowsPropertyPacks
                   ? "lg:grid-cols-2"
                   : "lg:grid-cols-1",
@@ -1209,69 +1462,72 @@ export default function Billing() {
             >
               {showHmoAddonCard ? (
                 <Card className="shadow-none" id="hmo-addon">
-                  <CardHeader className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
-                        <Package className="h-4 w-4 text-primary" />
-                      </span>
-                      <CardTitle className="text-lg">
-                        {hmoAddonCatalog?.name || "HMO Compliance Intelligence"}
-                      </CardTitle>
-                    </div>
-                    <CardDescription>
-                      {hmoIncludedFree
-                        ? "Included on your plan — no extra charge."
-                        : hmoAddonCatalog?.description ||
-                          "Licence upload, assessments, findings, and portfolio oversight."}
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <div className="flex items-start justify-between gap-3 rounded-xl border px-4 py-3.5">
-                      <div className="min-w-0">
-                        <p className="font-medium text-sm">HMO module add-on</p>
-                        <p className="text-xs text-muted-foreground mt-0.5">
+                  <CardHeader className="space-y-2 pb-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary">
+                      Compliance
+                    </p>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 space-y-1">
+                        <CardTitle className="text-lg">
+                          {hmoAddonCatalog?.name || "HMO Compliance Intelligence"}
+                        </CardTitle>
+                        <CardDescription>
                           {hmoIncludedFree
-                            ? "Turn it on under Settings → Internal Modules."
-                            : `${formatGbp(hmoAddonPriceMinor)} / ${
-                                subCycleForAddon === "yearly" ? "year" : "month"
-                              } · billed on your subscription`}
-                        </p>
-                        {!hmoIncludedFree && subStatus === "trialing" ? (
-                          <p className="text-xs text-amber-800 mt-1.5 leading-relaxed">
-                            You’re on a plan trial
-                            {v2?.subscription?.trialEnd
-                              ? ` until ${format(new Date(v2.subscription.trialEnd), "dd MMM yyyy")}`
-                              : ""}
-                            . Enabling HMO now unlocks it immediately, but Stripe charges £0 until
-                            the trial ends — then the add-on fee is included on the next real invoice.
-                            There is no separate HMO trial.
-                          </p>
-                        ) : null}
+                            ? "Included in Business and Enterprise."
+                            : "Licence requirements, inspection schedules, and compliance alerts. Available as an add-on on Essentials and Professional."}
+                        </CardDescription>
                       </div>
-                      {hmoIncludedFree ? (
+                      {!hmoIncludedFree ? (
+                        <p className="text-xl font-bold tracking-tight shrink-0 tabular-nums">
+                          {formatGbp(hmoAddonPriceMinor)}
+                          <span className="text-sm font-normal text-muted-foreground">
+                            /{subCycleForAddon === "yearly" ? "yr" : "mo"}
+                          </span>
+                        </p>
+                      ) : (
                         <Badge variant="secondary" className="shrink-0">
                           Included
-                      </Badge>
+                        </Badge>
+                      )}
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {!hmoIncludedFree && subStatus === "trialing" ? (
+                      <p className="text-xs text-amber-800 leading-relaxed">
+                        You’re on a plan trial
+                        {v2?.subscription?.trialEnd
+                          ? ` until ${format(new Date(v2.subscription.trialEnd), "dd MMM yyyy")}`
+                          : ""}
+                        . Enabling HMO now unlocks it immediately, but Stripe charges £0 until the
+                        trial ends — then the add-on fee is included on the next real invoice.
+                      </p>
+                    ) : null}
+                    <div className="flex items-center justify-between gap-3">
+                      {!hmoIncludedFree ? (
+                        <p className="text-xs text-muted-foreground">
+                          After enabling, open Settings → Internal Modules to show HMO screens.
+                        </p>
                       ) : (
+                        <p className="text-xs text-muted-foreground">
+                          Turn it on under Settings → Internal Modules.
+                        </p>
+                      )}
+                      {hmoIncludedFree ? null : (
                         <div className="flex items-center gap-2 shrink-0">
                           {addonBusy === "hmo" ? (
                             <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                           ) : null}
-                          <Switch
-                            checked={hmoAddonActive}
+                          <Button
+                            size="sm"
+                            variant={hmoAddonActive ? "outline" : "default"}
                             disabled={addonBusy === "hmo" || !hasActivePlan}
-                            onCheckedChange={(on) => setHmoAddonEnabled(on)}
-                            aria-label="Enable HMO Compliance add-on"
-                          />
+                            onClick={() => setHmoAddonEnabled(!hmoAddonActive)}
+                          >
+                            {hmoAddonActive ? "Remove module" : "Add module"}
+                          </Button>
                         </div>
-                    )}
-                  </div>
-                    {!hmoIncludedFree ? (
-                      <p className="text-xs text-muted-foreground">
-                        After enabling, open Settings → Internal Modules to show HMO screens.
-                        Turning off hides them without deleting data.
-                      </p>
-                    ) : null}
+                      )}
+                    </div>
                   </CardContent>
                 </Card>
               ) : null}
@@ -1316,6 +1572,110 @@ export default function Billing() {
             </div>
           </section>
         )}
+
+        {/* Additional credits */}
+        <section id="topups" className="scroll-mt-6 space-y-4 border-t pt-6 md:pt-8">
+          <div className="space-y-1">
+            <h2 className="text-xl md:text-2xl font-bold tracking-tight">Additional credits</h2>
+            <p className="text-sm text-muted-foreground">
+              One-off prepaid packs — inspection or SMS (ex VAT).
+            </p>
+          </div>
+          <div className="grid gap-6 lg:grid-cols-2">
+            <Card className="shadow-none">
+              <CardHeader className="pb-3">
+                <div className="flex items-center gap-2">
+                  <CreditCard className="h-4 w-4 text-primary" />
+                  <CardTitle className="text-base">Inspection credits</CardTitle>
+                </div>
+                <CardDescription>Prepaid packs for extra inspections beyond your plan.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {allInspectionPacks.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-4 text-center">
+                    No inspection packs available.
+                  </p>
+                ) : (
+                  allInspectionPacks.map((pack) => (
+                    <div
+                      key={pack.code}
+                      className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium">
+                          {pack.quantity.toLocaleString()} credits
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {formatGbp(pack.amountMinor)}
+                          {perCreditLabel(pack.amountMinor, pack.quantity)
+                            ? ` · ${perCreditLabel(pack.amountMinor, pack.quantity)}`
+                            : ""}
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        disabled={topupBusy === pack.code}
+                        onClick={() => startTopup(pack.code)}
+                      >
+                        {topupBusy === pack.code ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          "Buy pack"
+                        )}
+                      </Button>
+                    </div>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+            <Card className="shadow-none">
+              <CardHeader className="pb-3">
+                <div className="flex items-center gap-2">
+                  <MessageSquare className="h-4 w-4 text-primary" />
+                  <CardTitle className="text-base">SMS credits</CardTitle>
+                </div>
+                <CardDescription>Prepaid SMS packs for tenant and contractor messaging.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {allSmsPacks.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-4 text-center">
+                    No SMS packs available.
+                  </p>
+                ) : (
+                  allSmsPacks.map((pack) => (
+                    <div
+                      key={pack.code}
+                      className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium">
+                          {pack.quantity.toLocaleString()} credits
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {formatGbp(pack.amountMinor)}
+                          {perCreditLabel(pack.amountMinor, pack.quantity)
+                            ? ` · ${perCreditLabel(pack.amountMinor, pack.quantity)}`
+                            : ""}
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        disabled={topupBusy === pack.code}
+                        onClick={() => startTopup(pack.code)}
+                      >
+                        {topupBusy === pack.code ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          "Buy pack"
+                        )}
+                      </Button>
+                    </div>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </section>
 
         <div className="grid gap-6 lg:grid-cols-1">
           {/* Auto top-up — inspection only */}
@@ -1564,6 +1924,11 @@ export default function Billing() {
             )}
           </CardContent>
             </Card>
+
+        <p className="text-xs text-muted-foreground leading-relaxed max-w-4xl">
+          All subscription prices assume ex VAT. Annual base-plan prices are subject to confirmation
+          against published yearly rates.
+        </p>
       </div>
     </TooltipProvider>
   );

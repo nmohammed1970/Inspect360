@@ -157,6 +157,9 @@ export async function enforceDisallowedCompanyModules(
   if (!access.hmo_compliance.allowed && org.hmoComplianceEnabled) {
     patch.hmoComplianceEnabled = false;
   }
+  if (!access.communications?.allowed && (org as any).communicationsEnabled) {
+    patch.communicationsEnabled = false;
+  }
   if (Object.keys(patch).length === 0) return false;
   await storage.updateOrganization(organizationId, patch as any);
   return true;

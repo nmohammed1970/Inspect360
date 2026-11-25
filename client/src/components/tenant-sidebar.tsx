@@ -6,6 +6,7 @@ import {
   Users,
   ClipboardList,
   ClipboardCheck,
+  PoundSterling,
 } from "lucide-react";
 import {
   Sidebar,
@@ -59,6 +60,12 @@ export function TenantSidebar() {
       enabled: true, // Always enabled
     },
     {
+      title: "My Rent",
+      url: "/tenant/rent",
+      icon: PoundSterling,
+      enabled: isCompanyModuleEnabled(organization, "rentals"),
+    },
+    {
       title: "My Inspections",
       url: "/tenant/inspections",
       icon: ClipboardCheck,
@@ -73,20 +80,26 @@ export function TenantSidebar() {
         isCompanyModuleEnabled(organization, "maintenance"),
     },
     {
-      title: "Log a Maintenance Request",
-      url: "/tenant/log-request",
+      title: isCompanyModuleEnabled(organization, "communications")
+        ? "New request"
+        : "Log a Maintenance Request",
+      url: isCompanyModuleEnabled(organization, "communications")
+        ? "/tenant/requests/new"
+        : "/tenant/log-request",
       icon: ClipboardList,
       enabled:
-        (organization?.tenantPortalMaintenanceEnabled ?? true) &&
-        isCompanyModuleEnabled(organization, "maintenance"),
+        isCompanyModuleEnabled(organization, "communications") ||
+        ((organization?.tenantPortalMaintenanceEnabled ?? true) &&
+          isCompanyModuleEnabled(organization, "maintenance")),
     },
     {
       title: "My Requests",
       url: "/tenant/requests",
       icon: FileText,
       enabled:
-        (organization?.tenantPortalMaintenanceEnabled ?? true) &&
-        isCompanyModuleEnabled(organization, "maintenance"),
+        isCompanyModuleEnabled(organization, "communications") ||
+        ((organization?.tenantPortalMaintenanceEnabled ?? true) &&
+          isCompanyModuleEnabled(organization, "maintenance")),
     },
     {
       title: "Comparison Reports",

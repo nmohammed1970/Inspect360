@@ -37,6 +37,7 @@ import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { cn } from "@/lib/utils";
 import { pagePad, dialogContentBase, textBreak } from "@/lib/responsive";
 import { useCompanyModules } from "@/hooks/useCompanyModules";
+import { LinkedCasesPanel } from "@/components/communications/LinkedCasesPanel";
 import {
   CompletionChecklistPanel,
   useInspectionCompletionChecklist,
@@ -462,6 +463,8 @@ export default function InspectionDetail() {
           </Button>
         </div>
       </div>
+
+      {id ? <LinkedCasesPanel entityType="inspection" entityId={id} /> : null}
 
       <div className="grid gap-6 md:grid-cols-2">
         <Card>

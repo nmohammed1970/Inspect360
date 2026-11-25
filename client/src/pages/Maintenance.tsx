@@ -94,6 +94,7 @@ import { WorkOrderCompleteDialog } from "@/components/WorkOrderCompleteDialog";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 import { pagePad, dialogContentBase } from "@/lib/responsive";
 import { PageHeader } from "@/components/PageHeader";
+import { LinkedCasesPanel } from "@/components/communications/LinkedCasesPanel";
 import {
   PillFilterTabs,
   FilterToolbar,
@@ -1660,6 +1661,10 @@ export default function Maintenance() {
         </Dialog>
         }
       />
+
+      {maintenanceId ? (
+        <LinkedCasesPanel entityType="maintenance_request" entityId={maintenanceId} />
+      ) : null}
 
       {/* Tabs for Requests and Work Orders */}
       <Tabs

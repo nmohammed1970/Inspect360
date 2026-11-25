@@ -23,11 +23,13 @@ import {
   ExternalLink,
   ClipboardCheck,
   Pencil,
+  MessageSquare,
 } from "lucide-react";
 import { format, differenceInDays, isPast } from "date-fns";
 import { useLocale } from "@/contexts/LocaleContext";
 import { tabsListScroll } from "@/lib/responsive";
 import { useCompanyModules } from "@/hooks/useCompanyModules";
+import { CommunicationsActivityTimeline } from "@/components/communications/ActivityTimeline";
 import {
   formatEnumLabel,
   formatInspectionStatus,
@@ -404,6 +406,12 @@ export default function TenantDetail() {
                 <span>Maintenance</span>
               </TabsTrigger>
               )}
+              {communicationsEnabled && (
+              <TabsTrigger value="activity" data-testid="tab-activity" className="shrink-0 gap-1.5">
+                <MessageSquare className="w-4 h-4 shrink-0" />
+                <span>Activity</span>
+              </TabsTrigger>
+              )}
               <TabsTrigger value="disputes" data-testid="tab-disputes" className="shrink-0 gap-1.5">
                 <AlertTriangle className="w-4 h-4 shrink-0" />
                 <span>Disputes</span>
@@ -532,33 +540,41 @@ export default function TenantDetail() {
                   ) : (
                     <div className="space-y-3">
                       {tenancyHistory.map(tenancy => (
-                        <div key={tenancy.id} className="flex items-center justify-between p-4 border rounded-lg hover-elevate">
-                          <div className="flex items-center gap-4">
-                            <div className={`p-2 rounded-md ${tenancy.isActive ? "bg-primary/10" : "bg-muted"}`}>
-                              <Home className={`w-5 h-5 ${tenancy.isActive ? "text-primary" : "text-muted-foreground"}`} />
+                        <div key={tenancy.id} className="space-y-2 p-4 border rounded-lg">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-4 min-w-0">
+                              <div className={`p-2 rounded-md shrink-0 ${tenancy.isActive ? "bg-primary/10" : "bg-muted"}`}>
+                                <Home className={`w-5 h-5 ${tenancy.isActive ? "text-primary" : "text-muted-foreground"}`} />
+                              </div>
+                              <div className="min-w-0">
+                                <Link href={`/properties/${tenancy.propertyId}`}>
+                                  <p className="font-medium hover:text-primary hover:underline cursor-pointer">
+                                    {tenancy.propertyName}
+                                  </p>
+                                </Link>
+                                {tenancy.propertyAddress && (
+                                  <p className="text-sm text-muted-foreground">{tenancy.propertyAddress}</p>
+                                )}
+                              </div>
                             </div>
-                            <div>
-                              <Link href={`/properties/${tenancy.propertyId}`}>
-                                <p className="font-medium hover:text-primary hover:underline cursor-pointer">
-                                  {tenancy.propertyName}
-                                </p>
-                              </Link>
-                              {tenancy.propertyAddress && (
-                                <p className="text-sm text-muted-foreground">{tenancy.propertyAddress}</p>
+                            <div className="text-right shrink-0">
+                              <p className="text-sm">
+                                {formatDate(tenancy.leaseStartDate)} - {tenancy.leaseEndDate ? formatDate(tenancy.leaseEndDate) : "Present"}
+                              </p>
+                              <p className="text-sm text-muted-foreground">{formatCurrency(tenancy.monthlyRent)}/month</p>
+                              {tenancy.isActive ? (
+                                <StatusBadge tone="success" appearance="solid">Active</StatusBadge>
+                              ) : (
+                                <StatusBadge tone="muted" appearance="solid">Ended</StatusBadge>
                               )}
                             </div>
                           </div>
-                          <div className="text-right">
-                            <p className="text-sm">
-                              {formatDate(tenancy.leaseStartDate)} - {tenancy.leaseEndDate ? formatDate(tenancy.leaseEndDate) : "Present"}
-                            </p>
-                            <p className="text-sm text-muted-foreground">{formatCurrency(tenancy.monthlyRent)}/month</p>
-                            {tenancy.isActive ? (
-                              <StatusBadge tone="success" appearance="solid">Active</StatusBadge>
-                            ) : (
-                              <StatusBadge tone="muted" appearance="solid">Ended</StatusBadge>
-                            )}
-                          </div>
+                          {communicationsEnabled ? (
+                            <div className="pt-2 border-t border-border/40">
+                              <p className="text-xs text-muted-foreground mb-2">Communications for this tenancy</p>
+                              <CommunicationsActivityTimeline scope="tenancies" entityId={tenancy.id} />
+                            </div>
+                          ) : null}
                         </div>
                       ))}
                     </div>
@@ -614,6 +630,20 @@ export default function TenantDetail() {
                 </CardContent>
               </Card>
             </TabsContent>
+
+            {communicationsEnabled && tenantId ? (
+            <TabsContent value="activity" className="mt-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Communications activity</CardTitle>
+                  <CardDescription>Cases linked to this tenant (operator-scoped)</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <CommunicationsActivityTimeline scope="tenants" entityId={tenantId} />
+                </CardContent>
+              </Card>
+            </TabsContent>
+            ) : null}
 
             {maintenanceEnabled && (
             <TabsContent value="maintenance" className="mt-4">

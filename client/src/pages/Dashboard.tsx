@@ -44,7 +44,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTr
 import { Label } from "@/components/ui/label";
 import { pagePad } from "@/lib/responsive";
 import { cn } from "@/lib/utils";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { ContextualLink } from "@/navigation";
 import { StatusBadge } from "@/components/StatusBadge";
 import { priorityTone } from "@shared/statusPriorityStyles";
@@ -106,7 +106,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 import { FiltersSection } from "@/components/FiltersSection";
 import { CompanyModulesSettings } from "@/components/CompanyModulesSettings";
-import type { Property, Block } from "@shared/schema";
+import type { Property, Block, Organization } from "@shared/schema";
 
 interface DashboardStats {
   totals: {
@@ -212,8 +212,29 @@ export default function Dashboard() {
   const { toast } = useToast();
   const { user, isLoading, isAuthenticated } = useAuth();
   const { data: entitlement } = useEntitlement();
-  const { rentalsEnabled, tenanciesEnabled, complianceEnabled, maintenanceEnabled } = useCompanyModules();
+  const { rentalsEnabled, tenanciesEnabled, complianceEnabled, maintenanceEnabled, communicationsEnabled } = useCompanyModules();
+  const [, setLocation] = useLocation();
   const featuresLocked = !!entitlement?.locked;
+
+  const { data: landingOrg } = useQuery<Organization>({
+    queryKey: ["/api/organizations", user?.organizationId],
+    enabled: !!user?.organizationId && !!communicationsEnabled,
+  });
+
+  useEffect(() => {
+    if (
+      communicationsEnabled &&
+      landingOrg?.communicationsDefaultLanding &&
+      !featuresLocked
+    ) {
+      setLocation("/communications");
+    }
+  }, [
+    communicationsEnabled,
+    landingOrg?.communicationsDefaultLanding,
+    featuresLocked,
+    setLocation,
+  ]);
   const [tagSearchOpen, setTagSearchOpen] = useState(false);
   const [isExportingPDF, setIsExportingPDF] = useState(false);
   
@@ -850,39 +871,6 @@ export default function Dashboard() {
         </FiltersSection>
       </div>
 
-      {/* Critical Alerts Banner */}
-      {totalAlerts > 0 && (
-        <UiTooltip>
-          <TooltipTrigger asChild>
-            <Card className="border-destructive/50 bg-destructive/5" data-testid="panel-critical-alerts">
-              <CardContent className="p-4">
-                <div className="flex items-center gap-3">
-                  <div className="flex-shrink-0 w-10 h-10 rounded-full bg-destructive/10 flex items-center justify-center">
-                    <AlertTriangle className="w-5 h-5 text-destructive" />
-                  </div>
-                  <div className="flex-1">
-                    <p className="font-semibold text-destructive">
-                      {totalAlerts} Critical Alert{totalAlerts !== 1 ? 's' : ''} Require Attention
-                    </p>
-                    <p className="text-sm text-muted-foreground">
-                      {[
-                        `${stats?.alerts.overdueInspections || 0} overdue inspections`,
-                        complianceEnabled ? `${stats?.alerts.overdueCompliance || 0} expired compliance` : null,
-                        maintenanceEnabled ? `${stats?.alerts.urgentMaintenance || 0} urgent maintenance` : null,
-                        rentalsEnabled ? `${stats?.alerts.overdueRent || 0} overdue rent` : null,
-                      ].filter(Boolean).join(", ")}
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>Overdue inspections, expired compliance docs, urgent maintenance, and overdue rent</p>
-          </TooltipContent>
-        </UiTooltip>
-      )}
-
       {/* Trial / credit entitlement warning */}
       {(entitlement?.code === "TRIAL_ACTIVE" || entitlement?.code === "TRIAL_EXPIRING") && entitlement.daysRemaining != null && (
         <Card className="border-yellow-500/50 bg-yellow-500/5" data-testid="banner-trial-expiring">
@@ -912,35 +900,6 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       )}
-      {entitlement?.warning === "credits" && entitlement.daysRemaining != null && (
-        <Card className="border-yellow-500/50 bg-yellow-500/5" data-testid="banner-credits-expiring">
-          <CardContent className="p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0">
-              <p className="font-semibold text-yellow-700 dark:text-yellow-400">
-                Your credits expire in {entitlement.daysRemaining} {entitlement.daysRemaining === 1 ? "day" : "days"}
-              </p>
-              <p className="text-sm text-muted-foreground">
-                Credits expire on {formatInclusiveUtcDate(entitlement.creditExpiryAt)}. Top up or upgrade before then.
-              </p>
-            </div>
-            <BuyCreditsButton testId="button-buy-credits-expiry" label="Buy credits" />
-          </CardContent>
-        </Card>
-      )}
-      {entitlement?.code === "CREDITS_EXPIRED" && (
-        <Card className="border-destructive/50 bg-destructive/5" data-testid="banner-credits-expired">
-          <CardContent className="p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0">
-              <p className="font-semibold text-destructive">Credits Expired</p>
-              <p className="text-sm text-muted-foreground">
-                Your credits have expired and some features are locked. Top up or choose a plan to continue.
-              </p>
-            </div>
-            <BuyCreditsButton testId="button-buy-credits-expired" label="Buy credits" />
-          </CardContent>
-        </Card>
-      )}
-
       {/* Credits Low Alert */}
       {creditsLow && user?.role === "owner" && (
         <UiTooltip>
@@ -1049,6 +1008,69 @@ export default function Dashboard() {
         </>
         )}
       </div>
+      )}
+
+      {/* Credit expiry — below KPI cards */}
+      {entitlement?.warning === "credits" && entitlement.daysRemaining != null && (
+        <Card className="border-yellow-500/50 bg-yellow-500/5" data-testid="banner-credits-expiring">
+          <CardContent className="p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="font-semibold text-yellow-700 dark:text-yellow-400">
+                Your credits expire in {entitlement.daysRemaining} {entitlement.daysRemaining === 1 ? "day" : "days"}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Credits expire on {formatInclusiveUtcDate(entitlement.creditExpiryAt)}. Top up or upgrade before then.
+              </p>
+            </div>
+            <BuyCreditsButton testId="button-buy-credits-expiry" label="Buy credits" />
+          </CardContent>
+        </Card>
+      )}
+      {entitlement?.code === "CREDITS_EXPIRED" && (
+        <Card className="border-destructive/50 bg-destructive/5" data-testid="banner-credits-expired">
+          <CardContent className="p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="font-semibold text-destructive">Credits Expired</p>
+              <p className="text-sm text-muted-foreground">
+                Your credits have expired and some features are locked. Top up or choose a plan to continue.
+              </p>
+            </div>
+            <BuyCreditsButton testId="button-buy-credits-expired" label="Buy credits" />
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Critical Alerts Banner — below KPI cards */}
+      {totalAlerts > 0 && (
+        <UiTooltip>
+          <TooltipTrigger asChild>
+            <Card className="border-destructive/50 bg-destructive/5" data-testid="panel-critical-alerts">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex-shrink-0 w-10 h-10 rounded-full bg-destructive/10 flex items-center justify-center">
+                    <AlertTriangle className="w-5 h-5 text-destructive" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-semibold text-destructive">
+                      {totalAlerts} Critical Alert{totalAlerts !== 1 ? 's' : ''} Require Attention
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      {[
+                        `${stats?.alerts.overdueInspections || 0} overdue inspections`,
+                        complianceEnabled ? `${stats?.alerts.overdueCompliance || 0} expired compliance` : null,
+                        maintenanceEnabled ? `${stats?.alerts.urgentMaintenance || 0} urgent maintenance` : null,
+                        rentalsEnabled ? `${stats?.alerts.overdueRent || 0} overdue rent` : null,
+                      ].filter(Boolean).join(", ")}
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>Overdue inspections, expired compliance docs, urgent maintenance, and overdue rent</p>
+          </TooltipContent>
+        </UiTooltip>
       )}
 
       {/* New Requests feed — owner + maintenance_admin */}

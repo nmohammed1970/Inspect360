@@ -23,8 +23,10 @@ import { StatusBadge } from "@/components/StatusBadge";
 import {
   maintenanceRequestStatusTone,
   priorityTone,
+  publicCaseStatusTone,
 } from "@shared/statusPriorityStyles";
 import { formatMaintenanceStatus } from "@shared/inspectionLabels";
+import { useCompanyModules } from "@/hooks/useCompanyModules";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
@@ -39,6 +41,7 @@ export default function TenantRequests({ openCreateOnMount = false }: TenantRequ
   const search = useSearch();
   const urlParams = new URLSearchParams(search);
   const shouldCreate = urlParams.get("create") === "true";
+  const { communicationsEnabled } = useCompanyModules();
 
   const { toast } = useToast();
   const [isCreateOpen, setIsCreateOpen] = useState(openCreateOnMount || shouldCreate);
@@ -46,6 +49,16 @@ export default function TenantRequests({ openCreateOnMount = false }: TenantRequ
 
   const { data: requests = [], isLoading } = useQuery<any[]>({
     queryKey: ["/api/tenant/maintenance-requests"],
+    enabled: !communicationsEnabled,
+  });
+
+  const casesQuery = useQuery<{ items: any[] }>({
+    queryKey: ["/api/communications/tenant/cases"],
+    enabled: !!communicationsEnabled,
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/communications/tenant/cases");
+      return res.json();
+    },
   });
 
   const { data: maintenanceConversations = [] } = useQuery<
@@ -107,7 +120,7 @@ export default function TenantRequests({ openCreateOnMount = false }: TenantRequ
     }
   };
 
-  if (isLoading) {
+  if (isLoading || (communicationsEnabled && casesQuery.isLoading)) {
     return (
       <div className={cn(pagePad, "space-y-4 md:space-y-6 min-w-0")}>
         <Skeleton className="h-12 w-64" />
@@ -116,6 +129,8 @@ export default function TenantRequests({ openCreateOnMount = false }: TenantRequ
       </div>
     );
   }
+
+  const caseItems = casesQuery.data?.items || [];
 
   return (
     <div className={cn(pagePad, "space-y-4 md:space-y-6 min-w-0")}>
@@ -144,23 +159,77 @@ export default function TenantRequests({ openCreateOnMount = false }: TenantRequ
             Back
           </Button>
           <div className="min-w-0">
-            <h1 className="text-xl md:text-2xl font-bold">My Maintenance Requests</h1>
+            <h1 className="text-xl md:text-2xl font-bold">
+              {communicationsEnabled ? "My requests" : "My Maintenance Requests"}
+            </h1>
             <p className="text-muted-foreground text-sm">
-              Track your submitted maintenance requests
+              {communicationsEnabled
+                ? "Track repairs, rent, tenancy, and other requests"
+                : "Track your submitted maintenance requests"}
             </p>
           </div>
         </div>
         <Button
-          onClick={() => setIsCreateOpen(true)}
+          onClick={() =>
+            communicationsEnabled
+              ? navigate("/tenant/requests/new")
+              : setIsCreateOpen(true)
+          }
           data-testid="button-log-new-request"
           className="w-full sm:w-auto shrink-0"
         >
           <Plus className="h-4 w-4 mr-2" />
-          Log a Maintenance Request
+          {communicationsEnabled ? "New request" : "Log a Maintenance Request"}
         </Button>
       </div>
 
-      {requests.length === 0 ? (
+      {communicationsEnabled ? (
+        caseItems.length === 0 ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>No requests yet</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Button onClick={() => navigate("/tenant/requests/new")}>
+                <Plus className="h-4 w-4 mr-2" />
+                New request
+              </Button>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="space-y-3">
+            {caseItems.map((c) => (
+              <Card
+                key={c.id}
+                className="cursor-pointer hover:border-primary/40 transition-colors"
+                onClick={() => navigate(`/tenant/requests/${c.id}`)}
+                data-testid={`case-${c.id}`}
+              >
+                <CardHeader>
+                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-xs text-muted-foreground tabular-nums">
+                        {c.reference}
+                      </div>
+                      <CardTitle className="text-lg">{c.subject}</CardTitle>
+                    </div>
+                    <div className="flex flex-wrap gap-2 shrink-0">
+                      <StatusBadge tone={publicCaseStatusTone(c.publicStatus)} appearance="soft">
+                        {c.publicStatus}
+                      </StatusBadge>
+                      <StatusBadge tone={priorityTone(c.priority)} appearance="soft" className="capitalize">
+                        {c.priority}
+                      </StatusBadge>
+                    </div>
+                  </div>
+                </CardHeader>
+              </Card>
+            ))}
+          </div>
+        )
+      ) : null}
+
+      {!communicationsEnabled && requests.length === 0 ? (
         <Card>
           <CardHeader>
             <CardTitle>No Requests Yet</CardTitle>
@@ -181,7 +250,7 @@ export default function TenantRequests({ openCreateOnMount = false }: TenantRequ
             </div>
           </CardContent>
         </Card>
-      ) : (
+      ) : !communicationsEnabled ? (
         <div className="space-y-4">
           {requests.map((request) => (
             <Card key={request.id} data-testid={`request-${request.id}`}>
@@ -277,7 +346,7 @@ export default function TenantRequests({ openCreateOnMount = false }: TenantRequ
             </Card>
           ))}
         </div>
-      )}
+      ) : null}
 
       <TenantLogRequestDialog
         open={isCreateOpen}

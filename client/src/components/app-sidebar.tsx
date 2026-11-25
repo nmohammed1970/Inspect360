@@ -16,6 +16,8 @@ import {
   CreditCard,
   Shield,
   MessageSquarePlus,
+  Inbox,
+  PoundSterling,
 } from "lucide-react";
 import {
   Sidebar,
@@ -50,6 +52,8 @@ export function AppSidebar() {
     maintenanceEnabled,
     hmoComplianceEnabled,
     tenanciesEnabled,
+    communicationsEnabled,
+    rentalsEnabled,
   } = useCompanyModules();
 
   const { data: organization } = useQuery<Organization>({
@@ -153,12 +157,6 @@ export function AppSidebar() {
       roles: ["owner", "maintenance_admin"],
     },
     {
-      title: "Quotes & Invoicing",
-      url: "/maintenance/finance",
-      icon: FileText,
-      roles: ["owner", "clerk", "contractor", "maintenance_admin"],
-    },
-    {
       title: "Maintenance Feedback",
       url: "/maintenance/feedback",
       icon: MessageSquarePlus,
@@ -175,6 +173,42 @@ export function AppSidebar() {
       url: "/asset-inventory",
       icon: Package,
       roles: ["owner", "clerk", "compliance", "contractor"],
+    },
+  ];
+
+  const communicationsItems: MenuItem[] = [
+    {
+      title: "Inbox",
+      url: "/communications",
+      icon: Inbox,
+      roles: ["owner", "clerk", "maintenance_admin"],
+    },
+    {
+      title: "Analytics",
+      url: "/communications/analytics",
+      icon: BarChart3,
+      roles: ["owner", "clerk"],
+    },
+    {
+      title: "Settings",
+      url: "/communications/settings",
+      icon: Settings,
+      roles: ["owner"],
+    },
+  ];
+
+  const financeItems: MenuItem[] = [
+    {
+      title: "Rent management",
+      url: "/rent",
+      icon: PoundSterling,
+      roles: ["owner", "clerk"],
+    },
+    {
+      title: "Quotes & Invoicing",
+      url: "/maintenance/finance",
+      icon: FileText,
+      roles: ["owner", "clerk", "contractor", "maintenance_admin"],
     },
   ];
 
@@ -229,6 +263,14 @@ export function AppSidebar() {
     });
 
   const filteredWorkspace = filterMenu(workspaceItems);
+  const filteredCommunications = communicationsEnabled
+    ? filterMenu(communicationsItems)
+    : [];
+  const filteredFinance = filterMenu(financeItems).filter((item) => {
+    if (item.url === "/rent") return !!rentalsEnabled;
+    if (item.url === "/maintenance/finance") return !!maintenanceEnabled;
+    return true;
+  });
   const filteredManagement = filterMenu(managementItems);
 
   // Dynamic active state styling based on organization's brand color
@@ -322,6 +364,32 @@ export function AppSidebar() {
             <SidebarGroupContent>
               <SidebarMenu className="gap-0.5">
                 {filteredWorkspace.map((item) => renderMenuItem(item))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
+
+        {filteredCommunications.length > 0 && (
+          <SidebarGroup className="py-1">
+            <SidebarGroupLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              Communications
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu className="gap-0.5">
+                {filteredCommunications.map((item) => renderMenuItem(item))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
+
+        {filteredFinance.length > 0 && (
+          <SidebarGroup className="py-1">
+            <SidebarGroupLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              Finance
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu className="gap-0.5">
+                {filteredFinance.map((item) => renderMenuItem(item))}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>

@@ -104,6 +104,21 @@ assert.equal(
   "hmo_compliance is independent of generic compliance module",
 );
 
+assert.equal(
+  isCompanyModuleEnabled({}, "communications"),
+  false,
+  "communications missing flag defaults OFF (opt-in)",
+);
+assert.equal(
+  isCompanyModuleEnabled({ communicationsEnabled: true }, "communications"),
+  true,
+  "communications true is ON",
+);
+assert.deepEqual(
+  normalizeCompanyModuleFlags({ communicationsEnabled: true }),
+  { communicationsEnabled: true },
+);
+
 assert.deepEqual(
   normalizeCompanyModuleFlags({ tenanciesEnabled: false, rentalsEnabled: true }),
   { tenanciesEnabled: false, rentalsEnabled: false },

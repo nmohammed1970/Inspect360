@@ -514,15 +514,28 @@ export async function updateRentPeriodPayment(
     .where(and(eq(rentPeriods.id, periodId), eq(rentPeriods.organizationId, organizationId)));
   if (!existing) throw Object.assign(new Error("Rent period not found"), { status: 404 });
 
+  // Canonical ledger cutover: no silent "Paid" without a receipt.
+  // Waive remains as an approved adjustment path via notes only on legacy rows.
+  const isPaymentToggle =
+    input.status === "collected" ||
+    input.status === "partial" ||
+    (input.amountPaid !== undefined && parseFloat(input.amountPaid) > 0);
+
+  if (isPaymentToggle) {
+    throw Object.assign(
+      new Error(
+        "Record payments via Rent Management (Finance › Rent management). Manual 'Paid' toggles are disabled — use a confirmed receipt.",
+      ),
+      { status: 400 },
+    );
+  }
+
   const amountDue = parseFloat(input.amountDue !== undefined ? input.amountDue : existing.amountDue);
   let amountPaid = parseFloat(input.amountPaid !== undefined ? input.amountPaid : existing.amountPaid);
   let status = input.status || deriveStatus(amountDue, amountPaid, existing.status);
 
-  if (status === "collected") {
-    amountPaid = amountDue;
-  }
   if (status === "waived") {
-    // keep amounts
+    // keep amounts — legacy waive only
   } else {
     status = deriveStatus(amountDue, amountPaid, status === "waived" ? undefined : status);
   }
@@ -533,7 +546,7 @@ export async function updateRentPeriodPayment(
       amountDue: amountDue.toFixed(2),
       amountPaid: amountPaid.toFixed(2),
       status,
-      collectedAt: status === "collected" ? new Date() : null,
+      collectedAt: status === "collected" ? existing.collectedAt : null,
       notes: input.notes !== undefined ? input.notes : existing.notes,
       updatedAt: new Date(),
     })

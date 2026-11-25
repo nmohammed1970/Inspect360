@@ -87,6 +87,7 @@ export function CompanyModulesSettings({ className }: CompanyModulesSettingsProp
   const [complianceEnabled, setComplianceEnabled] = useState(true);
   const [maintenanceEnabled, setMaintenanceEnabled] = useState(true);
   const [hmoComplianceEnabled, setHmoComplianceEnabled] = useState(false);
+  const [communicationsEnabled, setCommunicationsEnabled] = useState(false);
 
   const { data: user } = useQuery<User>({
     queryKey: ["/api/auth/user"],
@@ -105,6 +106,7 @@ export function CompanyModulesSettings({ className }: CompanyModulesSettingsProp
       setComplianceEnabled(false);
       setMaintenanceEnabled(false);
       setHmoComplianceEnabled(false);
+      setCommunicationsEnabled(false);
       return;
     }
     const blocked = (key: CompanyModuleKey) =>
@@ -117,6 +119,9 @@ export function CompanyModulesSettings({ className }: CompanyModulesSettingsProp
     );
     setHmoComplianceEnabled(
       blocked("hmo_compliance") ? false : organization.hmoComplianceEnabled === true,
+    );
+    setCommunicationsEnabled(
+      blocked("communications") ? false : organization.communicationsEnabled === true,
     );
   }, [organization, lockedByAiPlan, companyModuleAccess]);
 
@@ -135,6 +140,7 @@ export function CompanyModulesSettings({ className }: CompanyModulesSettingsProp
           complianceEnabled,
           maintenanceEnabled,
           hmoComplianceEnabled,
+          communicationsEnabled,
         },
       );
       return response.json();
@@ -161,6 +167,7 @@ export function CompanyModulesSettings({ className }: CompanyModulesSettingsProp
   const complianceLock = lockFor("compliance");
   const maintenanceLock = lockFor("maintenance");
   const hmoLock = lockFor("hmo_compliance");
+  const communicationsLock = lockFor("communications");
 
   if (orgLoading) {
     return <div className="text-center py-8 text-muted-foreground text-sm">Loading...</div>;
@@ -285,6 +292,27 @@ export function CompanyModulesSettings({ className }: CompanyModulesSettingsProp
               disabled={modulesLoading}
               onCheckedChange={setHmoComplianceEnabled}
               testId="toggle-module-hmo-compliance"
+            />
+          </div>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border rounded-lg min-w-0">
+            <div className="flex-1 min-w-0">
+              <Label className="text-base font-medium">
+                {COMPANY_MODULE_META.communications.label}
+              </Label>
+              <p className="text-sm text-muted-foreground mt-1">
+                {COMPANY_MODULE_META.communications.description}
+              </p>
+              {communicationsLock.message && !lockedByAiPlan && (
+                <p className="text-xs text-muted-foreground mt-1">{communicationsLock.message}</p>
+              )}
+            </div>
+            <LockedSwitch
+              checked={communicationsEnabled}
+              locked={communicationsLock.locked}
+              lockMessage={communicationsLock.message}
+              disabled={modulesLoading}
+              onCheckedChange={setCommunicationsEnabled}
+              testId="toggle-module-communications"
             />
           </div>
         </div>

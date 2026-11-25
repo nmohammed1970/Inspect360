@@ -2172,7 +2172,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           req.body?.tenanciesEnabled === true ||
           req.body?.complianceEnabled === true ||
           req.body?.maintenanceEnabled === true ||
-          req.body?.hmoComplianceEnabled === true;
+          req.body?.hmoComplianceEnabled === true ||
+          req.body?.communicationsEnabled === true;
         if (tryingToEnable) {
           return res.status(403).json({
             message: PROPERTY_BUNDLE_UPGRADE_MESSAGE,
@@ -2192,6 +2193,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         complianceEnabled,
         maintenanceEnabled,
         hmoComplianceEnabled,
+        communicationsEnabled,
       } = req.body;
 
       if (plan.companyModuleAccess) {
@@ -2201,6 +2203,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ["compliance", complianceEnabled, COMPANY_MODULE_META.compliance.label],
           ["maintenance", maintenanceEnabled, COMPANY_MODULE_META.maintenance.label],
           ["hmo_compliance", hmoComplianceEnabled, COMPANY_MODULE_META.hmo_compliance.label],
+          ["communications", communicationsEnabled, COMPANY_MODULE_META.communications.label],
         ];
         const denied = attempted.filter(
           ([key, value]) => value === true && !plan.companyModuleAccess![key].allowed,
@@ -2223,9 +2226,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         maintenanceEnabled: typeof maintenanceEnabled === "boolean" ? maintenanceEnabled : undefined,
         hmoComplianceEnabled:
           typeof hmoComplianceEnabled === "boolean" ? hmoComplianceEnabled : undefined,
+        communicationsEnabled:
+          typeof communicationsEnabled === "boolean" ? communicationsEnabled : undefined,
       });
 
       const organization = await storage.updateOrganization(organizationId, normalized);
+      if (normalized.communicationsEnabled === true) {
+        const { seedCommunicationCategories } = await import("./communications/categories");
+        await seedCommunicationCategories(organizationId);
+      }
       await enforceDisallowedCompanyModules(organizationId);
       const refreshed = await storage.getOrganization(organizationId);
 
@@ -15388,6 +15397,20 @@ ${optionalNotes || "No details provided."}`;
         }),
       );
 
+      void import("./communications/maintenanceBridge").then(({ scheduleMaintenanceCaseBridge }) =>
+        scheduleMaintenanceCaseBridge({
+          organizationId: request.organizationId,
+          maintenanceRequestId: request.id,
+          title: request.title,
+          description: request.description,
+          priority: request.priority,
+          propertyId: request.propertyId,
+          blockId: request.blockId,
+          reportedByUserId: request.reportedBy,
+          source: request.source,
+        }),
+      );
+
       res.json(request);
     } catch (error) {
       console.error("Error creating maintenance request:", error);
@@ -15494,6 +15517,20 @@ ${optionalNotes || "No details provided."}`;
           maintenanceRequestId: request.id,
           createdById: userId,
           actorRole: user.role,
+        }),
+      );
+
+      void import("./communications/maintenanceBridge").then(({ scheduleMaintenanceCaseBridge }) =>
+        scheduleMaintenanceCaseBridge({
+          organizationId: request.organizationId,
+          maintenanceRequestId: request.id,
+          title: request.title,
+          description: request.description,
+          priority: request.priority,
+          propertyId: request.propertyId,
+          blockId: request.blockId,
+          reportedByUserId: request.reportedBy,
+          source: request.source,
         }),
       );
 
@@ -16599,6 +16636,12 @@ ${optionalNotes || "No details provided."}`;
       } catch (rentErr) {
         console.error("Warning: Failed to generate rent periods after lease create:", rentErr);
       }
+      try {
+        const { ensureRentAccountForAssignment } = await import("./rent/service");
+        await ensureRentAccountForAssignment(assignment.id, user.id);
+      } catch (rentErr) {
+        console.error("Warning: Failed to provision rent account after lease create:", rentErr);
+      }
 
       // Auto-create contact for this tenant if one doesn't exist
       try {
@@ -16725,6 +16768,12 @@ ${optionalNotes || "No details provided."}`;
         await generateRentPeriodsForAssignment(updated.id);
       } catch (rentErr) {
         console.error("Warning: Failed to generate rent periods after lease update:", rentErr);
+      }
+      try {
+        const { ensureRentAccountForAssignment } = await import("./rent/service");
+        await ensureRentAccountForAssignment(updated.id, user.id);
+      } catch (rentErr) {
+        console.error("Warning: Failed to sync rent account after lease update:", rentErr);
       }
 
       res.json(updated);
@@ -21840,6 +21889,10 @@ ${optionalNotes || "No details provided."}`;
   registerHmoRoutes(app);
   const { registerFeedbackRoutes } = await import("./feedback/routes");
   registerFeedbackRoutes(app);
+  const { registerCommunicationsRoutes } = await import("./communications/routes");
+  registerCommunicationsRoutes(app);
+  const { registerRentRoutes } = await import("./rent/routes");
+  registerRentRoutes(app);
 
   const { registerBillingCatalogRoutes } = await import("./billing/registerBillingRoutes");
   registerBillingCatalogRoutes(app);
