@@ -270,8 +270,8 @@ export default function Pricing() {
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
           <TabsList>
-            <TabsTrigger value="property_management">Property management</TabsTrigger>
-            <TabsTrigger value="ai_inspections">AI inspections</TabsTrigger>
+                  <TabsTrigger value="property_management">Property Operations</TabsTrigger>
+            <TabsTrigger value="ai_inspections">AI Inspections Only</TabsTrigger>
           </TabsList>
         </Tabs>
         <Tabs value={cycle} onValueChange={(v) => setCycle(v as typeof cycle)}>
@@ -320,7 +320,7 @@ export default function Pricing() {
                     <CardTitle className="text-xl">{plan.name}</CardTitle>
                     <div className="flex flex-wrap gap-1 justify-end">
                       {isSamePlan ? <Badge variant="secondary">Current</Badge> : null}
-                      {plan.popular ? <Badge>Most popular</Badge> : null}
+                      {plan.popular ? <Badge>Recommended</Badge> : null}
                     </div>
                   </div>
                   {plan.description ? (
