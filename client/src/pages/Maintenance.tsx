@@ -125,7 +125,9 @@ interface WorkOrder {
   costActual?: number | null;
   createdAt: string;
   updatedAt?: string;
+  teamId?: string | null;
   assignedToId?: string | null;
+  contractorId?: string | null;
   maintenanceRequest: {
     id: string;
     title: string;
@@ -143,12 +145,34 @@ interface WorkOrder {
     email?: string;
     companyName?: string | null;
   } | null;
+  assignedToUser?: {
+    id?: string;
+    firstName?: string;
+    lastName?: string;
+    email?: string;
+  } | null;
   team?: {
     id?: string;
     name?: string;
     email?: string;
   } | null;
 }
+
+const workOrderAssigneeLabel = (workOrder: WorkOrder): string | null => {
+  const userName = [workOrder.assignedToUser?.firstName, workOrder.assignedToUser?.lastName]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  if (userName) return userName;
+  const contractorName = [workOrder.contractor?.firstName, workOrder.contractor?.lastName]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  if (contractorName) return contractorName;
+  if (workOrder.contractor?.companyName) return workOrder.contractor.companyName;
+  if (workOrder.status === "pending_acceptance") return "Awaiting team acceptance";
+  return null;
+};
 
 const createMaintenanceSchema = insertMaintenanceRequestSchema
   .omit({ organizationId: true }) // Backend adds this from session
@@ -234,6 +258,10 @@ export default function Maintenance() {
     user?.role === "maintenance_admin";
   const isMaintenanceManager =
     user?.role === "owner" || user?.role === "maintenance_admin";
+  const canReassignWorkOrder =
+    user?.role === "owner" ||
+    user?.role === "maintenance_admin" ||
+    user?.role === "clerk";
   const tabFromUrl = new URLSearchParams(searchParams).get("tab");
   const defaultWorkOrdersTab =
     tabFromUrl === "work-orders" || (canFieldAct && tabFromUrl !== "requests");
@@ -285,7 +313,9 @@ export default function Maintenance() {
   // Fetch teams for work order assignment
   const { data: teams = [] } = useQuery<any[]>({
     queryKey: ["/api/teams"],
-    enabled: isMaintenanceManager && isMaintenanceEnabled !== false,
+    enabled:
+      (isMaintenanceManager || canReassignWorkOrder || canSeeWorkOrders) &&
+      isMaintenanceEnabled !== false,
   });
 
   // Work order creation mutation
@@ -317,6 +347,38 @@ export default function Maintenance() {
     },
     onError: () => {
       toast({ title: "Failed to update work order status", variant: "destructive" });
+    },
+  });
+
+  const reassignWorkOrderMutation = useMutation({
+    mutationFn: async ({
+      id,
+      assignedToId,
+      contractorId,
+      status,
+    }: {
+      id: string;
+      assignedToId: string;
+      contractorId: string | null;
+      status?: string;
+    }) => {
+      const res = await apiRequest("PATCH", `/api/work-orders/${id}`, {
+        assignedToId,
+        contractorId,
+        ...(status ? { status } : {}),
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/work-orders"] });
+      toast({ title: "Assignee updated" });
+    },
+    onError: (e: Error) => {
+      toast({
+        title: "Failed to update assignee",
+        description: e.message,
+        variant: "destructive",
+      });
     },
   });
 
@@ -2300,27 +2362,18 @@ export default function Maintenance() {
                               </div>
                             )}
 
-                            {workOrder.contractor ? (
-                              <div className="flex items-center gap-2 text-sm">
-                                <UserIcon className="h-4 w-4 text-muted-foreground shrink-0" />
-                                <div className="min-w-0">
-                                  <p className="font-medium">Contractor</p>
-                                  <p className="text-muted-foreground truncate">
-                                    {workOrder.contractor.firstName} {workOrder.contractor.lastName}
-                                  </p>
-                                </div>
+                            <div className="flex items-center gap-2 text-sm">
+                              <UserIcon className="h-4 w-4 text-muted-foreground shrink-0" />
+                              <div className="min-w-0">
+                                <p className="font-medium">Assigned to</p>
+                                <p
+                                  className="text-muted-foreground truncate"
+                                  data-testid={`text-wo-assignee-${workOrder.id}`}
+                                >
+                                  {workOrderAssigneeLabel(workOrder) || "Unassigned"}
+                                </p>
                               </div>
-                            ) : workOrder.status === "pending_acceptance" ? (
-                              <div className="flex items-center gap-2 text-sm">
-                                <Info className="h-4 w-4 text-muted-foreground shrink-0" />
-                                <div className="min-w-0">
-                                  <p className="font-medium">Assignee</p>
-                                  <p className="text-muted-foreground truncate">
-                                    Awaiting team acceptance
-                                  </p>
-                                </div>
-                              </div>
-                            ) : null}
+                            </div>
 
                             {workOrder.slaDue && (
                               <div className="flex items-center gap-2 text-sm">
@@ -2390,6 +2443,26 @@ export default function Maintenance() {
                           </div>
 
                           <div className="mt-4 flex flex-wrap items-center gap-3 pt-3 border-t">
+                            {canReassignWorkOrder &&
+                              workOrder.status !== "completed" &&
+                              workOrder.status !== "rejected" &&
+                              (workOrder.teamId || workOrder.team?.id) && (
+                                <WorkOrderAssigneeSelect
+                                  workOrder={workOrder}
+                                  disabled={reassignWorkOrderMutation.isPending}
+                                  onAssign={({ assignedToId, contractorId }) => {
+                                    reassignWorkOrderMutation.mutate({
+                                      id: workOrder.id,
+                                      assignedToId,
+                                      contractorId,
+                                      status:
+                                        workOrder.status === "pending_acceptance"
+                                          ? "assigned"
+                                          : undefined,
+                                    });
+                                  }}
+                                />
+                              )}
                             {canFieldAct &&
                               workOrder.status !== "completed" &&
                               workOrder.status !== "rejected" &&
@@ -2667,6 +2740,76 @@ export default function Maintenance() {
     </div>
   );
 }
+
+const WorkOrderAssigneeSelect = ({
+  workOrder,
+  disabled,
+  onAssign,
+}: {
+  workOrder: WorkOrder;
+  disabled?: boolean;
+  onAssign: (data: { assignedToId: string; contractorId: string | null }) => void;
+}) => {
+  const teamId = workOrder.teamId || workOrder.team?.id || "";
+  const { data: members = [], isLoading } = useQuery<any[]>({
+    queryKey: ["/api/teams", teamId, "members"],
+    queryFn: async () => {
+      const res = await fetch(`/api/teams/${teamId}/members`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load team members");
+      return res.json();
+    },
+    enabled: Boolean(teamId),
+  });
+
+  const currentValue =
+    workOrder.assignedToId ||
+    workOrder.contractorId ||
+    workOrder.contractor?.id ||
+    undefined;
+
+  return (
+    <div className="flex items-center gap-2 min-w-0">
+      <label className="text-sm font-medium shrink-0">Assign to</label>
+      <Select
+        value={currentValue}
+        disabled={disabled || isLoading || members.length === 0}
+        onValueChange={(value) => {
+          const member = members.find(
+            (m: any) => m.userId === value || m.contactId === value,
+          );
+          const assignedToId =
+            member?.userId || member?.contact?.linkedUserId || value;
+          const contractorId = member?.contactId || null;
+          onAssign({ assignedToId, contractorId });
+        }}
+      >
+        <SelectTrigger
+          className="h-8 w-full sm:w-auto sm:min-w-[12rem] sm:max-w-[16rem] text-xs"
+          data-testid={`select-wo-assignee-${workOrder.id}`}
+        >
+          <SelectValue
+            placeholder={isLoading ? "Loading…" : "Select team member"}
+          />
+        </SelectTrigger>
+        <SelectContent>
+          {members.map((member: any) => {
+            const person = member.user || member.contact;
+            if (!person) return null;
+            const value = member.userId || member.contactId;
+            if (!value) return null;
+            const kind = member.userId ? "Staff" : "Contractor";
+            return (
+              <SelectItem key={member.id} value={value}>
+                {person.firstName} {person.lastName}
+                {person.email ? ` (${person.email})` : ""} — {kind}
+              </SelectItem>
+            );
+          })}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+};
 
 // Work Order Creation Form Component
 function WorkOrderForm({

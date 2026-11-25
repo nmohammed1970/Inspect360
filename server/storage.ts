@@ -2691,7 +2691,11 @@ export class DatabaseStorage implements IStorage {
     return workOrder;
   }
 
-  private workOrderListSelect() {
+  private workOrderAssigneeUserAlias() {
+    return alias(users, "wo_assignee");
+  }
+
+  private workOrderListSelect(woAssignee = this.workOrderAssigneeUserAlias()) {
     return {
       id: workOrders.id,
       organizationId: workOrders.organizationId,
@@ -2739,6 +2743,12 @@ export class DatabaseStorage implements IStorage {
         email: contacts.email,
         companyName: contacts.companyName,
       },
+      assignedToUser: {
+        id: woAssignee.id,
+        firstName: woAssignee.firstName,
+        lastName: woAssignee.lastName,
+        email: woAssignee.email,
+      },
       team: {
         id: teams.id,
         name: teams.name,
@@ -2747,28 +2757,26 @@ export class DatabaseStorage implements IStorage {
     } as const;
   }
 
-  async getWorkOrdersByOrganization(organizationId: string): Promise<any[]> {
-    return await db
-      .select(this.workOrderListSelect())
+  private workOrderListFrom(woAssignee = this.workOrderAssigneeUserAlias()) {
+    return db
+      .select(this.workOrderListSelect(woAssignee))
       .from(workOrders)
       .innerJoin(maintenanceRequests, eq(workOrders.maintenanceRequestId, maintenanceRequests.id))
       .leftJoin(contacts, eq(workOrders.contractorId, contacts.id))
+      .leftJoin(woAssignee, eq(workOrders.assignedToId, woAssignee.id))
       .leftJoin(teams, eq(workOrders.teamId, teams.id))
       .leftJoin(properties, eq(maintenanceRequests.propertyId, properties.id))
-      .leftJoin(blocks, eq(maintenanceRequests.blockId, blocks.id))
+      .leftJoin(blocks, eq(maintenanceRequests.blockId, blocks.id));
+  }
+
+  async getWorkOrdersByOrganization(organizationId: string): Promise<any[]> {
+    return await this.workOrderListFrom()
       .where(eq(workOrders.organizationId, organizationId))
       .orderBy(desc(workOrders.createdAt));
   }
 
   async getWorkOrdersByContractor(contractorId: string): Promise<any[]> {
-    return await db
-      .select(this.workOrderListSelect())
-      .from(workOrders)
-      .innerJoin(maintenanceRequests, eq(workOrders.maintenanceRequestId, maintenanceRequests.id))
-      .leftJoin(contacts, eq(workOrders.contractorId, contacts.id))
-      .leftJoin(teams, eq(workOrders.teamId, teams.id))
-      .leftJoin(properties, eq(maintenanceRequests.propertyId, properties.id))
-      .leftJoin(blocks, eq(maintenanceRequests.blockId, blocks.id))
+    return await this.workOrderListFrom()
       .where(eq(workOrders.contractorId, contractorId))
       .orderBy(desc(workOrders.createdAt));
   }
@@ -2797,14 +2805,7 @@ export class DatabaseStorage implements IStorage {
     }
     if (!assignmentFilter) return [];
 
-    return await db
-      .select(this.workOrderListSelect())
-      .from(workOrders)
-      .innerJoin(maintenanceRequests, eq(workOrders.maintenanceRequestId, maintenanceRequests.id))
-      .leftJoin(contacts, eq(workOrders.contractorId, contacts.id))
-      .leftJoin(teams, eq(workOrders.teamId, teams.id))
-      .leftJoin(properties, eq(maintenanceRequests.propertyId, properties.id))
-      .leftJoin(blocks, eq(maintenanceRequests.blockId, blocks.id))
+    return await this.workOrderListFrom()
       .where(and(eq(workOrders.organizationId, organizationId), assignmentFilter))
       .orderBy(desc(workOrders.createdAt));
   }
@@ -2815,16 +2816,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getWorkOrderDetailed(id: string): Promise<any | undefined> {
-    const [row] = await db
-      .select(this.workOrderListSelect())
-      .from(workOrders)
-      .innerJoin(maintenanceRequests, eq(workOrders.maintenanceRequestId, maintenanceRequests.id))
-      .leftJoin(contacts, eq(workOrders.contractorId, contacts.id))
-      .leftJoin(teams, eq(workOrders.teamId, teams.id))
-      .leftJoin(properties, eq(maintenanceRequests.propertyId, properties.id))
-      .leftJoin(blocks, eq(maintenanceRequests.blockId, blocks.id))
-      .where(eq(workOrders.id, id))
-      .limit(1);
+    const [row] = await this.workOrderListFrom().where(eq(workOrders.id, id)).limit(1);
     return row;
   }
 

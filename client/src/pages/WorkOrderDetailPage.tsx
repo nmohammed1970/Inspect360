@@ -58,7 +58,9 @@ interface WorkOrderDetail {
   authorisationStatus?: string | null;
   completionChecklistId?: string | null;
   customerSignatureJson?: unknown;
+  teamId?: string | null;
   assignedToId?: string | null;
+  contractorId?: string | null;
   maintenanceRequest: {
     id: string;
     title: string;
@@ -69,7 +71,37 @@ interface WorkOrderDetail {
   };
   property?: { id?: string; name?: string } | null;
   block?: { id?: string; name?: string } | null;
+  contractor?: {
+    id?: string;
+    firstName?: string;
+    lastName?: string;
+    email?: string;
+    companyName?: string | null;
+  } | null;
+  assignedToUser?: {
+    id?: string;
+    firstName?: string;
+    lastName?: string;
+    email?: string;
+  } | null;
+  team?: { id?: string; name?: string; email?: string } | null;
 }
+
+const detailAssigneeLabel = (workOrder: WorkOrderDetail): string | null => {
+  const userName = [workOrder.assignedToUser?.firstName, workOrder.assignedToUser?.lastName]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  if (userName) return userName;
+  const contractorName = [workOrder.contractor?.firstName, workOrder.contractor?.lastName]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  if (contractorName) return contractorName;
+  if (workOrder.contractor?.companyName) return workOrder.contractor.companyName;
+  if (workOrder.status === "pending_acceptance") return "Awaiting team acceptance";
+  return null;
+};
 
 
 const WorkOrderDetailPage = () => {
@@ -349,6 +381,21 @@ const WorkOrderDetailPage = () => {
           >
             {formatWorkOrderStatus(workOrder.status)}
           </StatusBadge>
+        </div>
+
+        <div className="rounded-md border p-3 text-sm space-y-1">
+          {workOrder.team?.name && (
+            <p>
+              <span className="font-medium">Team:</span>{" "}
+              <span className="text-muted-foreground">{workOrder.team.name}</span>
+            </p>
+          )}
+          <p data-testid="text-wo-detail-assignee">
+            <span className="font-medium">Assigned to:</span>{" "}
+            <span className="text-muted-foreground">
+              {detailAssigneeLabel(workOrder) || "Unassigned"}
+            </span>
+          </p>
         </div>
 
         {workOrder.status === "pending_acceptance" && (
