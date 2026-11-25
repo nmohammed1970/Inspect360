@@ -143,6 +143,7 @@ export function TenantSidebar() {
             <SidebarMenu>
               {menuItems.map((item) => {
                 const isActive = location === item.url ||
+                  location.startsWith(item.url + "/") ||
                   (item.url === "/dashboard" && (location === "/" || location === "/tenant/home"));
                 const itemLocked = !!entitlement?.locked && isLockedAppPath(item.url);
                 return (

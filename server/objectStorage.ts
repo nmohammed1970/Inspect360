@@ -200,14 +200,19 @@ export class ObjectStorageService {
     return null;
   }
 
-  async downloadObject(file: LocalFile, res: Response, cacheTtlSec: number = 3600) {
+  async downloadObject(
+    file: LocalFile,
+    res: Response,
+    cacheTtlSec: number = 3600,
+    downloadFileName?: string,
+  ) {
     try {
       const [metadata] = await file.getMetadata();
       const aclPolicy = await getObjectAclPolicy(file);
       const isPublic = aclPolicy?.visibility === "public";
 
       let contentType = metadata.contentType || "application/octet-stream";
-      let filename = basename(file.name);
+      let filename = downloadFileName?.trim() || basename(file.name);
 
       if (!filename.includes(".")) {
         let magicExt = "";

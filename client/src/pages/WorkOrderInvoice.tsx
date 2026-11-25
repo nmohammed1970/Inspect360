@@ -151,7 +151,7 @@ export default function WorkOrderInvoice() {
       const res = await fetch(`/api/work-orders/${workOrderId}/customer-candidates`, {
         credentials: "include",
       });
-      if (!res.ok) throw new Error("Failed to load customers");
+      if (!res.ok) throw new Error("Failed to load recipients");
       return res.json();
     },
     enabled: Boolean(workOrderId),
@@ -484,7 +484,7 @@ export default function WorkOrderInvoice() {
         <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm space-y-2">
           <div className="flex items-center gap-2 font-medium">
             <Link2 className="h-4 w-4 text-primary" />
-            Customer invoice link
+            Recipient invoice link
           </div>
           <div className="flex flex-col sm:flex-row gap-2">
             <Input readOnly value={lastPublicLink} className="font-mono text-xs" />
@@ -500,11 +500,11 @@ export default function WorkOrderInvoice() {
         <div className="space-y-4">
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">Bill to customer</CardTitle>
+              <CardTitle className="text-base">Bill to recipient</CardTitle>
             </CardHeader>
             <CardContent className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label>Customer</Label>
+                <Label>Recipient</Label>
                 {editable && canEditRecipient ? (
                   <Select
                     value={recipientUserId || undefined}
@@ -514,7 +514,7 @@ export default function WorkOrderInvoice() {
                     <SelectTrigger data-testid="select-invoice-customer">
                       <SelectValue
                         placeholder={
-                          candidatesQuery.isLoading ? "Loading…" : "Select customer"
+                          candidatesQuery.isLoading ? "Loading…" : "Select recipient"
                         }
                       />
                     </SelectTrigger>

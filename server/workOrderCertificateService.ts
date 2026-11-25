@@ -395,21 +395,65 @@ export async function updateWorkOrderFields(input: {
   costEstimate?: number | null;
 }): Promise<typeof workOrders.$inferSelect> {
   const ctx = await resolveWorkOrderContext(input.workOrderId, input.organizationId);
-  // Non-owners cannot reassign team / assigned person via this endpoint
-  if (input.userRole !== "owner") {
-    if (
-      input.teamId !== undefined ||
-      input.assignedToId !== undefined ||
-      input.contractorId !== undefined
-    ) {
-      throw httpError("Only owners can reassign work orders", 403);
-    }
+  const canReassign =
+    input.userRole === "owner" || input.userRole === "maintenance_admin";
+  const reassignRequested =
+    input.teamId !== undefined ||
+    input.assignedToId !== undefined ||
+    input.contractorId !== undefined;
+
+  if (reassignRequested && !canReassign) {
+    throw httpError("Only owners or maintenance admins can reassign work orders", 403);
   }
 
   const updates: Record<string, unknown> = { updatedAt: new Date() };
   if (input.teamId !== undefined) updates.teamId = input.teamId === "unassigned" ? null : input.teamId;
   if (input.assignedToId !== undefined) updates.assignedToId = input.assignedToId;
   if (input.contractorId !== undefined) updates.contractorId = input.contractorId;
+
+  const nextTeamId =
+    input.teamId !== undefined
+      ? input.teamId === "unassigned"
+        ? null
+        : input.teamId
+      : ctx.workOrder.teamId;
+  const nextAssignedToId =
+    input.assignedToId !== undefined ? input.assignedToId : ctx.workOrder.assignedToId;
+  const nextContractorId =
+    input.contractorId !== undefined ? input.contractorId : ctx.workOrder.contractorId;
+
+  if (reassignRequested && nextAssignedToId) {
+    if (!nextTeamId) {
+      throw httpError("A maintenance team is required to assign a team member", 400);
+    }
+    const members = await storage.getTeamMembers(nextTeamId);
+    const assigneeIsMember = members.some(
+      (m: any) =>
+        m.userId === nextAssignedToId ||
+        m.contactId === nextAssignedToId ||
+        m.contact?.linkedUserId === nextAssignedToId,
+    );
+    if (!assigneeIsMember) {
+      throw httpError("Assignee must be a member of the selected Maintenance Team.", 403);
+    }
+    if (nextContractorId) {
+      const contractorOnTeam = members.some((m: any) => m.contactId === nextContractorId);
+      if (!contractorOnTeam) {
+        throw httpError(
+          "Maintenance contractor must be a member of the selected Maintenance Team.",
+          403,
+        );
+      }
+    }
+    // Manual assign clears pending acceptance
+    if (
+      ctx.workOrder.status === "pending_acceptance" &&
+      input.status === undefined
+    ) {
+      updates.status = "assigned";
+    }
+  }
+
   if (input.slaDue !== undefined) {
     updates.slaDue = input.slaDue ? new Date(input.slaDue) : null;
   }
@@ -424,5 +468,51 @@ export async function updateWorkOrderFields(input: {
     .set(updates as any)
     .where(eq(workOrders.id, input.workOrderId))
     .returning();
+
+  if (
+    reassignRequested &&
+    (nextAssignedToId !== ctx.workOrder.assignedToId ||
+      nextContractorId !== ctx.workOrder.contractorId ||
+      nextTeamId !== ctx.workOrder.teamId)
+  ) {
+    try {
+      const { appendWorkOrderEvent } = await import("./maintenance/quoteLifecycle");
+      await appendWorkOrderEvent({
+        organizationId: input.organizationId,
+        workOrderId: input.workOrderId,
+        eventType: "assignment_changed",
+        actorUserId: input.userId,
+        payload: {
+          previousAssignedToId: ctx.workOrder.assignedToId,
+          previousContractorId: ctx.workOrder.contractorId,
+          previousTeamId: ctx.workOrder.teamId,
+          assignedToId: nextAssignedToId,
+          contractorId: nextContractorId,
+          teamId: nextTeamId,
+        },
+      });
+    } catch (auditErr: any) {
+      console.warn(
+        "[updateWorkOrderFields] assignment_changed event failed:",
+        auditErr?.message || auditErr,
+      );
+    }
+
+    if (
+      nextAssignedToId &&
+      nextAssignedToId !== ctx.workOrder.assignedToId &&
+      ctx.workOrder.maintenanceRequestId
+    ) {
+      void import("./messaging/maintenanceThreads").then(
+        ({ scheduleAddUserToMaintenanceDiscussion }) =>
+          scheduleAddUserToMaintenanceDiscussion({
+            organizationId: input.organizationId,
+            maintenanceRequestId: ctx.workOrder.maintenanceRequestId!,
+            userId: nextAssignedToId,
+          }),
+      );
+    }
+  }
+
   return row;
 }

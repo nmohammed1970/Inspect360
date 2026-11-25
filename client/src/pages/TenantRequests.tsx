@@ -1,10 +1,11 @@
 import { PreviewableImage } from "@/components/ImagePreview";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, MessageSquare, ClipboardList, Plus } from "lucide-react";
+import { ArrowLeft, MessageSquare, ClipboardList, Plus, Loader2 } from "lucide-react";
 import { useLocation, Link, useSearch } from "wouter";
 import { format } from "date-fns";
 import {
@@ -15,23 +16,17 @@ import {
   BreadcrumbSeparator,
   BreadcrumbPage,
 } from "@/components/ui/breadcrumb";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { TenantLogRequestDialog } from "@/components/TenantLogRequestDialog";
-import { MaintenanceRequestDiscussion } from "@/components/MaintenanceRequestDiscussion";
 import { cn } from "@/lib/utils";
-import { pagePad, textBreak, dialogContentBase } from "@/lib/responsive";
+import { pagePad, textBreak } from "@/lib/responsive";
 import { StatusBadge } from "@/components/StatusBadge";
 import {
   maintenanceRequestStatusTone,
   priorityTone,
 } from "@shared/statusPriorityStyles";
 import { formatMaintenanceStatus } from "@shared/inspectionLabels";
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 
 interface TenantRequestsProps {
@@ -45,12 +40,56 @@ export default function TenantRequests({ openCreateOnMount = false }: TenantRequ
   const urlParams = new URLSearchParams(search);
   const shouldCreate = urlParams.get("create") === "true";
 
+  const { toast } = useToast();
   const [isCreateOpen, setIsCreateOpen] = useState(openCreateOnMount || shouldCreate);
-  const [discussionRequest, setDiscussionRequest] = useState<any | null>(null);
+  const [openingDiscussionId, setOpeningDiscussionId] = useState<string | null>(null);
 
   const { data: requests = [], isLoading } = useQuery<any[]>({
     queryKey: ["/api/tenant/maintenance-requests"],
   });
+
+  const { data: maintenanceConversations = [] } = useQuery<
+    Array<{ id: string; maintenanceRequestId?: string | null; unreadCount?: number }>
+  >({
+    queryKey: ["/api/messaging/conversations", "maintenance"],
+    queryFn: async () => {
+      const res = await apiRequest(
+        "GET",
+        "/api/messaging/conversations?category=maintenance",
+      );
+      return res.json();
+    },
+    refetchInterval: 60_000,
+  });
+
+  const discussionUnreadByRequestId = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const c of maintenanceConversations) {
+      if (c.maintenanceRequestId && (c.unreadCount || 0) > 0) {
+        map.set(c.maintenanceRequestId, c.unreadCount || 0);
+      }
+    }
+    return map;
+  }, [maintenanceConversations]);
+
+  const openMaintenanceDiscussion = async (requestId: string) => {
+    setOpeningDiscussionId(requestId);
+    try {
+      const res = await apiRequest("POST", "/api/messaging/maintenance-discussions", {
+        maintenanceRequestId: requestId,
+      });
+      const conv = await res.json();
+      navigate(`/messages/${conv.id}`);
+    } catch (err) {
+      toast({
+        title: "Could not open discussion",
+        description: err instanceof Error ? err.message : "Try again",
+        variant: "destructive",
+      });
+    } finally {
+      setOpeningDiscussionId(null);
+    }
+  };
 
   useEffect(() => {
     if (shouldCreate || openCreateOnMount) {
@@ -216,11 +255,21 @@ export default function TenantRequests({ openCreateOnMount = false }: TenantRequ
                       variant="outline"
                       size="sm"
                       className="h-8"
-                      onClick={() => setDiscussionRequest(request)}
+                      disabled={openingDiscussionId === request.id}
+                      onClick={() => openMaintenanceDiscussion(request.id)}
                       data-testid={`button-discussion-${request.id}`}
                     >
-                      <MessageSquare className="h-3.5 w-3.5 mr-1.5" />
+                      {openingDiscussionId === request.id ? (
+                        <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                      ) : (
+                        <MessageSquare className="h-3.5 w-3.5 mr-1.5" />
+                      )}
                       Discussion
+                      {(discussionUnreadByRequestId.get(request.id) || 0) > 0 && (
+                        <Badge className="ml-1.5 h-4 min-w-4 rounded-full px-1 text-[10px]">
+                          {discussionUnreadByRequestId.get(request.id)}
+                        </Badge>
+                      )}
                     </Button>
                   </div>
                 </div>
@@ -229,29 +278,6 @@ export default function TenantRequests({ openCreateOnMount = false }: TenantRequ
           ))}
         </div>
       )}
-
-      <Dialog
-        open={!!discussionRequest}
-        onOpenChange={(open) => {
-          if (!open) setDiscussionRequest(null);
-        }}
-      >
-        <DialogContent className={cn(dialogContentBase, "max-w-lg")} data-testid="dialog-tenant-mr-discussion">
-          <DialogHeader>
-            <DialogTitle>Discussion</DialogTitle>
-            <DialogDescription>
-              Messages with your maintenance team about this request.
-            </DialogDescription>
-          </DialogHeader>
-          {discussionRequest ? (
-            <MaintenanceRequestDiscussion
-              requestId={discussionRequest.id}
-              apiBase={`/api/tenant/maintenance-requests/${discussionRequest.id}/messages`}
-              requestTitle={discussionRequest.title}
-            />
-          ) : null}
-        </DialogContent>
-      </Dialog>
 
       <TenantLogRequestDialog
         open={isCreateOpen}

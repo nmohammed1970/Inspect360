@@ -15,6 +15,7 @@ export const BREADCRUMB_EXCLUSIONS: string[] = [
   "/pricing",
   "/public/quotes",
   "/public/invoices",
+  "/public/work-orders",
   "/maintenance-feedback",
 ];
 

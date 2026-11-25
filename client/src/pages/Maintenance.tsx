@@ -1,5 +1,5 @@
 import { PreviewableImage } from "@/components/ImagePreview";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { useLocation, useSearch, useParams } from "wouter";
@@ -8,8 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Wrench, Upload, Sparkles, Loader2, X, Check, ChevronsUpDown, Pencil, Trash2, Clipboard, Calendar, User as UserIcon, AlertCircle, AlertTriangle, CheckCircle2, Clock, Building2, MoreVertical, ArrowRight, MessageSquare } from "lucide-react";
-import { MaintenanceRequestDiscussion } from "@/components/MaintenanceRequestDiscussion";
+import { Plus, Wrench, Upload, Sparkles, Loader2, X, Check, ChevronsUpDown, Pencil, Trash2, Clipboard, Calendar, User as UserIcon, AlertCircle, AlertTriangle, CheckCircle2, Clock, Building2, MoreVertical, ArrowRight, MessageSquare, Info } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,6 +30,7 @@ import {
 import { formatInspectionNote, parseInspectionNote } from "@shared/inspectionNoteSections";
 import {
   formatMaintenanceStatus,
+  formatWorkOrderStatus,
 } from "@shared/inspectionLabels";
 import {
   maintenanceRequestStatusTone,
@@ -78,6 +78,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertMaintenanceRequestSchema } from "@shared/schema";
@@ -122,7 +124,9 @@ interface WorkOrder {
   costActual?: number | null;
   createdAt: string;
   updatedAt?: string;
+  teamId?: string | null;
   assignedToId?: string | null;
+  contractorId?: string | null;
   maintenanceRequest: {
     id: string;
     title: string;
@@ -140,12 +144,34 @@ interface WorkOrder {
     email?: string;
     companyName?: string | null;
   } | null;
+  assignedToUser?: {
+    id?: string;
+    firstName?: string;
+    lastName?: string;
+    email?: string;
+  } | null;
   team?: {
     id?: string;
     name?: string;
     email?: string;
   } | null;
 }
+
+const workOrderAssigneeLabel = (workOrder: WorkOrder): string | null => {
+  const userName = [workOrder.assignedToUser?.firstName, workOrder.assignedToUser?.lastName]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  if (userName) return userName;
+  const contractorName = [workOrder.contractor?.firstName, workOrder.contractor?.lastName]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  if (contractorName) return contractorName;
+  if (workOrder.contractor?.companyName) return workOrder.contractor.companyName;
+  if (workOrder.status === "pending_acceptance") return "Awaiting team acceptance";
+  return null;
+};
 
 const createMaintenanceSchema = insertMaintenanceRequestSchema
   .omit({ organizationId: true }) // Backend adds this from session
@@ -206,7 +232,7 @@ export default function Maintenance() {
   const [workOrderToDelete, setWorkOrderToDelete] = useState<WorkOrder | null>(null);
   const [scheduleWorkOrder, setScheduleWorkOrder] = useState<WorkOrder | null>(null);
   const [scheduleAtLocal, setScheduleAtLocal] = useState("");
-  const [discussionRequest, setDiscussionRequest] = useState<MaintenanceRequestWithDetails | null>(null);
+  const [openingDiscussionId, setOpeningDiscussionId] = useState<string | null>(null);
 
   const { data: completionChecklists = [] } = useQuery<any[]>({
     queryKey: ["/api/completion-checklists"],
@@ -231,6 +257,8 @@ export default function Maintenance() {
     user?.role === "maintenance_admin";
   const isMaintenanceManager =
     user?.role === "owner" || user?.role === "maintenance_admin";
+  const canReassignWorkOrder =
+    user?.role === "owner" || user?.role === "maintenance_admin";
   const tabFromUrl = new URLSearchParams(searchParams).get("tab");
   const defaultWorkOrdersTab =
     tabFromUrl === "work-orders" || (canFieldAct && tabFromUrl !== "requests");
@@ -254,6 +282,49 @@ export default function Maintenance() {
     enabled: isMaintenanceEnabled !== false // Only fetch if we're not sure it's disabled, or if it is enabled. Actually better to fetch if enabled.
   });
 
+  const { data: maintenanceConversations = [] } = useQuery<
+    Array<{ id: string; maintenanceRequestId?: string | null; unreadCount?: number }>
+  >({
+    queryKey: ["/api/messaging/conversations", "maintenance"],
+    queryFn: async () => {
+      const res = await apiRequest(
+        "GET",
+        "/api/messaging/conversations?category=maintenance",
+      );
+      return res.json();
+    },
+    enabled: !!user && isMaintenanceEnabled !== false,
+    refetchInterval: 60_000,
+  });
+
+  const discussionUnreadByRequestId = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const c of maintenanceConversations) {
+      if (c.maintenanceRequestId && (c.unreadCount || 0) > 0) {
+        map.set(c.maintenanceRequestId, c.unreadCount || 0);
+      }
+    }
+    return map;
+  }, [maintenanceConversations]);
+
+  const openMaintenanceDiscussion = async (requestId: string) => {
+    setOpeningDiscussionId(requestId);
+    try {
+      const res = await apiRequest("POST", "/api/messaging/maintenance-discussions", {
+        maintenanceRequestId: requestId,
+      });
+      const conv = await res.json();
+      navigate(`/messages/${conv.id}`);
+    } catch (err) {
+      toast({
+        title: "Could not open discussion",
+        description: err instanceof Error ? err.message : "Try again",
+        variant: "destructive",
+      });
+    } finally {
+      setOpeningDiscussionId(null);
+    }
+  };
 
   // Fetch properties
   const { data: properties = [] } = useQuery<Property[]>({
@@ -282,7 +353,9 @@ export default function Maintenance() {
   // Fetch teams for work order assignment
   const { data: teams = [] } = useQuery<any[]>({
     queryKey: ["/api/teams"],
-    enabled: isMaintenanceManager && isMaintenanceEnabled !== false,
+    enabled:
+      (isMaintenanceManager || canReassignWorkOrder || canSeeWorkOrders) &&
+      isMaintenanceEnabled !== false,
   });
 
   // Work order creation mutation
@@ -314,6 +387,38 @@ export default function Maintenance() {
     },
     onError: () => {
       toast({ title: "Failed to update work order status", variant: "destructive" });
+    },
+  });
+
+  const reassignWorkOrderMutation = useMutation({
+    mutationFn: async ({
+      id,
+      assignedToId,
+      contractorId,
+      status,
+    }: {
+      id: string;
+      assignedToId: string;
+      contractorId: string | null;
+      status?: string;
+    }) => {
+      const res = await apiRequest("PATCH", `/api/work-orders/${id}`, {
+        assignedToId,
+        contractorId,
+        ...(status ? { status } : {}),
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/work-orders"] });
+      toast({ title: "Assignee updated" });
+    },
+    onError: (e: Error) => {
+      toast({
+        title: "Failed to update assignee",
+        description: e.message,
+        variant: "destructive",
+      });
     },
   });
 
@@ -1019,6 +1124,8 @@ export default function Maintenance() {
         return <Clock className="h-4 w-4" />;
       case "rejected":
         return <AlertCircle className="h-4 w-4" />;
+      case "pending_acceptance":
+        return <Info className="h-4 w-4" />;
       default:
         return <UserIcon className="h-4 w-4" />;
     }
@@ -1693,6 +1800,12 @@ export default function Maintenance() {
                       user?.role === "maintenance_admin";
                     const canOwnerAct =
                       isMaintenanceManager && request.status !== "completed";
+                    const canCreateWorkOrder =
+                      isWorkOrdersEnabled &&
+                      !linkedWorkOrder &&
+                      canSeeWorkOrders &&
+                      request.status !== "completed" &&
+                      request.status !== "closed";
                     return (
                       <PortfolioTableRow key={request.id} data-testid={`row-request-${request.id}`}>
                         <PortfolioTableCell className="py-2.5">
@@ -1759,18 +1872,29 @@ export default function Maintenance() {
                         </PortfolioTableCell>
                         <PortfolioTableCell className="py-2.5">
                           <div className="flex items-center justify-end gap-0.5">
-                            {(isMaintenanceManager ||
-                              isAssigneeRole ||
-                              user?.role === "tenant") && (
+                            {(isMaintenanceManager || user?.role === "tenant") && (
                               <Button
                                 variant="ghost"
                                 size="sm"
                                 className="h-8 px-2 text-primary"
-                                onClick={() => setDiscussionRequest(request)}
+                                disabled={openingDiscussionId === request.id}
+                                onClick={() => openMaintenanceDiscussion(request.id)}
                                 data-testid={`button-discussion-${request.id}`}
                               >
-                                Open
-                                <ArrowRight className="ml-1 h-3.5 w-3.5" />
+                                {openingDiscussionId === request.id ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <>
+                                    Open
+                                    {(discussionUnreadByRequestId.get(request.id) || 0) >
+                                      0 && (
+                                      <Badge className="ml-1 h-4 min-w-4 rounded-full px-1 text-[10px]">
+                                        {discussionUnreadByRequestId.get(request.id)}
+                                      </Badge>
+                                    )}
+                                    <ArrowRight className="ml-1 h-3.5 w-3.5" />
+                                  </>
+                                )}
                               </Button>
                             )}
                             {linkedWorkOrder && (canOwnerAct || canFieldAct) ? (
@@ -1781,6 +1905,19 @@ export default function Maintenance() {
                                 testId={`button-view-work-order-${request.id}`}
                                 className="ml-1"
                               />
+                            ) : null}
+                            {canCreateWorkOrder ? (
+                              <Button
+                                size="sm"
+                                className="h-8 px-2"
+                                onClick={() => {
+                                  setSelectedRequestForWorkOrder(request);
+                                  setIsWorkOrderDialogOpen(true);
+                                }}
+                                data-testid={`button-create-work-order-${request.id}`}
+                              >
+                                Create WO
+                              </Button>
                             ) : null}
                             {canManage ? (
                               <>
@@ -1826,6 +1963,12 @@ export default function Maintenance() {
                   user?.role === "maintenance_admin";
                 const canOwnerAct =
                   isMaintenanceManager && request.status !== "completed";
+                const canCreateWorkOrder =
+                  isWorkOrdersEnabled &&
+                  !linkedWorkOrder &&
+                  canSeeWorkOrders &&
+                  request.status !== "completed" &&
+                  request.status !== "closed";
                 const isHmoFinding =
                   request.source === "hmo_finding" ||
                   (request.aiAnalysisJson as any)?.source === "hmo_finding";
@@ -1996,18 +2139,26 @@ export default function Maintenance() {
                           )
                         )}
 
-                        {(isMaintenanceManager ||
-                          isAssigneeRole ||
-                          user?.role === "tenant") && (
+                        {(isMaintenanceManager || user?.role === "tenant") && (
                           <Button
                             variant="outline"
                             size="sm"
                             className="h-8 rounded-full px-3 text-xs"
-                            onClick={() => setDiscussionRequest(request)}
+                            disabled={openingDiscussionId === request.id}
+                            onClick={() => openMaintenanceDiscussion(request.id)}
                             data-testid={`button-discussion-${request.id}`}
                           >
-                            <MessageSquare className="mr-1.5 h-3.5 w-3.5" />
+                            {openingDiscussionId === request.id ? (
+                              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <MessageSquare className="mr-1.5 h-3.5 w-3.5" />
+                            )}
                             Discussion
+                            {(discussionUnreadByRequestId.get(request.id) || 0) > 0 && (
+                              <Badge className="ml-1.5 h-4 min-w-4 rounded-full px-1 text-[10px]">
+                                {discussionUnreadByRequestId.get(request.id)}
+                              </Badge>
+                            )}
                           </Button>
                         )}
 
@@ -2041,7 +2192,7 @@ export default function Maintenance() {
                               <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
                             </Button>
                           )}
-                        {isWorkOrdersEnabled && !linkedWorkOrder && canOwnerAct && (
+                        {canCreateWorkOrder && (
                           <Button
                             size="sm"
                             className="h-8 rounded-full bg-primary px-3 text-xs text-primary-foreground hover:bg-[hsl(var(--primary-hover))]"
@@ -2183,6 +2334,7 @@ export default function Maintenance() {
                         data-testid={`card-work-order-${workOrder.id}`}
                         className={cn(
                           "shadow-sm overflow-hidden border-l-4",
+                          workOrder.status === "pending_acceptance" && "border-l-slate-400",
                           workOrder.status === "assigned" && "border-l-blue-500",
                           workOrder.status === "waiting_parts" && "border-l-orange-500",
                           workOrder.status === "in_progress" && "border-l-amber-500",
@@ -2227,9 +2379,8 @@ export default function Maintenance() {
                               <StatusBadge
                                 tone={workOrderStatusTone(workOrder.status)}
                                 appearance="soft"
-                                className="capitalize"
                               >
-                                {workOrder.status.replace("_", " ")}
+                                {formatWorkOrderStatus(workOrder.status)}
                               </StatusBadge>
                               {(workOrder as any).authorisationStatus === "quote_required" ? (
                                 <Badge variant="outline" className="bg-amber-50 text-amber-900 border-amber-200">
@@ -2270,17 +2421,18 @@ export default function Maintenance() {
                               </div>
                             )}
 
-                            {workOrder.contractor && (
-                              <div className="flex items-center gap-2 text-sm">
-                                <UserIcon className="h-4 w-4 text-muted-foreground shrink-0" />
-                                <div className="min-w-0">
-                                  <p className="font-medium">Contractor</p>
-                                  <p className="text-muted-foreground truncate">
-                                    {workOrder.contractor.firstName} {workOrder.contractor.lastName}
-                                  </p>
-                                </div>
+                            <div className="flex items-center gap-2 text-sm">
+                              <UserIcon className="h-4 w-4 text-muted-foreground shrink-0" />
+                              <div className="min-w-0">
+                                <p className="font-medium">Assigned to</p>
+                                <p
+                                  className="text-muted-foreground truncate"
+                                  data-testid={`text-wo-assignee-${workOrder.id}`}
+                                >
+                                  {workOrderAssigneeLabel(workOrder) || "Unassigned"}
+                                </p>
                               </div>
-                            )}
+                            </div>
 
                             {workOrder.slaDue && (
                               <div className="flex items-center gap-2 text-sm">
@@ -2349,110 +2501,153 @@ export default function Maintenance() {
                             </div>
                           </div>
 
-                          <div className="mt-4 flex flex-wrap items-center gap-3 pt-3 border-t">
-                            {canFieldAct &&
-                              workOrder.status !== "completed" &&
-                              workOrder.status !== "rejected" && (
-                              <div className="flex items-center gap-2">
-                                <label className="text-sm font-medium">Update Status:</label>
-                                <Select
-                                  value={workOrder.status}
-                                  onValueChange={(status) => {
-                                    if (status === "completed") {
-                                      setCompleteWorkOrderId(workOrder.id);
-                                      return;
-                                    }
-                                    updateWorkOrderStatusMutation.mutate({ id: workOrder.id, status });
-                                  }}
-                                >
-                                  <SelectTrigger
-                                    className={cn(
-                                      "w-full sm:w-auto sm:min-w-0 sm:max-w-[12rem] h-8 rounded-full text-[11px] font-medium",
-                                      toneClass(workOrderStatusTone(workOrder.status)),
+                          {(() => {
+                            const isClosedWo =
+                              workOrder.status === "completed" ||
+                              workOrder.status === "rejected";
+                            const quoteRequired =
+                              workOrder.authorisationStatus === "quote_required";
+                            const canMarkComplete =
+                              canFieldAct &&
+                              !isClosedWo &&
+                              !quoteRequired &&
+                              workOrder.status !== "pending_acceptance";
+                            const canUpdateStatus =
+                              isMaintenanceManager &&
+                              !isClosedWo &&
+                              workOrder.status !== "pending_acceptance";
+                            const canFieldVisit =
+                              canScheduleWorkOrder &&
+                              !isClosedWo &&
+                              !quoteRequired;
+
+                            return (
+                              <div className="mt-4 space-y-3 pt-3 border-t">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  {canReassignWorkOrder &&
+                                    !isClosedWo &&
+                                    (workOrder.teamId || workOrder.team?.id) && (
+                                      <WorkOrderAssigneeSelect
+                                        workOrder={workOrder}
+                                        disabled={reassignWorkOrderMutation.isPending}
+                                        onAssign={({ assignedToId, contractorId }) => {
+                                          reassignWorkOrderMutation.mutate({
+                                            id: workOrder.id,
+                                            assignedToId,
+                                            contractorId,
+                                            status:
+                                              workOrder.status === "pending_acceptance"
+                                                ? "assigned"
+                                                : undefined,
+                                          });
+                                        }}
+                                      />
                                     )}
-                                    data-testid={`select-work-order-status-${workOrder.id}`}
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8"
+                                    onClick={() =>
+                                      navigateWithContext(navigate, {
+                                        href: `/maintenance/work-orders/${workOrder.id}`,
+                                        fromPath: location,
+                                        fromLabel: "Maintenance",
+                                      })
+                                    }
+                                    data-testid={`button-view-work-order-${workOrder.id}`}
                                   >
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="assigned">Assigned</SelectItem>
-                                    <SelectItem value="in_progress">In Progress</SelectItem>
-                                    <SelectItem value="waiting_parts">Waiting Parts</SelectItem>
-                                    <SelectItem value="completed">Completed</SelectItem>
-                                  </SelectContent>
-                                </Select>
+                                    View details
+                                  </Button>
+                                  {canUpdateStatus && (
+                                    <div className="flex items-center gap-2">
+                                      <label className="text-sm font-medium">Status</label>
+                                      <Select
+                                        value={workOrder.status}
+                                        onValueChange={(status) => {
+                                          if (status === "completed") {
+                                            setCompleteWorkOrderId(workOrder.id);
+                                            return;
+                                          }
+                                          updateWorkOrderStatusMutation.mutate({
+                                            id: workOrder.id,
+                                            status,
+                                          });
+                                        }}
+                                      >
+                                        <SelectTrigger
+                                          className={cn(
+                                            "w-full sm:w-auto sm:min-w-0 sm:max-w-[12rem] h-8 rounded-full text-[11px] font-medium",
+                                            toneClass(workOrderStatusTone(workOrder.status)),
+                                          )}
+                                          data-testid={`select-work-order-status-${workOrder.id}`}
+                                        >
+                                          <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="assigned">Assigned</SelectItem>
+                                          <SelectItem value="in_progress">In Progress</SelectItem>
+                                          <SelectItem value="waiting_parts">
+                                            Waiting Parts
+                                          </SelectItem>
+                                          {!quoteRequired && (
+                                            <SelectItem value="completed">Completed</SelectItem>
+                                          )}
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                  )}
+                                  {canFieldVisit && (
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-8"
+                                      onClick={() => openScheduleDialog(workOrder)}
+                                      data-testid={`button-schedule-work-order-${workOrder.id}`}
+                                    >
+                                      <Calendar className="w-3.5 h-3.5 mr-1.5" />
+                                      {workOrder.scheduledAt ? "Reschedule" : "Schedule Job"}
+                                    </Button>
+                                  )}
+                                  {canFieldVisit && !workOrder.arrivedAt && (
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-8"
+                                      disabled={arriveOnSiteMutation.isPending}
+                                      onClick={() => arriveOnSiteMutation.mutate(workOrder.id)}
+                                      data-testid={`button-arrive-work-order-${workOrder.id}`}
+                                    >
+                                      <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+                                      {arriveOnSiteMutation.isPending
+                                        ? "Recording…"
+                                        : "Arrived on Site"}
+                                    </Button>
+                                  )}
+                                  {canMarkComplete && (
+                                    <Button
+                                      size="sm"
+                                      className="h-8"
+                                      onClick={() => setCompleteWorkOrderId(workOrder.id)}
+                                      data-testid={`button-mark-complete-${workOrder.id}`}
+                                    >
+                                      <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+                                      Mark Job As Complete
+                                    </Button>
+                                  )}
+                                </div>
+                                {quoteRequired && !isClosedWo && (
+                                  <p className="text-xs text-muted-foreground">
+                                    Quotation must be accepted before scheduling or completing.
+                                  </p>
+                                )}
+                                <WorkOrderFinanceLinks
+                                  workOrderId={workOrder.id}
+                                  authorisationStatus={workOrder.authorisationStatus}
+                                  workOrderStatus={workOrder.status}
+                                />
                               </div>
-                            )}
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-8"
-                              onClick={() =>
-                                navigateWithContext(navigate, {
-                                  href: `/maintenance/work-orders/${workOrder.id}`,
-                                  fromPath: location,
-                                  fromLabel: "Maintenance",
-                                })
-                              }
-                              data-testid={`button-view-work-order-${workOrder.id}`}
-                            >
-                              View details
-                            </Button>
-                            {canFieldAct &&
-                              workOrder.status !== "completed" &&
-                              workOrder.status !== "rejected" && (
-                                <Button
-                                  size="sm"
-                                  className="h-8"
-                                  onClick={() => setCompleteWorkOrderId(workOrder.id)}
-                                  data-testid={`button-mark-complete-${workOrder.id}`}
-                                >
-                                  <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
-                                  Mark Job As Complete
-                                </Button>
-                              )}
-                            {canScheduleWorkOrder &&
-                              workOrder.status !== "completed" &&
-                              workOrder.status !== "rejected" &&
-                              workOrder.authorisationStatus !== "quote_required" && (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-8"
-                                  onClick={() => openScheduleDialog(workOrder)}
-                                  data-testid={`button-schedule-work-order-${workOrder.id}`}
-                                >
-                                  <Calendar className="w-3.5 h-3.5 mr-1.5" />
-                                  {workOrder.scheduledAt ? "Reschedule" : "Schedule Job"}
-                                </Button>
-                              )}
-                            {canScheduleWorkOrder &&
-                              workOrder.status !== "completed" &&
-                              workOrder.status !== "rejected" &&
-                              workOrder.authorisationStatus !== "quote_required" &&
-                              !workOrder.arrivedAt && (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-8"
-                                  disabled={arriveOnSiteMutation.isPending}
-                                  onClick={() => arriveOnSiteMutation.mutate(workOrder.id)}
-                                  data-testid={`button-arrive-work-order-${workOrder.id}`}
-                                >
-                                  <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
-                                  {arriveOnSiteMutation.isPending ? "Recording…" : "Arrived on Site"}
-                                </Button>
-                              )}
-                            {canScheduleWorkOrder &&
-                              workOrder.status !== "completed" &&
-                              workOrder.status !== "rejected" &&
-                              workOrder.authorisationStatus === "quote_required" && (
-                                <span className="text-xs text-muted-foreground self-center">
-                                  Accept quotation before scheduling
-                                </span>
-                              )}
-                            <WorkOrderFinanceLinks workOrderId={workOrder.id} />
-                          </div>
+                            );
+                          })()}
                         </CardContent>
                       </Card>
                     ))}
@@ -2463,35 +2658,6 @@ export default function Maintenance() {
           )}
         </TabsContent>
       </Tabs>
-
-      <Dialog
-        open={!!discussionRequest}
-        onOpenChange={(open) => {
-          if (!open) setDiscussionRequest(null);
-        }}
-      >
-        <DialogContent className={cn(dialogContentBase, "max-w-lg")} data-testid="dialog-mr-discussion">
-          <DialogHeader>
-            <DialogTitle>Discussion</DialogTitle>
-            <DialogDescription>
-              {user?.role === "tenant"
-                ? "Messages with your maintenance team about this request."
-                : "Tips and updates with the tenant on this request."}
-            </DialogDescription>
-          </DialogHeader>
-          {discussionRequest ? (
-            <MaintenanceRequestDiscussion
-              requestId={discussionRequest.id}
-              apiBase={
-                user?.role === "tenant"
-                  ? `/api/tenant/maintenance-requests/${discussionRequest.id}/messages`
-                  : `/api/maintenance/${discussionRequest.id}/messages`
-              }
-              requestTitle={discussionRequest.title}
-            />
-          ) : null}
-        </DialogContent>
-      </Dialog>
 
       <WorkOrderCompleteDialog
         workOrderId={completeWorkOrderId}
@@ -2627,6 +2793,76 @@ export default function Maintenance() {
   );
 }
 
+const WorkOrderAssigneeSelect = ({
+  workOrder,
+  disabled,
+  onAssign,
+}: {
+  workOrder: WorkOrder;
+  disabled?: boolean;
+  onAssign: (data: { assignedToId: string; contractorId: string | null }) => void;
+}) => {
+  const teamId = workOrder.teamId || workOrder.team?.id || "";
+  const { data: members = [], isLoading } = useQuery<any[]>({
+    queryKey: ["/api/teams", teamId, "members"],
+    queryFn: async () => {
+      const res = await fetch(`/api/teams/${teamId}/members`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load team members");
+      return res.json();
+    },
+    enabled: Boolean(teamId),
+  });
+
+  const currentValue =
+    workOrder.assignedToId ||
+    workOrder.contractorId ||
+    workOrder.contractor?.id ||
+    undefined;
+
+  return (
+    <div className="flex items-center gap-2 min-w-0">
+      <label className="text-sm font-medium shrink-0">Assign to</label>
+      <Select
+        value={currentValue}
+        disabled={disabled || isLoading || members.length === 0}
+        onValueChange={(value) => {
+          const member = members.find(
+            (m: any) => m.userId === value || m.contactId === value,
+          );
+          const assignedToId =
+            member?.userId || member?.contact?.linkedUserId || value;
+          const contractorId = member?.contactId || null;
+          onAssign({ assignedToId, contractorId });
+        }}
+      >
+        <SelectTrigger
+          className="h-8 w-full sm:w-auto sm:min-w-[12rem] sm:max-w-[16rem] text-xs"
+          data-testid={`select-wo-assignee-${workOrder.id}`}
+        >
+          <SelectValue
+            placeholder={isLoading ? "Loading…" : "Select team member"}
+          />
+        </SelectTrigger>
+        <SelectContent>
+          {members.map((member: any) => {
+            const person = member.user || member.contact;
+            if (!person) return null;
+            const value = member.userId || member.contactId;
+            if (!value) return null;
+            const kind = member.userId ? "Staff" : "Contractor";
+            return (
+              <SelectItem key={member.id} value={value}>
+                {person.firstName} {person.lastName}
+                {person.email ? ` (${person.email})` : ""} — {kind}
+              </SelectItem>
+            );
+          })}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+};
+
 // Work Order Creation Form Component
 function WorkOrderForm({
   maintenanceRequest,
@@ -2644,6 +2880,7 @@ function WorkOrderForm({
   const locale = useLocale();
   const { toast } = useToast();
   const [selectedTeamId, setSelectedTeamId] = useState<string>("");
+  const [assignmentMethod, setAssignmentMethod] = useState<"auto" | "manual">("auto");
   const [assignedToId, setAssignedToId] = useState<string>("");
   const [teamMembers, setTeamMembers] = useState<any[]>([]);
   const [isLoadingMembers, setIsLoadingMembers] = useState(false);
@@ -2682,31 +2919,47 @@ function WorkOrderForm({
       return;
     }
 
-    if (!assignedToId || assignedToId === "none") {
-      toast({
-        title: "Select a team member",
-        description: "Choose an inspector or maintenance contractor from the selected team.",
-        variant: "destructive",
+    if (assignmentMethod === "manual") {
+      if (!assignedToId || assignedToId === "none") {
+        toast({
+          title: "Select a team member",
+          description: "Choose an inspector or maintenance contractor from the selected team.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const member = teamMembers.find(
+        (m: any) => m.userId === assignedToId || m.contactId === assignedToId,
+      );
+      // Prefer linked user account when a contact is selected so clerk portals match
+      const resolvedAssignedToId =
+        member?.userId || member?.contact?.linkedUserId || assignedToId;
+      const contractorId = member?.contactId || undefined;
+
+      onSubmit({
+        maintenanceRequestId: maintenanceRequest.id,
+        teamId: selectedTeamId,
+        contractorId,
+        assignedToId: resolvedAssignedToId,
+        assignmentMethod: "manual",
+        slaDue: slaDue ? new Date(`${slaDue}T12:00:00`).toISOString() : undefined,
+        costEstimate: costEstimate ? Math.round(parseFloat(costEstimate) * 100) : undefined,
+        status: "assigned",
+        completionChecklistId:
+          completionChecklistId === "__none__" ? null : completionChecklistId,
       });
       return;
     }
 
-    const member = teamMembers.find(
-      (m: any) => m.userId === assignedToId || m.contactId === assignedToId,
-    );
-    // Prefer linked user account when a contact is selected so clerk portals match
-    const resolvedAssignedToId =
-      member?.userId || member?.contact?.linkedUserId || assignedToId;
-    const contractorId = member?.contactId || undefined;
-
     onSubmit({
       maintenanceRequestId: maintenanceRequest.id,
       teamId: selectedTeamId,
-      contractorId,
-      assignedToId: resolvedAssignedToId,
+      assignedToId: null,
+      assignmentMethod: "auto",
       slaDue: slaDue ? new Date(`${slaDue}T12:00:00`).toISOString() : undefined,
       costEstimate: costEstimate ? Math.round(parseFloat(costEstimate) * 100) : undefined,
-      status: "assigned",
+      status: "pending_acceptance",
       completionChecklistId:
         completionChecklistId === "__none__" ? null : completionChecklistId,
     });
@@ -2742,48 +2995,98 @@ function WorkOrderForm({
           </div>
 
           {selectedTeamId && selectedTeamId !== "none" && (
-            <div className="space-y-2">
-              <label className="text-sm font-medium" htmlFor="assigned-to">
-                Assign to Team Member <span className="text-destructive">*</span>
-              </label>
-              <Select
-                value={assignedToId}
-                onValueChange={setAssignedToId}
-                disabled={isLoadingMembers || teamMembers.length === 0}
-              >
-                <SelectTrigger id="assigned-to" data-testid="select-assigned-to">
-                  <SelectValue
-                    placeholder={
-                      isLoadingMembers
-                        ? "Loading members..."
-                        : teamMembers.length === 0
-                          ? "No members on this team"
-                          : "Select inspector or contractor"
-                    }
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  {teamMembers.map((member: any) => {
-                    const person = member.user || member.contact;
-                    if (!person) return null;
-                    const value = member.userId || member.contactId;
-                    const kind = member.userId ? "Inspector / Staff" : "Maintenance Contractor";
-                    return (
-                      <SelectItem
-                        key={member.id}
-                        value={value}
-                        data-testid={`option-member-${member.id}`}
-                      >
-                        {person.firstName} {person.lastName}
-                        {person.email ? ` (${person.email})` : ""} — {kind}
-                      </SelectItem>
-                    );
-                  })}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                Only people added to this Maintenance Team can be assigned.
-              </p>
+            <div className="space-y-3">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">
+                  Assignment Method <span className="text-destructive">*</span>
+                </label>
+                <RadioGroup
+                  value={assignmentMethod}
+                  onValueChange={(v) => setAssignmentMethod(v as "auto" | "manual")}
+                  className="gap-3"
+                  data-testid="radio-assignment-method"
+                >
+                  <div className="flex items-start gap-3">
+                    <RadioGroupItem value="auto" id="assign-auto" className="mt-1" />
+                    <div className="space-y-0.5">
+                      <Label htmlFor="assign-auto" className="font-medium cursor-pointer">
+                        Auto-assign to available team member
+                      </Label>
+                      <p className="text-sm text-muted-foreground">
+                        Notify all team members. The first member to accept will be assigned the
+                        work order.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <RadioGroupItem value="manual" id="assign-manual" className="mt-1" />
+                    <div className="space-y-0.5">
+                      <Label htmlFor="assign-manual" className="font-medium cursor-pointer">
+                        Manually assign team member
+                      </Label>
+                      <p className="text-sm text-muted-foreground">
+                        Select a specific team member to assign the work order to.
+                      </p>
+                    </div>
+                  </div>
+                </RadioGroup>
+              </div>
+
+              {assignmentMethod === "auto" ? (
+                <Alert>
+                  <Info className="h-4 w-4" />
+                  <AlertDescription>
+                    Team members will receive an email and SMS invitation, subject to available SMS
+                    credits. The work order will remain pending until someone accepts.
+                  </AlertDescription>
+                </Alert>
+              ) : (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium" htmlFor="assigned-to">
+                    Assign to Team Member <span className="text-destructive">*</span>
+                  </label>
+                  <Select
+                    value={assignedToId}
+                    onValueChange={setAssignedToId}
+                    disabled={isLoadingMembers || teamMembers.length === 0}
+                  >
+                    <SelectTrigger id="assigned-to" data-testid="select-assigned-to">
+                      <SelectValue
+                        placeholder={
+                          isLoadingMembers
+                            ? "Loading members..."
+                            : teamMembers.length === 0
+                              ? "No members on this team"
+                              : "Select inspector or contractor"
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {teamMembers.map((member: any) => {
+                        const person = member.user || member.contact;
+                        if (!person) return null;
+                        const value = member.userId || member.contactId;
+                        const kind = member.userId
+                          ? "Inspector / Staff"
+                          : "Maintenance Contractor";
+                        return (
+                          <SelectItem
+                            key={member.id}
+                            value={value}
+                            data-testid={`option-member-${member.id}`}
+                          >
+                            {person.firstName} {person.lastName}
+                            {person.email ? ` (${person.email})` : ""} — {kind}
+                          </SelectItem>
+                        );
+                      })}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Only people added to this Maintenance Team can be assigned.
+                  </p>
+                </div>
+              )}
             </div>
           )}
         </>

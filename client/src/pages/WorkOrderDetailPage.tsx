@@ -9,6 +9,7 @@ import {
   toneClass,
   workOrderStatusTone,
 } from "@shared/statusPriorityStyles";
+import { formatWorkOrderStatus } from "@shared/inspectionLabels";
 import { cn } from "@/lib/utils";
 import {
   ArrowLeft,
@@ -57,7 +58,9 @@ interface WorkOrderDetail {
   authorisationStatus?: string | null;
   completionChecklistId?: string | null;
   customerSignatureJson?: unknown;
+  teamId?: string | null;
   assignedToId?: string | null;
+  contractorId?: string | null;
   maintenanceRequest: {
     id: string;
     title: string;
@@ -68,7 +71,37 @@ interface WorkOrderDetail {
   };
   property?: { id?: string; name?: string } | null;
   block?: { id?: string; name?: string } | null;
+  contractor?: {
+    id?: string;
+    firstName?: string;
+    lastName?: string;
+    email?: string;
+    companyName?: string | null;
+  } | null;
+  assignedToUser?: {
+    id?: string;
+    firstName?: string;
+    lastName?: string;
+    email?: string;
+  } | null;
+  team?: { id?: string; name?: string; email?: string } | null;
 }
+
+const detailAssigneeLabel = (workOrder: WorkOrderDetail): string | null => {
+  const userName = [workOrder.assignedToUser?.firstName, workOrder.assignedToUser?.lastName]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  if (userName) return userName;
+  const contractorName = [workOrder.contractor?.firstName, workOrder.contractor?.lastName]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  if (contractorName) return contractorName;
+  if (workOrder.contractor?.companyName) return workOrder.contractor.companyName;
+  if (workOrder.status === "pending_acceptance") return "Awaiting team acceptance";
+  return null;
+};
 
 
 const WorkOrderDetailPage = () => {
@@ -87,10 +120,8 @@ const WorkOrderDetailPage = () => {
   const [padKey, setPadKey] = useState(0);
   const padRef = useRef<SignatureCanvas>(null);
 
-  const canFieldAct =
-    user?.role === "clerk" ||
-    user?.role === "contractor" ||
-    user?.role === "maintenance_admin";
+  const canUpdateStatus =
+    user?.role === "owner" || user?.role === "maintenance_admin";
   const canScheduleWorkOrder =
     user?.role === "owner" ||
     user?.role === "clerk" ||
@@ -270,6 +301,11 @@ const WorkOrderDetailPage = () => {
 
   const isClosed =
     workOrder?.status === "completed" || workOrder?.status === "rejected";
+  const quoteRequired = workOrder?.authorisationStatus === "quote_required";
+  const canMarkComplete =
+    !isClosed &&
+    !quoteRequired &&
+    workOrder?.status !== "pending_acceptance";
 
   if (isLoading) {
     return (
@@ -314,7 +350,7 @@ const WorkOrderDetailPage = () => {
           "Work order details"
         }
         actions={
-          !isClosed ? (
+          canMarkComplete ? (
             <Button
               onClick={() => completeMutation.mutate()}
               disabled={completeMutation.isPending}
@@ -345,11 +381,40 @@ const WorkOrderDetailPage = () => {
           <StatusBadge
             tone={workOrderStatusTone(workOrder.status)}
             appearance="soft"
-            className="capitalize"
           >
-            {workOrder.status.replace("_", " ")}
+            {formatWorkOrderStatus(workOrder.status)}
           </StatusBadge>
         </div>
+
+        <div className="rounded-md border p-3 text-sm space-y-1">
+          {workOrder.team?.name && (
+            <p>
+              <span className="font-medium">Team:</span>{" "}
+              <span className="text-muted-foreground">{workOrder.team.name}</span>
+            </p>
+          )}
+          <p data-testid="text-wo-detail-assignee">
+            <span className="font-medium">Assigned to:</span>{" "}
+            <span className="text-muted-foreground">
+              {detailAssigneeLabel(workOrder) || "Unassigned"}
+            </span>
+          </p>
+        </div>
+
+        {workOrder.status === "pending_acceptance" && (
+          <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+            Awaiting team acceptance — the first eligible team member to accept will be assigned.
+          </div>
+        )}
+
+        {quoteRequired && !isClosed && (
+          <div
+            className="rounded-md border border-dashed p-3 text-sm text-muted-foreground"
+            data-testid="text-quote-required-blocker"
+          >
+            Quotation must be accepted before scheduling or completing.
+          </div>
+        )}
 
         {completeError && (
           <div
@@ -360,7 +425,7 @@ const WorkOrderDetailPage = () => {
           </div>
         )}
 
-        {canFieldAct && !isClosed && (
+        {canUpdateStatus && !isClosed && workOrder.status !== "pending_acceptance" && (
           <div className="flex flex-wrap items-center gap-2">
             <Label className="text-sm font-medium">Update Status</Label>
             <Select
@@ -386,7 +451,9 @@ const WorkOrderDetailPage = () => {
                 <SelectItem value="assigned">Assigned</SelectItem>
                 <SelectItem value="in_progress">In Progress</SelectItem>
                 <SelectItem value="waiting_parts">Waiting Parts</SelectItem>
-                <SelectItem value="completed">Completed</SelectItem>
+                {!quoteRequired && (
+                  <SelectItem value="completed">Completed</SelectItem>
+                )}
               </SelectContent>
             </Select>
           </div>

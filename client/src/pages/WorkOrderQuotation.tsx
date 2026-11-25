@@ -144,11 +144,16 @@ export default function WorkOrderQuotation() {
   const isOwner =
     user?.role === "owner" || user?.role === "maintenance_admin";
   const canEditRecipient = isOwner;
-  const canSendQuote = isOwner || user?.role === "contractor";
+  const canSendQuote =
+    isOwner || user?.role === "contractor" || user?.role === "clerk";
   const canConvertQuote = canSendQuote;
+  /** Owners/admins decide on sent quotes; field staff resend/issue. */
+  const canDecideAsRecipient = isOwner;
+  const canIssueOrResend = canSendQuote;
   const [lastPublicLink, setLastPublicLink] = useState<string | null>(null);
   const [lastEmailSent, setLastEmailSent] = useState<boolean | null>(null);
   const [pdfDownloading, setPdfDownloading] = useState(false);
+  const [decisionReason, setDecisionReason] = useState("");
 
   const invalidateQuote = () => {
     queryClient.invalidateQueries({
@@ -199,7 +204,7 @@ export default function WorkOrderQuotation() {
       const res = await fetch(`/api/work-orders/${workOrderId}/customer-candidates`, {
         credentials: "include",
       });
-      if (!res.ok) throw new Error("Failed to load customers");
+      if (!res.ok) throw new Error("Failed to load recipients");
       return res.json();
     },
     enabled: Boolean(workOrderId),
@@ -219,7 +224,7 @@ export default function WorkOrderQuotation() {
     setHydratedId(quote.id);
   }, [quote, hydratedId]);
 
-  const applyCustomer = (userId: string) => {
+  const applyRecipient = (userId: string) => {
     setRecipientUserId(userId);
     const candidate = candidatesQuery.data?.candidates.find((c) => c.id === userId);
     if (candidate) {
@@ -346,13 +351,49 @@ export default function WorkOrderQuotation() {
         });
       } else {
         toast({
-          title: "Sent to customer",
+          title: "Sent to recipient",
           description: "Email includes the PDF and a secure response link.",
         });
       }
     },
     onError: (e: Error) =>
       toast({ title: "Send failed", description: e.message, variant: "destructive" }),
+  });
+
+  const decisionMutation = useMutation({
+    mutationFn: async (decision: "accept" | "decline" | "request-changes") => {
+      const res = await apiRequest(
+        "POST",
+        `/api/work-orders/${workOrderId}/quotes/${quoteId}/recipient-decision`,
+        {
+          decision,
+          reason: decisionReason.trim() || null,
+        },
+      );
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setHydratedId(null);
+      setDecisionReason("");
+      invalidateQuote();
+      queryClient.invalidateQueries({
+        queryKey: ["/api/maintenance-finance/pending-count"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["/api/maintenance-finance/tracking"],
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/work-orders"] });
+      toast({
+        title: "Decision recorded",
+        description: `Quotation is now ${data.status?.replace(/_/g, " ") || "updated"}.`,
+      });
+    },
+    onError: (e: Error) =>
+      toast({
+        title: "Decision failed",
+        description: e.message,
+        variant: "destructive",
+      }),
   });
 
   const downloadPdf = async () => {
@@ -455,7 +496,13 @@ export default function WorkOrderQuotation() {
   }
 
   const step = approvalStepIndex(quote.status);
-  const steps = ["Draft", "Sent", "Customer", "Converted"] as const;
+  const steps = ["Draft", "Sent", "Recipient", "Converted"] as const;
+  const showSendPrimary = canIssueOrResend && editable;
+  const showResend =
+    canIssueOrResend &&
+    quote.status === "sent" &&
+    (!canDecideAsRecipient || user?.role === "clerk" || user?.role === "contractor");
+  const showOwnerResendSecondary = canDecideAsRecipient && quote.status === "sent";
 
   return (
     <div className="space-y-4 p-4 md:p-6 max-w-[1400px] mx-auto">
@@ -517,7 +564,7 @@ export default function WorkOrderQuotation() {
                 Save Draft
               </Button>
             ) : null}
-            {canSendQuote && (editable || quote.status === "sent") ? (
+            {showSendPrimary ? (
               <Button
                 disabled={sendMutation.isPending || saveMutation.isPending}
                 onClick={() => sendMutation.mutate()}
@@ -526,7 +573,32 @@ export default function WorkOrderQuotation() {
                 {sendMutation.isPending ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : null}
-                {quote.status === "sent" ? "Resend to Customer" : "Send to Customer"}
+                Send to Recipient
+              </Button>
+            ) : null}
+            {showResend ? (
+              <Button
+                disabled={sendMutation.isPending || saveMutation.isPending}
+                onClick={() => sendMutation.mutate()}
+                data-testid="button-quote-send"
+              >
+                {sendMutation.isPending ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : null}
+                Resend to Recipient
+              </Button>
+            ) : null}
+            {showOwnerResendSecondary ? (
+              <Button
+                variant="outline"
+                disabled={sendMutation.isPending || saveMutation.isPending}
+                onClick={() => sendMutation.mutate()}
+                data-testid="button-quote-resend-secondary"
+              >
+                {sendMutation.isPending ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : null}
+                Resend link
               </Button>
             ) : null}
             {isQuoteRevisable(quote.status) ? (
@@ -585,9 +657,9 @@ export default function WorkOrderQuotation() {
           <div className="flex gap-2 items-start">
             <AlertTriangle className="h-5 w-5 shrink-0 text-amber-600 mt-0.5" />
             <div>
-              <p className="font-semibold">Ready to send to the customer</p>
+              <p className="font-semibold">Ready to send to the recipient</p>
               <p className="text-sm text-amber-900/80">
-                Confirm the customer and line items, then send. The customer receives an email
+                Confirm the recipient and line items, then send. The recipient receives an email
                 with a secure link to view and respond.
               </p>
             </div>
@@ -606,8 +678,8 @@ export default function WorkOrderQuotation() {
         >
           <p className="font-semibold text-sm mb-1">
             {lastEmailSent === false
-              ? "Customer Link Ready (email was not delivered)"
-              : "Customer Link"}
+              ? "Recipient link ready (email was not delivered)"
+              : "Recipient link"}
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <Input readOnly value={lastPublicLink} className="font-mono text-xs flex-1 min-w-[200px]" />
@@ -657,11 +729,11 @@ export default function WorkOrderQuotation() {
                 />
               </div>
               <div className="space-y-1.5 sm:col-span-1">
-                <Label>Customer</Label>
+                <Label>Recipient</Label>
                 {canEditRecipient && (editable || quote.status === "sent") ? (
                   <Select
                     value={recipientUserId || undefined}
-                    onValueChange={applyCustomer}
+                    onValueChange={applyRecipient}
                     disabled={candidatesQuery.isLoading}
                   >
                     <SelectTrigger data-testid="select-quote-customer">
@@ -669,7 +741,7 @@ export default function WorkOrderQuotation() {
                         placeholder={
                           candidatesQuery.isLoading
                             ? "Loading…"
-                            : "Select customer"
+                            : "Select recipient"
                         }
                       />
                     </SelectTrigger>
@@ -692,7 +764,7 @@ export default function WorkOrderQuotation() {
                 ) : null}
               </div>
               <div className="space-y-1.5 sm:col-span-2">
-                <Label htmlFor="recipient-email">Customer Email</Label>
+                <Label htmlFor="recipient-email">Recipient email</Label>
                 <Input
                   id="recipient-email"
                   type="email"
@@ -765,7 +837,7 @@ export default function WorkOrderQuotation() {
           <Card>
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between gap-2">
-                <CardTitle className="text-base">Customer Approval</CardTitle>
+                <CardTitle className="text-base">Recipient approval</CardTitle>
                 <Badge variant="secondary" className="text-xs">
                   Single stage
                 </Badge>
@@ -816,10 +888,55 @@ export default function WorkOrderQuotation() {
                   </dd>
                 </div>
               </dl>
-              <p className="rounded-lg bg-primary/5 border border-primary/15 px-3 py-2 text-xs text-muted-foreground">
-                Send emails the selected customer a secure View &amp; respond link. Convert to
-                invoice is available only after they accept.
-              </p>
+              {canDecideAsRecipient && quote.status === "sent" ? (
+                <div className="space-y-3 rounded-lg border border-primary/20 bg-primary/5 p-3">
+                  <p className="text-sm font-medium">Your response</p>
+                  <p className="text-xs text-muted-foreground">
+                    Accept, request changes, or decline. A reason is required if declining or
+                    requesting changes.
+                  </p>
+                  <Textarea
+                    value={decisionReason}
+                    onChange={(e) => setDecisionReason(e.target.value)}
+                    placeholder="Optional note (required if declining or requesting changes)"
+                    rows={3}
+                    data-testid="textarea-quote-decision-reason"
+                  />
+                  <div className="flex flex-col gap-2">
+                    <Button
+                      disabled={decisionMutation.isPending}
+                      onClick={() => decisionMutation.mutate("accept")}
+                      data-testid="button-quote-accept"
+                    >
+                      {decisionMutation.isPending ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : null}
+                      Accept quotation
+                    </Button>
+                    <Button
+                      variant="outline"
+                      disabled={decisionMutation.isPending}
+                      onClick={() => decisionMutation.mutate("request-changes")}
+                      data-testid="button-quote-request-changes"
+                    >
+                      Request changes
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      disabled={decisionMutation.isPending}
+                      onClick={() => decisionMutation.mutate("decline")}
+                      data-testid="button-quote-decline"
+                    >
+                      Decline
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <p className="rounded-lg bg-primary/5 border border-primary/15 px-3 py-2 text-xs text-muted-foreground">
+                  Sending emails the selected recipient a secure View &amp; respond link. Convert
+                  to invoice is available only after they accept.
+                </p>
+              )}
             </CardContent>
           </Card>
 

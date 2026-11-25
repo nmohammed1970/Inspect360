@@ -109,9 +109,35 @@ export function setupWebSocketServer(server: Server, storage: DatabaseStorage) {
       try {
         const data = JSON.parse(message.toString());
         
-        // Handle ping/pong for keepalive
+        // Handle ping/pong for keepalive (+ presence heartbeat)
         if (data.type === "ping") {
           ws.send(JSON.stringify({ type: "pong" }));
+          if (userId) {
+            try {
+              const { touchLastSeen } = await import("./messaging/service");
+              await touchLastSeen(userId);
+            } catch {
+              // ignore presence write failures
+            }
+          }
+          return;
+        }
+
+        if (!userId) return;
+
+        if (data.type === "messaging_typing" && typeof data.conversationId === "string") {
+          const { handleTypingEvent } = await import("./messaging/service");
+          await handleTypingEvent({
+            userId,
+            conversationId: data.conversationId,
+            isTyping: Boolean(data.isTyping),
+          });
+          return;
+        }
+
+        if (data.type === "messaging_ack_delivered" && typeof data.messageId === "string") {
+          const { ackMessageDelivered } = await import("./messaging/service");
+          await ackMessageDelivered({ userId, messageId: data.messageId });
         }
       } catch (error) {
         console.error("[WebSocket] Error parsing message:", error);
@@ -180,5 +206,31 @@ export function updateUnreadCount(userId: string, count: number) {
       }
     }
   });
+}
+
+/** Generic WS payload fanout to all open connections for a user. */
+export function sendWsPayloadToUser(userId: string, payload: Record<string, unknown>) {
+  const userConnections = connections.get(userId);
+  if (!userConnections || userConnections.size === 0) return;
+
+  const raw = JSON.stringify(payload);
+  userConnections.forEach((ws) => {
+    if (ws.readyState === WebSocket.OPEN) {
+      try {
+        ws.send(raw);
+      } catch (error) {
+        console.error(`[WebSocket] Error sending payload to user ${userId}:`, error);
+      }
+    }
+  });
+}
+
+export function isUserConnected(userId: string): boolean {
+  const userConnections = connections.get(userId);
+  if (!userConnections || userConnections.size === 0) return false;
+  for (const ws of userConnections) {
+    if (ws.readyState === WebSocket.OPEN) return true;
+  }
+  return false;
 }
 

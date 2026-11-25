@@ -680,6 +680,84 @@ export async function sendContractorWorkOrderNotification(
   }
 }
 
+/** Team auto-assign: per-member email with View & Accept CTA. */
+export async function sendWorkOrderAcceptOfferEmail(input: {
+  to: string;
+  recipientName: string;
+  acceptUrl: string;
+  workOrder: {
+    id: string;
+    maintenanceTitle: string;
+    maintenanceDescription?: string;
+    priority: string;
+    propertyName?: string;
+    photoUrls?: string[];
+    slaDue?: Date | null;
+    costEstimate?: number | null;
+  };
+}) {
+  const { client, fromEmail } = await getUncachableResendClient();
+  const subject = `Work order available: ${input.workOrder.maintenanceTitle}`;
+  const priorityColors: Record<string, string> = {
+    low: "#6b7280",
+    medium: "#3b82f6",
+    high: "#f97316",
+    urgent: "#ef4444",
+  };
+  const priorityColor = priorityColors[input.workOrder.priority] || "#3b82f6";
+  const photos = (input.workOrder.photoUrls || []).filter((u) => /^https?:\/\//i.test(u)).slice(0, 4);
+  const photoHtml = photos.length
+    ? `<div style="margin-top:16px;">
+        <div style="font-weight:600;color:#555;margin-bottom:8px;">Photos</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;">
+          ${photos
+            .map(
+              (url) =>
+                `<a href="${url}" target="_blank" rel="noopener"><img src="${url}" alt="Maintenance photo" style="width:120px;height:90px;object-fit:cover;border-radius:4px;border:1px solid #e5e5e5;" /></a>`,
+            )
+            .join("")}
+        </div>
+      </div>`
+    : "";
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;line-height:1.6;color:#333;max-width:600px;margin:0 auto;padding:20px;background:#f5f5f5;">
+  <div style="background:#fff;border-radius:8px;padding:32px;box-shadow:0 2px 4px rgba(0,0,0,0.1);">
+    <h1 style="margin:0 0 16px;font-size:22px;color:#1a1a1a;">Work order available</h1>
+    <p style="margin:0 0 16px;">Hi ${input.recipientName},</p>
+    <p style="margin:0 0 24px;">A new work order is available for your maintenance team. The first member to accept will be assigned.</p>
+    <div style="background:#f8f9fa;border-left:4px solid #00D5CC;padding:20px;border-radius:4px;margin-bottom:24px;">
+      <div style="margin-bottom:12px;"><span style="font-weight:600;color:#555;">Title:</span> ${input.workOrder.maintenanceTitle}</div>
+      ${input.workOrder.maintenanceDescription ? `<div style="margin-bottom:12px;"><span style="font-weight:600;color:#555;">Description:</span> ${input.workOrder.maintenanceDescription}</div>` : ""}
+      ${input.workOrder.propertyName ? `<div style="margin-bottom:12px;"><span style="font-weight:600;color:#555;">Property:</span> ${input.workOrder.propertyName}</div>` : ""}
+      <div style="margin-bottom:12px;"><span style="font-weight:600;color:#555;">Priority:</span>
+        <span style="display:inline-block;background:${priorityColor};color:#fff;padding:4px 12px;border-radius:4px;font-size:12px;font-weight:600;margin-left:8px;text-transform:uppercase;">${input.workOrder.priority}</span>
+      </div>
+      ${input.workOrder.slaDue ? `<div style="margin-bottom:12px;"><span style="font-weight:600;color:#555;">SLA Due:</span> ${new Date(input.workOrder.slaDue).toLocaleString()}</div>` : ""}
+      ${input.workOrder.costEstimate ? `<div><span style="font-weight:600;color:#555;">Estimated Cost:</span> £${(input.workOrder.costEstimate / 100).toFixed(2)}</div>` : ""}
+      ${photoHtml}
+    </div>
+    <div style="text-align:center;margin:32px 0;">
+      <a href="${input.acceptUrl}" style="display:inline-block;background:linear-gradient(135deg,#00D5CC 0%,#3B7A8C 100%);color:#fff;text-decoration:none;padding:14px 32px;border-radius:6px;font-weight:600;font-size:16px;">View &amp; Accept Work Order</a>
+    </div>
+    <p style="margin:0;font-size:13px;color:#888;text-align:center;">Opening the link does not assign the job — you must tap Accept.</p>
+  </div>
+</body>
+</html>`;
+
+  const response = await client.emails.send({
+    from: fromEmail,
+    to: input.to,
+    subject,
+    html,
+  });
+  console.log("Work order accept offer email sent:", response);
+  return response;
+}
+
 export async function broadcastMessageToTenants(
   recipients: { email: string; firstName?: string; lastName?: string; propertyName?: string }[],
   templateData: {

@@ -8,7 +8,7 @@ These surfaces intentionally have **no** application breadcrumbs:
 | `/tenant/login` | Tenant authentication |
 | `/admin/login`, `/admin/forgot-password`, `/admin/reset-password` | Admin authentication |
 | `/pricing` (unauthenticated) | Marketing |
-| `/public/quotes/:token`, `/public/invoices/:token` | Public token share links |
+| `/public/quotes/:token`, `/public/invoices/:token`, `/public/work-orders/accept/:token` | Public token share links |
 | `/maintenance-feedback/:token` | Public job feedback form |
 | Organization setup / onboarding full-screen | Pre-shell flows |
 | `NotFound` / loading redirects | Transient / error |

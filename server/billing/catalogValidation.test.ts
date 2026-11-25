@@ -10,14 +10,8 @@ import {
   validateCatalog,
 } from "./catalogValidation";
 import { PHOTOS_PER_CREDIT, creditsConsumed } from "@shared/billingUnits";
+import { smsCreditsForMessage } from "@shared/billingFinancialMath";
 import { SEED_ADDONS, SEED_PLAN_MONTHLY_MINOR, SEED_TOPUPS } from "./catalogSeed";
-
-function smsCreditsForMessage(body: string): number {
-  const len = Array.from(body || "").length;
-  if (len <= 0) return 1;
-  if (len <= 160) return 1;
-  return Math.ceil(len / 153);
-}
 
 {
   const result = validateCatalog({
@@ -95,6 +89,11 @@ assert.equal(smsCreditsForMessage("a".repeat(160)), 1);
 assert.equal(smsCreditsForMessage("a".repeat(161)), 2);
 assert.equal(smsCreditsForMessage("a".repeat(306)), 2);
 assert.equal(smsCreditsForMessage("a".repeat(307)), 3);
+// Unicode (emoji) uses 70/67 segments
+assert.equal(smsCreditsForMessage("🙂".repeat(70)), 1);
+assert.equal(smsCreditsForMessage("🙂".repeat(71)), 2);
+// GSM extended char (€) counts as 2 units
+assert.equal(smsCreditsForMessage("€".repeat(80) + "a".repeat(1)), 2);
 
 // Publish immutability is enforced in catalogService.updatePlanPrice (draft-only).
 

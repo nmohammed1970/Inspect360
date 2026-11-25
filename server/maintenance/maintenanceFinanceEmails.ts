@@ -326,7 +326,7 @@ export async function sendQuoteOwnerDecisionEmail(input: {
   } as const;
   const intros = {
     approve:
-      "Good news — an owner has approved this quotation. You can now send it to the customer when ready. The itemised breakdown is below.",
+      "Good news — an owner has approved this quotation. You can now send it to the recipient when ready. The itemised breakdown is below.",
     reject:
       "An owner has rejected this quotation. Please review the reason and the items below, then create a revision if needed.",
     request_changes:
@@ -462,17 +462,17 @@ export async function sendQuoteCustomerResponseEmail(input: {
   const branding = await loadBranding(input.organizationId);
   const base = input.baseUrl || publicAppBaseUrl();
   const headlines = {
-    accept: "Customer accepted quotation",
-    decline: "Customer declined quotation",
-    request_changes: "Customer requested changes",
+    accept: "Recipient accepted quotation",
+    decline: "Recipient declined quotation",
+    request_changes: "Recipient requested changes",
   } as const;
   const intros = {
     accept:
-      "The customer has accepted this quotation. Work can now be authorised and you may convert it to an invoice when ready. The accepted items are summarised below.",
+      "The recipient has accepted this quotation. Work can now be authorised and you may convert it to an invoice when ready. The accepted items are summarised below.",
     decline:
-      "The customer has declined this quotation. Review their feedback and the itemised details below, then create a revision if appropriate.",
+      "The recipient has declined this quotation. Review their feedback and the itemised details below, then create a revision if appropriate.",
     request_changes:
-      "The customer has asked for changes. Please revise the quotation using their note and the itemised details below, then send it to the customer again.",
+      "The recipient has asked for changes. Please revise the quotation using their note and the itemised details below, then send it to the recipient again.",
   } as const;
   const totalLabel = formatMoneyMinor(input.totalMinor, input.currency);
 
@@ -484,7 +484,7 @@ export async function sendQuoteCustomerResponseEmail(input: {
     detailTitle: "Quotation details",
     details: [
       { label: "Reference", value: input.quoteReference },
-      { label: "Customer decision", value: CUSTOMER_DECISION_LABELS[input.decision] },
+      { label: "Recipient decision", value: CUSTOMER_DECISION_LABELS[input.decision] },
       ...(input.issueTitle ? [{ label: "Work", value: input.issueTitle }] : []),
       ...(input.locationLabel ? [{ label: "Location", value: input.locationLabel }] : []),
       ...(input.reason?.trim()

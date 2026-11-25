@@ -305,6 +305,120 @@ export async function sendTenantSms(input: SendTenantSmsInput): Promise<void> {
   }
 }
 
+/**
+ * Org-scoped SMS for work-order accept offers (staff/contractor phones).
+ * Reuses claim → credit check → TextMagic → consume; never throws.
+ */
+export async function sendWorkOrderAcceptOfferSms(input: {
+  organizationId: string;
+  workOrderId: string;
+  teamMemberId: string;
+  phone: string;
+  text: string;
+}): Promise<void> {
+  try {
+    if (!isSmsEnabled()) {
+      console.log(
+        `[SMS] Skipped (disabled) type=wo_accept_offer org=${input.organizationId}`,
+      );
+      return;
+    }
+
+    const e164 = normalizePhoneForSms(input.phone);
+    const eventType = "wo_accept_offer";
+    const eventKey = `wo_accept:${input.workOrderId}:${input.teamMemberId}`;
+    const claim = await claimSmsLog({
+      organizationId: input.organizationId,
+      eventType,
+      eventKey,
+      recipientPhone: e164,
+    });
+
+    if (claim === "duplicate") {
+      console.log(`[SMS] Duplicate skipped type=${eventType} key=${eventKey}`);
+      return;
+    }
+    if ("error" in claim) return;
+
+    if (!e164) {
+      await markSmsLog(claim.id, {
+        status: "skipped_no_phone",
+        lastError: "Missing or invalid phone number",
+      });
+      return;
+    }
+
+    const text = (input.text || "").trim();
+    if (!text) {
+      await markSmsLog(claim.id, {
+        status: "failed",
+        lastError: "Empty SMS body",
+        recipientPhone: e164,
+      });
+      return;
+    }
+
+    let smsCreditsNeeded = 1;
+    let trackSmsCredits = false;
+    try {
+      const { getOrgBillingSubscription } = await import("./billing/planLimits");
+      const sub = await getOrgBillingSubscription(input.organizationId);
+      if (sub) {
+        const { smsCreditsForMessage, getBalances } = await import("./billing/creditRules");
+        smsCreditsNeeded = smsCreditsForMessage(text);
+        const bal = await getBalances(input.organizationId);
+        trackSmsCredits = true;
+        if (bal.sms < smsCreditsNeeded) {
+          await markSmsLog(claim.id, {
+            status: "skipped_no_credits",
+            lastError: `Insufficient SMS credits (need ${smsCreditsNeeded}, have ${bal.sms})`,
+            recipientPhone: e164,
+          });
+          return;
+        }
+      }
+    } catch (creditErr: any) {
+      console.warn("[SMS] wo_accept credit check skipped:", creditErr?.message || creditErr);
+      trackSmsCredits = false;
+    }
+
+    const result = await sendTextMagicSms({ to: e164, text });
+    if (!result.ok) {
+      await markSmsLog(claim.id, {
+        status: "failed",
+        lastError: result.error,
+        recipientPhone: e164,
+      });
+      return;
+    }
+
+    if (trackSmsCredits) {
+      try {
+        const { consumeKindCredits } = await import("./billing/creditRules");
+        await consumeKindCredits({
+          organizationId: input.organizationId,
+          kind: "sms",
+          quantity: smsCreditsNeeded,
+          linkedEntityType: "sms_delivery",
+          linkedEntityId: claim.id,
+          notes: `SMS ${eventType}`,
+        });
+      } catch (consumeErr: any) {
+        console.error("[SMS] wo_accept credit consume failed:", consumeErr?.message || consumeErr);
+      }
+    }
+
+    await markSmsLog(claim.id, {
+      status: "sent",
+      providerMessageId: result.messageId,
+      recipientPhone: e164,
+      sentAt: new Date(),
+    });
+  } catch (e: any) {
+    console.error("[SMS] wo_accept unexpected error:", e?.message || e);
+  }
+}
+
 export async function getOrCreateSmsTemplates(organizationId: string) {
   const [existing] = await db
     .select()

@@ -3,6 +3,12 @@ import { useAuth } from "./useAuth";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "../lib/queryClient";
 import { useToast } from "./use-toast";
+import {
+  isViewingMessagingConversation,
+  playMessageReceivedSound,
+} from "@/lib/messageNotificationSound";
+import { applyMessagingEvent } from "@/features/messaging/applyMessagingEvent";
+import { setMessagingWsConnected } from "@/features/messaging/wsConnectionState";
 
 export interface Notification {
   id: string;
@@ -32,15 +38,19 @@ export function useNotifications() {
   const [dismissedNotificationIds, setDismissedNotificationIds] = useState<Set<string>>(new Set());
   const [unreadCount, setUnreadCount] = useState(0);
   const reconnectAttempts = useRef(0);
-  const maxReconnectAttempts = 5;
+  const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const staleWatchRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastPongAtRef = useRef(Date.now());
+  const intentionalCloseRef = useRef(false);
 
-  // Fetch notifications
+  // Fetch notifications (messaging rows excluded server-side; filter defensively)
   const { data: notifications = [] } = useQuery<Notification[]>({
     queryKey: ["/api/notifications"],
     queryFn: async () => {
       const res = await apiRequest("GET", "/api/notifications");
       const data = await res.json();
-      return data;
+      const list = Array.isArray(data) ? data : [];
+      return list.filter((n: Notification) => n.type !== "direct_message");
     },
     enabled: isAuthenticated && !!user,
     refetchOnWindowFocus: true,
@@ -118,52 +128,118 @@ export function useNotifications() {
     },
   });
 
-  // WebSocket connection
+  // WebSocket connection — resilient reconnect + central messaging cache updates
   useEffect(() => {
     if (!isAuthenticated || !user) {
+      setMessagingWsConnected(false);
       return;
     }
 
-    const connectWebSocket = () => {
-      // Determine WebSocket URL based on current location
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const host = window.location.host;
-      const wsUrl = `${protocol}//${host}/ws`;
+    intentionalCloseRef.current = false;
 
-      // Don't attempt connection if already connected
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+    const clearTimers = () => {
+      if (pingIntervalRef.current) {
+        clearInterval(pingIntervalRef.current);
+        pingIntervalRef.current = null;
+      }
+      if (staleWatchRef.current) {
+        clearInterval(staleWatchRef.current);
+        staleWatchRef.current = null;
+      }
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+    };
+
+    const scheduleReconnect = () => {
+      if (intentionalCloseRef.current || !isAuthenticated) return;
+      if (reconnectTimeoutRef.current) return;
+      reconnectAttempts.current += 1;
+      const base = Math.min(1000 * Math.pow(2, Math.min(reconnectAttempts.current, 5)), 30_000);
+      const jitter = Math.floor(Math.random() * 500);
+      const delay = base + jitter;
+      console.log(`[WebSocket] Reconnecting in ${delay}ms (attempt ${reconnectAttempts.current})`);
+      reconnectTimeoutRef.current = setTimeout(() => {
+        reconnectTimeoutRef.current = null;
+        connectWebSocket();
+      }, delay);
+    };
+
+    const connectWebSocket = () => {
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const wsUrl = `${protocol}//${window.location.host}/ws`;
+
+      if (
+        wsRef.current &&
+        (wsRef.current.readyState === WebSocket.OPEN ||
+          wsRef.current.readyState === WebSocket.CONNECTING)
+      ) {
         return;
       }
 
       try {
         const ws = new WebSocket(wsUrl);
+        wsRef.current = ws;
 
         ws.onopen = () => {
           reconnectAttempts.current = 0;
-          
-          // Send ping to keep connection alive
-          const pingInterval = setInterval(() => {
-            if (ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({ type: "ping" }));
-            } else {
-              clearInterval(pingInterval);
-            }
-          }, 30000); // Ping every 30 seconds
+          lastPongAtRef.current = Date.now();
+          setMessagingWsConnected(true);
 
-          wsRef.current = ws;
+          // One sync after (re)connect — active thread only if on /messages/:id
+          queryClient.invalidateQueries({ queryKey: ["/api/messaging/unread-count"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/messaging/conversations"] });
+          const path = window.location.pathname.replace(/\/+$/, "");
+          const match = path.match(/^\/messages\/([^/]+)$/);
+          if (match?.[1]) {
+            queryClient.invalidateQueries({
+              queryKey: ["/api/messaging/conversations", match[1], "messages"],
+            });
+          }
+
+          if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
+          pingIntervalRef.current = setInterval(() => {
+            if (ws.readyState === WebSocket.OPEN) {
+              try {
+                ws.send(JSON.stringify({ type: "ping" }));
+              } catch {
+                /* ignore */
+              }
+            }
+          }, 30_000);
+
+          if (staleWatchRef.current) clearInterval(staleWatchRef.current);
+          staleWatchRef.current = setInterval(() => {
+            if (ws.readyState !== WebSocket.OPEN) return;
+            if (Date.now() - lastPongAtRef.current > 70_000) {
+              console.warn("[WebSocket] Stale connection — forcing reconnect");
+              try {
+                ws.close(4000, "stale");
+              } catch {
+                /* ignore */
+              }
+            }
+          }, 15_000);
         };
 
         ws.onmessage = (event) => {
           try {
             const data = JSON.parse(event.data);
 
+            if (data.type === "pong") {
+              lastPongAtRef.current = Date.now();
+              return;
+            }
+
             if (data.type === "notification") {
               const notification = data.notification as Notification;
+              // Messaging uses dedicated badge/dock — never surface in bell toasts
+              if (notification.type === "direct_message") {
+                return;
+              }
 
-              // Update unread count
-              setUnreadCount(prev => prev + 1);
-
-              // Invalidate queries to fetch latest notifications
+              setUnreadCount((prev) => prev + 1);
               queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
               queryClient.invalidateQueries({ queryKey: ["/api/notifications/unread-count"] });
 
@@ -180,68 +256,110 @@ export function useNotifications() {
                 });
               }
 
-              // Show popup for tenant users
               if (user.role === "tenant") {
                 setPopupNotification(notification);
               } else {
-                // Show toast for other users
                 toast({
                   title: notification.title,
                   description: notification.message,
                 });
               }
-            } else if (data.type === "unread_count") {
-              setUnreadCount(data.count);
-            } else if (data.type === "pong") {
-              // Keepalive response
+              return;
             }
-          } catch (error) {
+
+            if (data.type === "unread_count") {
+              setUnreadCount(data.count);
+              return;
+            }
+
+            if (
+              data.type === "messaging_message" ||
+              data.type === "messaging_receipt" ||
+              data.type === "messaging_typing" ||
+              data.type === "messaging_presence" ||
+              data.type === "messaging_unread_count"
+            ) {
+              if (
+                data.type === "messaging_message" &&
+                (data.event === "created" || data.event == null) &&
+                data.message?.senderId &&
+                data.message.senderId !== user.id &&
+                data.message.conversationId &&
+                !isViewingMessagingConversation(data.message.conversationId)
+              ) {
+                playMessageReceivedSound();
+              }
+              applyMessagingEvent(queryClient, data, user.id);
+            }
+          } catch {
             // Error parsing message
           }
         };
 
         ws.onerror = (error) => {
-          // WebSocket error - log for debugging but don't show to user
-          // The onclose handler will handle reconnection
           console.warn("[WebSocket] Connection error:", error);
         };
 
         ws.onclose = (event) => {
+          setMessagingWsConnected(false);
+          if (pingIntervalRef.current) {
+            clearInterval(pingIntervalRef.current);
+            pingIntervalRef.current = null;
+          }
+          if (staleWatchRef.current) {
+            clearInterval(staleWatchRef.current);
+            staleWatchRef.current = null;
+          }
           wsRef.current = null;
 
-          // Don't reconnect if it was a normal closure (code 1000) or authentication failure (1008)
-          if (event.code === 1000 || event.code === 1008) {
-            console.log("[WebSocket] Connection closed normally or authentication failed");
+          if (intentionalCloseRef.current) return;
+          // Auth failure — do not loop forever
+          if (event.code === 1008) {
+            console.log("[WebSocket] Authentication failed");
             return;
           }
-
-          // Attempt to reconnect if we haven't exceeded max attempts
-          if (reconnectAttempts.current < maxReconnectAttempts && isAuthenticated && user) {
-            reconnectAttempts.current++;
-            const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 30000); // Exponential backoff, max 30s
-            
-            console.log(`[WebSocket] Attempting to reconnect in ${delay}ms (attempt ${reconnectAttempts.current}/${maxReconnectAttempts})`);
-            
-            reconnectTimeoutRef.current = setTimeout(() => {
-              connectWebSocket();
-            }, delay);
-          } else if (reconnectAttempts.current >= maxReconnectAttempts) {
-            console.warn("[WebSocket] Max reconnection attempts reached");
-          }
+          scheduleReconnect();
         };
-      } catch (error) {
-        // Failed to create WebSocket connection
+      } catch {
+        setMessagingWsConnected(false);
+        scheduleReconnect();
       }
     };
 
     connectWebSocket();
 
-    return () => {
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
+    const onOutbound = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      if (!detail || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+      try {
+        wsRef.current.send(JSON.stringify(detail));
+      } catch {
+        /* ignore */
       }
+    };
+
+    const onOnline = () => {
+      reconnectAttempts.current = 0;
+      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+        connectWebSocket();
+      }
+    };
+
+    window.addEventListener("inspect360:messaging-outbound", onOutbound as EventListener);
+    window.addEventListener("online", onOnline);
+
+    return () => {
+      intentionalCloseRef.current = true;
+      window.removeEventListener("inspect360:messaging-outbound", onOutbound as EventListener);
+      window.removeEventListener("online", onOnline);
+      clearTimers();
+      setMessagingWsConnected(false);
       if (wsRef.current) {
-        wsRef.current.close();
+        try {
+          wsRef.current.close(1000, "unmount");
+        } catch {
+          /* ignore */
+        }
         wsRef.current = null;
       }
     };
@@ -297,6 +415,11 @@ export function useNotifications() {
       } else {
         window.location.href = "/maintenance";
       }
+    } else if (notification.type === "direct_message") {
+      const conversationId = notification.data?.conversationId;
+      window.location.href = conversationId
+        ? `/messages/${conversationId}`
+        : "/messages";
     }
 
     setPopupNotification(null);

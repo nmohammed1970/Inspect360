@@ -34,6 +34,7 @@ import MaintenanceFeedback from "@/pages/MaintenanceFeedback";
 import MaintenanceJobFeedbackPublic from "@/pages/MaintenanceJobFeedbackPublic";
 import PublicQuote from "@/pages/PublicQuote";
 import PublicInvoice from "@/pages/PublicInvoice";
+import PublicWorkOrderAccept from "@/pages/PublicWorkOrderAccept";
 import Analytics from "@/pages/Analytics";
 import Reports from "@/pages/Reports";
 import InspectionsReport from "@/pages/InspectionsReport";
@@ -82,6 +83,7 @@ import TenantCheckInReview from "@/pages/TenantCheckInReview";
 import TenantInspections from "@/pages/TenantInspections";
 import TenantCommunity from "@/pages/TenantCommunity";
 import TenantProfile from "@/pages/TenantProfile";
+import MessagesPage from "@/features/messaging/MessagesPage";
 import CommunityModeration from "@/pages/CommunityModeration";
 import MyFeedback from "@/pages/MyFeedback";
 import FeedbackPage from "@/pages/Feedback";
@@ -98,6 +100,8 @@ import { Loader2 } from "lucide-react";
 import { UserProfileMenu } from "@/components/UserProfileMenu";
 import { AppBreadcrumbs } from "@/navigation";
 import { HeaderNotifications } from "@/components/workspace/HeaderNotifications";
+import { HeaderMessagingButton } from "@/features/messaging/HeaderMessagingButton";
+import { MessagingDockHost } from "@/features/messaging/MessagingDockHost";
 import { TenantProfileMenu } from "@/components/TenantProfileMenu";
 import { AIChatbot } from "@/components/AIChatbot";
 import { IvyChatbot } from "@/components/IvyChatbot";
@@ -161,6 +165,7 @@ function AppContent() {
     "/tenant/login",
     "/public/quotes",
     "/public/invoices",
+    "/public/work-orders",
     "/maintenance-feedback",
   ];
 
@@ -394,6 +399,7 @@ function AppContent() {
           <Route path="/auth" component={Auth} />
           <Route path="/public/quotes/:token" component={PublicQuote} />
           <Route path="/public/invoices/:token" component={PublicInvoice} />
+          <Route path="/public/work-orders/accept/:token" component={PublicWorkOrderAccept} />
           <Route path="/maintenance-feedback/:token" component={MaintenanceJobFeedbackPublic} />
           <Route path="/forgot-password">
             {() => <ForgotPassword portal="user" />}
@@ -576,6 +582,7 @@ function AppContent() {
                 <SidebarTrigger data-testid="button-sidebar-toggle" className="shrink-0" />
                 <AppBreadcrumbs />
                 <div className="flex-1 min-w-0" />
+                <HeaderMessagingButton />
                 <TenantProfileMenu />
               </header>
               <main className="flex-1 overflow-auto bg-background min-w-0">
@@ -593,6 +600,8 @@ function AppContent() {
                   <Route path="/tenant/inspections/:id/capture" component={InspectionCapture} />
                   <Route path="/tenant/inspections" component={TenantInspections} />
                   <Route path="/tenant/profile" component={TenantProfile} />
+                  <Route path="/messages/:conversationId" component={MessagesPage} />
+                  <Route path="/messages" component={MessagesPage} />
                   <Route path="/dashboard" component={TenantHome} />
                   <Route component={NotFound} />
                 </Switch>
@@ -601,6 +610,7 @@ function AppContent() {
           </div>
         </SidebarProvider>
         <NotificationSystem />
+        <MessagingDockHost />
         {/* Show AI Chatbot for tenants only if enabled */}
         {showChatbot && <AIChatbot />}
         <Toaster />
@@ -671,6 +681,7 @@ function AppContent() {
                 >
                   Help
                 </a>
+                <HeaderMessagingButton />
                 <HeaderNotifications />
                 <UserProfileMenu />
               </div>
@@ -803,6 +814,7 @@ function AppContent() {
                 </Route>
                 <Route path="/public/quotes/:token" component={PublicQuote} />
                 <Route path="/public/invoices/:token" component={PublicInvoice} />
+                <Route path="/public/work-orders/accept/:token" component={PublicWorkOrderAccept} />
                 <Route path="/maintenance-feedback/:token" component={MaintenanceJobFeedbackPublic} />
                 <Route path="/work-orders/:workOrderId/quotes/new">
                   {() => (
@@ -897,6 +909,8 @@ function AppContent() {
                 <Route path="/reports" component={Reports} />
                 <Route path="/comparisons/:id" component={ComparisonReportDetail} />
                 <Route path="/comparisons" component={ComparisonReports} />
+                <Route path="/messages/:conversationId" component={MessagesPage} />
+                <Route path="/messages" component={MessagesPage} />
                 <Route path="/team" component={Team} />
                 <Route path="/contacts" component={Contacts} />
                 <Route path="/asset-inventory" component={AssetInventory} />
@@ -927,6 +941,7 @@ function AppContent() {
         </div>
       </SidebarProvider>
       <NotificationSystem />
+      <MessagingDockHost />
       {/* Show Ivy chatbot for all authenticated operators (non-tenants) */}
       <IvyChatbot />
       <Toaster />

@@ -15379,6 +15379,15 @@ ${optionalNotes || "No details provided."}`;
         }),
       );
 
+      void import("./messaging/service").then(({ scheduleEnsureMaintenanceDiscussion }) =>
+        scheduleEnsureMaintenanceDiscussion({
+          organizationId: request.organizationId,
+          maintenanceRequestId: request.id,
+          createdById: userId,
+          actorRole: user.role,
+        }),
+      );
+
       res.json(request);
     } catch (error) {
       console.error("Error creating maintenance request:", error);
@@ -15476,6 +15485,15 @@ ${optionalNotes || "No details provided."}`;
           blockId: request.blockId,
           reportedByUserId: request.reportedBy,
           source: request.source,
+        }),
+      );
+
+      void import("./messaging/service").then(({ scheduleEnsureMaintenanceDiscussion }) =>
+        scheduleEnsureMaintenanceDiscussion({
+          organizationId: request.organizationId,
+          maintenanceRequestId: request.id,
+          createdById: userId,
+          actorRole: user.role,
         }),
       );
 
@@ -15670,6 +15688,21 @@ ${optionalNotes || "No details provided."}`;
 
       // Use the new updateMaintenanceRequest method for full updates
       const request = await storage.updateMaintenanceRequest(id, safeUpdates);
+
+      if (
+        safeUpdates.assignedTo &&
+        safeUpdates.assignedTo !== existingRequest.assignedTo
+      ) {
+        void import("./messaging/maintenanceThreads").then(
+          ({ scheduleAddUserToMaintenanceDiscussion }) =>
+            scheduleAddUserToMaintenanceDiscussion({
+              organizationId: user.organizationId!,
+              maintenanceRequestId: id,
+              userId: safeUpdates.assignedTo,
+            }),
+        );
+      }
+
       res.json(request);
     } catch (error) {
       console.error("Error updating maintenance request:", error);
@@ -17744,16 +17777,17 @@ ${optionalNotes || "No details provided."}`;
       }
 
       const validatedData = insertWorkOrderSchema.parse(req.body);
+      const assignmentMethod =
+        req.body.assignmentMethod === "auto" || req.body.assignmentMethod === "manual"
+          ? req.body.assignmentMethod
+          : validatedData.assignedToId
+            ? "manual"
+            : "manual";
 
       // Work orders must be assigned via a Maintenance Team (Settings → Maintenance Team)
       if (!validatedData.teamId) {
         return res.status(400).json({
           error: "A maintenance team is required. Assign work orders only to people on a Maintenance Team.",
-        });
-      }
-      if (!validatedData.assignedToId) {
-        return res.status(400).json({
-          error: "An assigned team member is required.",
         });
       }
 
@@ -17763,27 +17797,50 @@ ${optionalNotes || "No details provided."}`;
       }
 
       const members = await storage.getTeamMembers(validatedData.teamId);
-      const assigneeIsMember = members.some(
-        (m: any) =>
-          m.userId === validatedData.assignedToId || m.contactId === validatedData.assignedToId,
-      );
-      if (!assigneeIsMember) {
-        return res.status(403).json({
-          error: "Assignee must be a member of the selected Maintenance Team.",
+      if (!members.length) {
+        return res.status(400).json({
+          error: "The selected Maintenance Team has no members.",
         });
       }
 
-      // If contractorId is set, it must be a contact that is on this team
-      if (validatedData.contractorId) {
-        const contractorOnTeam = members.some((m: any) => m.contactId === validatedData.contractorId);
-        if (!contractorOnTeam) {
-          return res.status(403).json({
-            error: "Maintenance contractor must be a member of the selected Maintenance Team.",
+      if (assignmentMethod === "auto") {
+        // Team offer: no individual assignee until first accept
+        validatedData.assignedToId = null as any;
+        validatedData.contractorId = null as any;
+        validatedData.status = "pending_acceptance" as any;
+      } else {
+        if (!validatedData.assignedToId) {
+          return res.status(400).json({
+            error: "An assigned team member is required.",
           });
         }
-        const contractor = await storage.getContact(validatedData.contractorId);
-        if (!contractor || contractor.organizationId !== user.organizationId) {
-          return res.status(403).json({ error: "Maintenance contractor not found or access denied" });
+
+        const assigneeIsMember = members.some(
+          (m: any) =>
+            m.userId === validatedData.assignedToId || m.contactId === validatedData.assignedToId,
+        );
+        if (!assigneeIsMember) {
+          return res.status(403).json({
+            error: "Assignee must be a member of the selected Maintenance Team.",
+          });
+        }
+
+        // If contractorId is set, it must be a contact that is on this team
+        if (validatedData.contractorId) {
+          const contractorOnTeam = members.some((m: any) => m.contactId === validatedData.contractorId);
+          if (!contractorOnTeam) {
+            return res.status(403).json({
+              error: "Maintenance contractor must be a member of the selected Maintenance Team.",
+            });
+          }
+          const contractor = await storage.getContact(validatedData.contractorId);
+          if (!contractor || contractor.organizationId !== user.organizationId) {
+            return res.status(403).json({ error: "Maintenance contractor not found or access denied" });
+          }
+        }
+
+        if (!validatedData.status || validatedData.status === "pending_acceptance") {
+          validatedData.status = "assigned" as any;
         }
       }
 
@@ -17817,8 +17874,22 @@ ${optionalNotes || "No details provided."}`;
       } as any;
       const workOrder = await storage.createWorkOrder(workOrderData);
 
-      // Send email notification to team if teamId is provided (best-effort, non-blocking)
-      if (validatedData.teamId) {
+      if (
+        workOrder.maintenanceRequestId &&
+        (workOrder.assignedToId || validatedData.assignedToId)
+      ) {
+        void import("./messaging/maintenanceThreads").then(
+          ({ scheduleAddUserToMaintenanceDiscussion }) =>
+            scheduleAddUserToMaintenanceDiscussion({
+              organizationId: user.organizationId!,
+              maintenanceRequestId: workOrder.maintenanceRequestId!,
+              userId: workOrder.assignedToId || validatedData.assignedToId,
+            }),
+        );
+      }
+
+      // Manual path: existing team/contractor emails. Auto path: member fan-out in offer service.
+      if (assignmentMethod !== "auto" && validatedData.teamId) {
         try {
           const maintenanceRequest = await db
             .select()
@@ -17863,7 +17934,7 @@ ${optionalNotes || "No details provided."}`;
 
       // Send email notification to contractor if contractorId is provided (best-effort, non-blocking)
       // Contractors are stored in the contacts table, not users table
-      if (validatedData.contractorId) {
+      if (assignmentMethod !== "auto" && validatedData.contractorId) {
         try {
           const contractor = await storage.getContact(validatedData.contractorId);
           const maintenanceRequest = await db
@@ -17908,6 +17979,29 @@ ${optionalNotes || "No details provided."}`;
             contractorId: validatedData.contractorId,
             error: emailError instanceof Error ? emailError.message : 'Unknown error',
           });
+        }
+      }
+
+      if (assignmentMethod === "auto") {
+        try {
+          const { fanOutWorkOrderAcceptOffers } = await import(
+            "./maintenance/workOrderAcceptOffers"
+          );
+          // Non-blocking: failures must not undo WO creation
+          void fanOutWorkOrderAcceptOffers({
+            organizationId: user.organizationId,
+            workOrderId: workOrder.id,
+            teamId: validatedData.teamId!,
+            createdByUserId: userId,
+            req,
+          }).catch((fanErr) => {
+            console.error(
+              `[wo-accept] fan-out failed for ${workOrder.id}:`,
+              fanErr instanceof Error ? fanErr.message : fanErr,
+            );
+          });
+        } catch (fanImportErr) {
+          console.error("[wo-accept] fan-out import failed:", fanImportErr);
         }
       }
 
@@ -21755,6 +21849,10 @@ ${optionalNotes || "No details provided."}`;
   registerMaintenanceQuoteRoutes(app);
   const { registerPublicMaintenanceQuoteRoutes } = await import("./maintenance/publicQuoteRoutes");
   registerPublicMaintenanceQuoteRoutes(app);
+  const { registerPublicWorkOrderAcceptRoutes } = await import(
+    "./maintenance/publicWorkOrderAcceptRoutes"
+  );
+  registerPublicWorkOrderAcceptRoutes(app);
   const { registerMaintenanceInvoiceRoutes } = await import("./maintenance/invoiceRoutes");
   registerMaintenanceInvoiceRoutes(app);
   const { registerMaintenanceFinanceRoutes } = await import("./maintenance/financeRoutes");
@@ -21763,6 +21861,8 @@ ${optionalNotes || "No details provided."}`;
     "./maintenance/maintenanceMessageRoutes"
   );
   registerMaintenanceMessageRoutes(app);
+  const { registerMessagingRoutes } = await import("./messaging/routes");
+  registerMessagingRoutes(app);
   const { registerMaintenanceInboxRoutes } = await import(
     "./maintenance/maintenanceInboxRoutes"
   );
@@ -31858,8 +31958,8 @@ ${optionalNotes || "No details provided."}`;
         return res.status(400).json({ message: "User must belong to an organization" });
       }
 
-      // Only admins and owners can view team members
-      if (!['admin', 'owner'].includes(user.role)) {
+      // Same roles that can create work orders need to load members for Manual assign
+      if (!["admin", "owner", "clerk", "contractor", "maintenance_admin"].includes(user.role || "")) {
         return res.status(403).json({ message: "Access denied" });
       }
 
@@ -33056,6 +33156,15 @@ You can help the tenant with:
             source: maintenanceRequest.source,
           }),
         );
+
+        void import("./messaging/service").then(({ scheduleEnsureMaintenanceDiscussion }) =>
+          scheduleEnsureMaintenanceDiscussion({
+            organizationId: maintenanceRequest.organizationId,
+            maintenanceRequestId: maintenanceRequest.id,
+            createdById: userId,
+            actorRole: user.role || "tenant",
+          }),
+        );
       }
 
       res.json({ chatId: chat.id, userMessage, assistantMessage });
@@ -33132,6 +33241,15 @@ You can help the tenant with:
           blockId: maintenanceRequest.blockId,
           reportedByUserId: maintenanceRequest.reportedBy,
           source: maintenanceRequest.source,
+        }),
+      );
+
+      void import("./messaging/service").then(({ scheduleEnsureMaintenanceDiscussion }) =>
+        scheduleEnsureMaintenanceDiscussion({
+          organizationId: maintenanceRequest.organizationId,
+          maintenanceRequestId: maintenanceRequest.id,
+          createdById: userId,
+          actorRole: user.role || "tenant",
         }),
       );
 
@@ -33237,6 +33355,15 @@ You can help the tenant with:
           blockId: maintenanceRequest.blockId,
           reportedByUserId: maintenanceRequest.reportedBy,
           source: maintenanceRequest.source,
+        }),
+      );
+
+      void import("./messaging/service").then(({ scheduleEnsureMaintenanceDiscussion }) =>
+        scheduleEnsureMaintenanceDiscussion({
+          organizationId: maintenanceRequest.organizationId,
+          maintenanceRequestId: maintenanceRequest.id,
+          createdById: userId,
+          actorRole: user.role || "tenant",
         }),
       );
 

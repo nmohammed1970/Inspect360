@@ -41,6 +41,9 @@ interface InvoiceListItem {
 
 interface WorkOrderFinanceLinksProps {
   workOrderId: string;
+  /** When quote_required, invoice CTAs stay hidden until the job is authorised. */
+  authorisationStatus?: string | null;
+  workOrderStatus?: string | null;
 }
 
 function quoteStatusLabel(status: string): string {
@@ -79,13 +82,21 @@ function pickOpenInvoice(invoices: InvoiceListItem[]): InvoiceListItem | null {
   return newestFirst(invoices)[0] || null;
 }
 
-export const WorkOrderFinanceLinks = ({ workOrderId }: WorkOrderFinanceLinksProps) => {
+export const WorkOrderFinanceLinks = ({
+  workOrderId,
+  authorisationStatus,
+  workOrderStatus,
+}: WorkOrderFinanceLinksProps) => {
   const { user } = useAuth();
   const canFinance =
     user?.role === "owner" ||
     user?.role === "maintenance_admin" ||
     user?.role === "clerk" ||
     user?.role === "contractor";
+  const canShowInvoice =
+    canFinance &&
+    authorisationStatus !== "quote_required" &&
+    workOrderStatus !== "pending_acceptance";
   const [, setLocation] = useLocation();
 
   const quotesQuery = useQuery<QuoteListItem[]>({
@@ -108,6 +119,7 @@ export const WorkOrderFinanceLinks = ({ workOrderId }: WorkOrderFinanceLinksProp
       if (!res.ok) throw new Error("Failed to load invoices");
       return res.json();
     },
+    enabled: canShowInvoice,
   });
 
   const quotes = quotesQuery.data || [];
@@ -117,25 +129,25 @@ export const WorkOrderFinanceLinks = ({ workOrderId }: WorkOrderFinanceLinksProp
   const openInvoice = useMemo(() => pickOpenInvoice(invoices), [invoices]);
   const historyQuotes = useMemo(() => newestFirst(quotes), [quotes]);
 
-  if (quotesQuery.isLoading || invoicesQuery.isLoading) {
+  if (quotesQuery.isLoading || (canShowInvoice && invoicesQuery.isLoading)) {
     return (
-      <div className="flex flex-wrap gap-2 w-full pt-1">
+      <div className="flex flex-wrap gap-2 w-full">
         <Skeleton className="h-8 w-32" />
-        <Skeleton className="h-8 w-28" />
+        {canShowInvoice ? <Skeleton className="h-8 w-28" /> : null}
       </div>
     );
   }
 
-  if (quotesQuery.error || invoicesQuery.error) {
+  if (quotesQuery.error || (canShowInvoice && invoicesQuery.error)) {
     return (
-      <p className="text-xs text-destructive pt-1 w-full">
+      <p className="text-xs text-destructive w-full">
         Could not load quotes or invoices
       </p>
     );
   }
 
   return (
-    <div className="w-full space-y-2 pt-1">
+    <div className="w-full space-y-2">
       <div className="flex flex-wrap items-center gap-2">
         {quotes.length === 0 ? (
           <Button
@@ -163,7 +175,7 @@ export const WorkOrderFinanceLinks = ({ workOrderId }: WorkOrderFinanceLinksProp
           </Button>
         ) : null}
 
-        {canFinance &&
+        {canShowInvoice &&
           (invoices.length === 0 ? (
             <Button
               size="sm"

@@ -123,6 +123,7 @@ export function workOrderStatusTone(status: string | null | undefined): Semantic
     case "assigned":
     case "scheduled":
       return "info";
+    case "pending_acceptance":
     case "pending":
       return "muted";
     default:
