@@ -16,13 +16,55 @@ export function inspectionCreditsForPhotos(photoCount: unknown): number {
   return Math.max(1, Math.ceil(Math.floor(n) / PHOTOS_PER_CREDIT));
 }
 
-/** SMS segments: ≤160 → 1; longer → ceil(len/153). */
+/** GSM-7 basic alphabet (excluding extension table). */
+const GSM7_BASIC = new Set(
+  Array.from(
+    "@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞ ÆæßÉ !\"#¤%&'()*+,-./0123456789:;<=>?" +
+      "¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà",
+  ),
+);
+
+/** GSM-7 extension table characters (each costs 2 septets). */
+const GSM7_EXTENDED = new Set(Array.from("^{}\\[~]|€"));
+
+function isGsm7Char(ch: string): boolean {
+  return GSM7_BASIC.has(ch) || GSM7_EXTENDED.has(ch);
+}
+
+function gsm7EncodingUnits(body: string): number {
+  let units = 0;
+  for (const ch of Array.from(body)) {
+    if (GSM7_EXTENDED.has(ch)) units += 2;
+    else units += 1;
+  }
+  return units;
+}
+
+function isGsm7Message(body: string): boolean {
+  for (const ch of Array.from(body)) {
+    if (!isGsm7Char(ch)) return false;
+  }
+  return true;
+}
+
+/**
+ * TextMagic-style SMS segment credits:
+ * - GSM-7 (incl. extended chars as 2 units): ≤160 → 1; multipart → ceil(units/153)
+ * - Unicode: ≤70 → 1; multipart → ceil(units/67)
+ */
 export function smsCreditsForMessage(body: unknown): number {
   if (typeof body !== "string") return 1;
-  const len = Array.from(body).length;
-  if (len <= 0) return 1;
-  if (len <= 160) return 1;
-  return Math.ceil(len / 153);
+  if (!body.length) return 1;
+
+  if (isGsm7Message(body)) {
+    const units = gsm7EncodingUnits(body);
+    if (units <= 160) return 1;
+    return Math.ceil(units / 153);
+  }
+
+  const units = Array.from(body).length;
+  if (units <= 70) return 1;
+  return Math.ceil(units / 67);
 }
 
 export function yearlyFromMonthlyMinor(monthlyMinor: unknown): number | null {

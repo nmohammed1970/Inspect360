@@ -37,7 +37,14 @@ export const complianceStatusEnum = pgEnum("compliance_status", ["current", "exp
 export const maintenanceStatusEnum = pgEnum("maintenance_status", ["open", "in_progress", "completed", "closed"]);
 export const subscriptionStatusEnum = pgEnum("subscription_status", ["active", "inactive", "cancelled"]);
 export const subscriptionLevelEnum = pgEnum("subscription_level", ["free", "starter", "professional", "enterprise", "freelancer", "btr", "pbsa", "housing_association", "council"]);
-export const workOrderStatusEnum = pgEnum("work_order_status", ["assigned", "in_progress", "waiting_parts", "completed", "rejected"]);
+export const workOrderStatusEnum = pgEnum("work_order_status", [
+  "pending_acceptance",
+  "assigned",
+  "in_progress",
+  "waiting_parts",
+  "completed",
+  "rejected",
+]);
 export const workOrderCertificateExtractionStatusEnum = pgEnum("work_order_certificate_extraction_status", [
   "uploaded",
   "analysing",
@@ -1605,6 +1612,31 @@ export const workOrderEvents = pgTable(
 );
 
 export type WorkOrderEvent = typeof workOrderEvents.$inferSelect;
+
+/** Per-member tokens for team auto-assign / first-come accept of a work order. */
+export const workOrderAcceptTokens = pgTable(
+  "work_order_accept_tokens",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    organizationId: varchar("organization_id").notNull(),
+    workOrderId: varchar("work_order_id").notNull(),
+    teamMemberId: varchar("team_member_id").notNull(),
+    userId: varchar("user_id"),
+    contactId: varchar("contact_id"),
+    tokenHash: varchar("token_hash").notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+    revokedAt: timestamp("revoked_at"),
+    acceptedAt: timestamp("accepted_at"),
+    emailSentAt: timestamp("email_sent_at"),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [
+    index("work_order_accept_tokens_wo_idx").on(table.workOrderId),
+    uniqueIndex("work_order_accept_tokens_hash_uidx").on(table.tokenHash),
+  ],
+);
+
+export type WorkOrderAcceptToken = typeof workOrderAcceptTokens.$inferSelect;
 
 export const maintenanceInvoices = pgTable(
   "maintenance_invoices",

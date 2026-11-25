@@ -34,6 +34,7 @@ import MaintenanceFeedback from "@/pages/MaintenanceFeedback";
 import MaintenanceJobFeedbackPublic from "@/pages/MaintenanceJobFeedbackPublic";
 import PublicQuote from "@/pages/PublicQuote";
 import PublicInvoice from "@/pages/PublicInvoice";
+import PublicWorkOrderAccept from "@/pages/PublicWorkOrderAccept";
 import Analytics from "@/pages/Analytics";
 import Reports from "@/pages/Reports";
 import InspectionsReport from "@/pages/InspectionsReport";
@@ -161,6 +162,7 @@ function AppContent() {
     "/tenant/login",
     "/public/quotes",
     "/public/invoices",
+    "/public/work-orders",
     "/maintenance-feedback",
   ];
 
@@ -394,6 +396,7 @@ function AppContent() {
           <Route path="/auth" component={Auth} />
           <Route path="/public/quotes/:token" component={PublicQuote} />
           <Route path="/public/invoices/:token" component={PublicInvoice} />
+          <Route path="/public/work-orders/accept/:token" component={PublicWorkOrderAccept} />
           <Route path="/maintenance-feedback/:token" component={MaintenanceJobFeedbackPublic} />
           <Route path="/forgot-password">
             {() => <ForgotPassword portal="user" />}
@@ -803,6 +806,7 @@ function AppContent() {
                 </Route>
                 <Route path="/public/quotes/:token" component={PublicQuote} />
                 <Route path="/public/invoices/:token" component={PublicInvoice} />
+                <Route path="/public/work-orders/accept/:token" component={PublicWorkOrderAccept} />
                 <Route path="/maintenance-feedback/:token" component={MaintenanceJobFeedbackPublic} />
                 <Route path="/work-orders/:workOrderId/quotes/new">
                   {() => (

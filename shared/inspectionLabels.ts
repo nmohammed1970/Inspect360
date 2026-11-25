@@ -55,6 +55,20 @@ const MAINTENANCE_STATUS_LABELS: Record<string, string> = {
   closed: "Closed",
 };
 
+const WORK_ORDER_STATUS_LABELS: Record<string, string> = {
+  pending_acceptance: "Awaiting team acceptance",
+  assigned: "Assigned",
+  in_progress: "In progress",
+  waiting_parts: "Waiting parts",
+  completed: "Completed",
+  rejected: "Rejected",
+};
+
+export function formatWorkOrderStatus(status: string | null | undefined): string {
+  if (status == null || status === "" || status === "—") return "—";
+  return WORK_ORDER_STATUS_LABELS[status] ?? formatEnumLabel(status);
+}
+
 export function formatInspectionType(type: string | null | undefined): string {
   if (type == null || type === "" || type === "—") return "—";
   return INSPECTION_TYPE_LABELS[type] ?? formatEnumLabel(type);

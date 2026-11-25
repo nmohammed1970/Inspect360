@@ -9,6 +9,7 @@ import {
   toneClass,
   workOrderStatusTone,
 } from "@shared/statusPriorityStyles";
+import { formatWorkOrderStatus } from "@shared/inspectionLabels";
 import { cn } from "@/lib/utils";
 import {
   ArrowLeft,
@@ -345,11 +346,16 @@ const WorkOrderDetailPage = () => {
           <StatusBadge
             tone={workOrderStatusTone(workOrder.status)}
             appearance="soft"
-            className="capitalize"
           >
-            {workOrder.status.replace("_", " ")}
+            {formatWorkOrderStatus(workOrder.status)}
           </StatusBadge>
         </div>
+
+        {workOrder.status === "pending_acceptance" && (
+          <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+            Awaiting team acceptance — the first eligible team member to accept will be assigned.
+          </div>
+        )}
 
         {completeError && (
           <div
@@ -360,7 +366,7 @@ const WorkOrderDetailPage = () => {
           </div>
         )}
 
-        {canFieldAct && !isClosed && (
+        {canFieldAct && !isClosed && workOrder.status !== "pending_acceptance" && (
           <div className="flex flex-wrap items-center gap-2">
             <Label className="text-sm font-medium">Update Status</Label>
             <Select

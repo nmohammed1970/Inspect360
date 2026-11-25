@@ -27,13 +27,8 @@ export function creditsForPhotos(photoCount: number, perCredit: number): number 
   return Math.max(1, Math.ceil(n / perCredit));
 }
 
-/** SMS segments: first 160 chars = 1; longer messages use 153-char segments. */
-export function smsCreditsForMessage(body: string): number {
-  const len = Array.from(body || "").length;
-  if (len <= 0) return 1;
-  if (len <= 160) return 1;
-  return Math.ceil(len / 153);
-}
+/** SMS segment credits — TextMagic GSM-7 / Unicode rules (shared helper). */
+export { smsCreditsForMessage } from "@shared/billingFinancialMath";
 
 /** Plan-included inspection + SMS for a billing period (idempotent via grantKey). */
 export async function grantPlanIncludedCredits(input: {

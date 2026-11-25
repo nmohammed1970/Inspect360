@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Wrench, Upload, Sparkles, Loader2, X, Check, ChevronsUpDown, Pencil, Trash2, Clipboard, Calendar, User as UserIcon, AlertCircle, AlertTriangle, CheckCircle2, Clock, Building2, MoreVertical, ArrowRight, MessageSquare } from "lucide-react";
+import { Plus, Wrench, Upload, Sparkles, Loader2, X, Check, ChevronsUpDown, Pencil, Trash2, Clipboard, Calendar, User as UserIcon, AlertCircle, AlertTriangle, CheckCircle2, Clock, Building2, MoreVertical, ArrowRight, MessageSquare, Info } from "lucide-react";
 import { MaintenanceRequestDiscussion } from "@/components/MaintenanceRequestDiscussion";
 import {
   DropdownMenu,
@@ -31,6 +31,7 @@ import {
 import { formatInspectionNote, parseInspectionNote } from "@shared/inspectionNoteSections";
 import {
   formatMaintenanceStatus,
+  formatWorkOrderStatus,
 } from "@shared/inspectionLabels";
 import {
   maintenanceRequestStatusTone,
@@ -78,6 +79,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertMaintenanceRequestSchema } from "@shared/schema";
@@ -1019,6 +1022,8 @@ export default function Maintenance() {
         return <Clock className="h-4 w-4" />;
       case "rejected":
         return <AlertCircle className="h-4 w-4" />;
+      case "pending_acceptance":
+        return <Info className="h-4 w-4" />;
       default:
         return <UserIcon className="h-4 w-4" />;
     }
@@ -2208,6 +2213,7 @@ export default function Maintenance() {
                         data-testid={`card-work-order-${workOrder.id}`}
                         className={cn(
                           "shadow-sm overflow-hidden border-l-4",
+                          workOrder.status === "pending_acceptance" && "border-l-slate-400",
                           workOrder.status === "assigned" && "border-l-blue-500",
                           workOrder.status === "waiting_parts" && "border-l-orange-500",
                           workOrder.status === "in_progress" && "border-l-amber-500",
@@ -2252,9 +2258,8 @@ export default function Maintenance() {
                               <StatusBadge
                                 tone={workOrderStatusTone(workOrder.status)}
                                 appearance="soft"
-                                className="capitalize"
                               >
-                                {workOrder.status.replace("_", " ")}
+                                {formatWorkOrderStatus(workOrder.status)}
                               </StatusBadge>
                               {(workOrder as any).authorisationStatus === "quote_required" ? (
                                 <Badge variant="outline" className="bg-amber-50 text-amber-900 border-amber-200">
@@ -2295,7 +2300,7 @@ export default function Maintenance() {
                               </div>
                             )}
 
-                            {workOrder.contractor && (
+                            {workOrder.contractor ? (
                               <div className="flex items-center gap-2 text-sm">
                                 <UserIcon className="h-4 w-4 text-muted-foreground shrink-0" />
                                 <div className="min-w-0">
@@ -2305,7 +2310,17 @@ export default function Maintenance() {
                                   </p>
                                 </div>
                               </div>
-                            )}
+                            ) : workOrder.status === "pending_acceptance" ? (
+                              <div className="flex items-center gap-2 text-sm">
+                                <Info className="h-4 w-4 text-muted-foreground shrink-0" />
+                                <div className="min-w-0">
+                                  <p className="font-medium">Assignee</p>
+                                  <p className="text-muted-foreground truncate">
+                                    Awaiting team acceptance
+                                  </p>
+                                </div>
+                              </div>
+                            ) : null}
 
                             {workOrder.slaDue && (
                               <div className="flex items-center gap-2 text-sm">
@@ -2377,7 +2392,8 @@ export default function Maintenance() {
                           <div className="mt-4 flex flex-wrap items-center gap-3 pt-3 border-t">
                             {canFieldAct &&
                               workOrder.status !== "completed" &&
-                              workOrder.status !== "rejected" && (
+                              workOrder.status !== "rejected" &&
+                              workOrder.status !== "pending_acceptance" && (
                               <div className="flex items-center gap-2">
                                 <label className="text-sm font-medium">Update Status:</label>
                                 <Select
@@ -2669,6 +2685,7 @@ function WorkOrderForm({
   const locale = useLocale();
   const { toast } = useToast();
   const [selectedTeamId, setSelectedTeamId] = useState<string>("");
+  const [assignmentMethod, setAssignmentMethod] = useState<"auto" | "manual">("auto");
   const [assignedToId, setAssignedToId] = useState<string>("");
   const [teamMembers, setTeamMembers] = useState<any[]>([]);
   const [isLoadingMembers, setIsLoadingMembers] = useState(false);
@@ -2707,31 +2724,47 @@ function WorkOrderForm({
       return;
     }
 
-    if (!assignedToId || assignedToId === "none") {
-      toast({
-        title: "Select a team member",
-        description: "Choose an inspector or maintenance contractor from the selected team.",
-        variant: "destructive",
+    if (assignmentMethod === "manual") {
+      if (!assignedToId || assignedToId === "none") {
+        toast({
+          title: "Select a team member",
+          description: "Choose an inspector or maintenance contractor from the selected team.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const member = teamMembers.find(
+        (m: any) => m.userId === assignedToId || m.contactId === assignedToId,
+      );
+      // Prefer linked user account when a contact is selected so clerk portals match
+      const resolvedAssignedToId =
+        member?.userId || member?.contact?.linkedUserId || assignedToId;
+      const contractorId = member?.contactId || undefined;
+
+      onSubmit({
+        maintenanceRequestId: maintenanceRequest.id,
+        teamId: selectedTeamId,
+        contractorId,
+        assignedToId: resolvedAssignedToId,
+        assignmentMethod: "manual",
+        slaDue: slaDue ? new Date(`${slaDue}T12:00:00`).toISOString() : undefined,
+        costEstimate: costEstimate ? Math.round(parseFloat(costEstimate) * 100) : undefined,
+        status: "assigned",
+        completionChecklistId:
+          completionChecklistId === "__none__" ? null : completionChecklistId,
       });
       return;
     }
 
-    const member = teamMembers.find(
-      (m: any) => m.userId === assignedToId || m.contactId === assignedToId,
-    );
-    // Prefer linked user account when a contact is selected so clerk portals match
-    const resolvedAssignedToId =
-      member?.userId || member?.contact?.linkedUserId || assignedToId;
-    const contractorId = member?.contactId || undefined;
-
     onSubmit({
       maintenanceRequestId: maintenanceRequest.id,
       teamId: selectedTeamId,
-      contractorId,
-      assignedToId: resolvedAssignedToId,
+      assignedToId: null,
+      assignmentMethod: "auto",
       slaDue: slaDue ? new Date(`${slaDue}T12:00:00`).toISOString() : undefined,
       costEstimate: costEstimate ? Math.round(parseFloat(costEstimate) * 100) : undefined,
-      status: "assigned",
+      status: "pending_acceptance",
       completionChecklistId:
         completionChecklistId === "__none__" ? null : completionChecklistId,
     });
@@ -2767,48 +2800,98 @@ function WorkOrderForm({
           </div>
 
           {selectedTeamId && selectedTeamId !== "none" && (
-            <div className="space-y-2">
-              <label className="text-sm font-medium" htmlFor="assigned-to">
-                Assign to Team Member <span className="text-destructive">*</span>
-              </label>
-              <Select
-                value={assignedToId}
-                onValueChange={setAssignedToId}
-                disabled={isLoadingMembers || teamMembers.length === 0}
-              >
-                <SelectTrigger id="assigned-to" data-testid="select-assigned-to">
-                  <SelectValue
-                    placeholder={
-                      isLoadingMembers
-                        ? "Loading members..."
-                        : teamMembers.length === 0
-                          ? "No members on this team"
-                          : "Select inspector or contractor"
-                    }
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  {teamMembers.map((member: any) => {
-                    const person = member.user || member.contact;
-                    if (!person) return null;
-                    const value = member.userId || member.contactId;
-                    const kind = member.userId ? "Inspector / Staff" : "Maintenance Contractor";
-                    return (
-                      <SelectItem
-                        key={member.id}
-                        value={value}
-                        data-testid={`option-member-${member.id}`}
-                      >
-                        {person.firstName} {person.lastName}
-                        {person.email ? ` (${person.email})` : ""} — {kind}
-                      </SelectItem>
-                    );
-                  })}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                Only people added to this Maintenance Team can be assigned.
-              </p>
+            <div className="space-y-3">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">
+                  Assignment Method <span className="text-destructive">*</span>
+                </label>
+                <RadioGroup
+                  value={assignmentMethod}
+                  onValueChange={(v) => setAssignmentMethod(v as "auto" | "manual")}
+                  className="gap-3"
+                  data-testid="radio-assignment-method"
+                >
+                  <div className="flex items-start gap-3">
+                    <RadioGroupItem value="auto" id="assign-auto" className="mt-1" />
+                    <div className="space-y-0.5">
+                      <Label htmlFor="assign-auto" className="font-medium cursor-pointer">
+                        Auto-assign to available team member
+                      </Label>
+                      <p className="text-sm text-muted-foreground">
+                        Notify all team members. The first member to accept will be assigned the
+                        work order.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <RadioGroupItem value="manual" id="assign-manual" className="mt-1" />
+                    <div className="space-y-0.5">
+                      <Label htmlFor="assign-manual" className="font-medium cursor-pointer">
+                        Manually assign team member
+                      </Label>
+                      <p className="text-sm text-muted-foreground">
+                        Select a specific team member to assign the work order to.
+                      </p>
+                    </div>
+                  </div>
+                </RadioGroup>
+              </div>
+
+              {assignmentMethod === "auto" ? (
+                <Alert>
+                  <Info className="h-4 w-4" />
+                  <AlertDescription>
+                    Team members will receive an email and SMS invitation, subject to available SMS
+                    credits. The work order will remain pending until someone accepts.
+                  </AlertDescription>
+                </Alert>
+              ) : (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium" htmlFor="assigned-to">
+                    Assign to Team Member <span className="text-destructive">*</span>
+                  </label>
+                  <Select
+                    value={assignedToId}
+                    onValueChange={setAssignedToId}
+                    disabled={isLoadingMembers || teamMembers.length === 0}
+                  >
+                    <SelectTrigger id="assigned-to" data-testid="select-assigned-to">
+                      <SelectValue
+                        placeholder={
+                          isLoadingMembers
+                            ? "Loading members..."
+                            : teamMembers.length === 0
+                              ? "No members on this team"
+                              : "Select inspector or contractor"
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {teamMembers.map((member: any) => {
+                        const person = member.user || member.contact;
+                        if (!person) return null;
+                        const value = member.userId || member.contactId;
+                        const kind = member.userId
+                          ? "Inspector / Staff"
+                          : "Maintenance Contractor";
+                        return (
+                          <SelectItem
+                            key={member.id}
+                            value={value}
+                            data-testid={`option-member-${member.id}`}
+                          >
+                            {person.firstName} {person.lastName}
+                            {person.email ? ` (${person.email})` : ""} — {kind}
+                          </SelectItem>
+                        );
+                      })}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Only people added to this Maintenance Team can be assigned.
+                  </p>
+                </div>
+              )}
             </div>
           )}
         </>

@@ -3076,6 +3076,7 @@ export class DatabaseStorage implements IStorage {
           firstName: users.firstName,
           lastName: users.lastName,
           email: users.email,
+          phone: users.phone,
           role: users.role,
         },
         contact: {
@@ -3083,6 +3084,7 @@ export class DatabaseStorage implements IStorage {
           firstName: contacts.firstName,
           lastName: contacts.lastName,
           email: contacts.email,
+          phone: contacts.phone,
           type: contacts.type,
           linkedUserId: contacts.linkedUserId,
         },
