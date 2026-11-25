@@ -5,7 +5,6 @@ import { db } from "../db";
 import { storage } from "../storage";
 import {
   buildWorkOrderIdentity,
-  canAccessWorkOrder,
   type WorkOrderIdentity,
 } from "../workOrderAccess";
 import { sendQuoteToCustomerEmail } from "./maintenanceFinanceEmails";
@@ -82,10 +81,10 @@ async function assertWoAccess(
   if (!workOrder || workOrder.organizationId !== user.organizationId) {
     return { error: 404 as const, message: "Work order not found" };
   }
-  const identity = await loadIdentity(user);
-  if (!canAccessWorkOrder(identity, workOrder)) {
+  if (user.role === "tenant") {
     return { error: 403 as const, message: "Forbidden" };
   }
+  const identity = await loadIdentity(user);
   return { workOrder, identity };
 }
 

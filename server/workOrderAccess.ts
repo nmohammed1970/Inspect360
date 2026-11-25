@@ -46,6 +46,7 @@ export function isAssigneeMatch(
 /**
  * Whether the authenticated identity may read/mutate this work order.
  * Always requires matching organizationId.
+ * Demo: any same-org non-tenant staff can access (no assignee gate).
  */
 export function canAccessWorkOrder(
   identity: WorkOrderIdentity,
@@ -55,16 +56,11 @@ export function canAccessWorkOrder(
     return false;
   }
 
-  if (isOrgWideWorkOrderRole(identity.role)) {
-    return true;
+  if (identity.role === "tenant") {
+    return false;
   }
 
-  // Contractors: match by user id, linked contact id, or contractorId
-  if (identity.role === "contractor") {
-    return isAssigneeMatch(identity, workOrder);
-  }
-
-  return false;
+  return true;
 }
 
 const ASSIGNEE_STATUSES = ["assigned", "in_progress", "waiting_parts", "completed"] as const;

@@ -95,7 +95,7 @@ assert(linkedIds.includes("c1") && linkedIds.includes("c2"), "linkedUserId + con
 assert(linkedIds.includes("c4"), "non-tenant contacts match by email");
 assert(!linkedIds.includes("c3"), "tenant contact with same email is ignored");
 
-// --- clerk access ---
+// --- clerk access (demo: same-org staff, any assignment) ---
 assert(
   canAccessWorkOrder(clerkIdentity, {
     organizationId: ORG_A,
@@ -105,44 +105,20 @@ assert(
   "clerk sees WO assigned to self",
 );
 assert(
-  canAccessWorkOrder(clerkWithContactIdentity, {
-    organizationId: ORG_A,
-    assignedToId: "contact-clerk-1",
-    contractorId: null,
-  }),
-  "clerk sees WO assignedToId = their contact id",
-);
-assert(
-  canAccessWorkOrder(clerkWithContactIdentity, {
-    organizationId: ORG_A,
-    assignedToId: null,
-    contractorId: "contact-clerk-1",
-  }),
-  "clerk sees WO with matching contractorId contact",
-);
-assert(
-  !canAccessWorkOrder(clerkIdentity, {
+  canAccessWorkOrder(clerkIdentity, {
     organizationId: ORG_A,
     assignedToId: "clerk-2",
     contractorId: null,
   }),
-  "clerk denied other clerk assignment",
+  "clerk sees other clerk assignment in org",
 );
 assert(
-  !canAccessWorkOrder(clerkIdentity, {
-    organizationId: ORG_A,
-    assignedToId: null,
-    contractorId: "contact-contractor-1",
-  }),
-  "clerk denied unrelated contractor-only WO",
-);
-assert(
-  !canAccessWorkOrder(clerkIdentity, {
+  canAccessWorkOrder(clerkIdentity, {
     organizationId: ORG_A,
     assignedToId: null,
     contractorId: null,
   }),
-  "clerk denied unassigned WO",
+  "clerk sees unassigned WO in org",
 );
 assert(
   !canAccessWorkOrder(clerkIdentity, {
@@ -153,7 +129,7 @@ assert(
   "clerk denied other org even if assignedToId matches",
 );
 
-// --- contractor access ---
+// --- contractor access (demo: same-org staff) ---
 assert(
   canAccessWorkOrder(contractorIdentity, {
     organizationId: ORG_A,
@@ -165,26 +141,10 @@ assert(
 assert(
   canAccessWorkOrder(contractorIdentity, {
     organizationId: ORG_A,
-    assignedToId: "user-contractor-1",
+    assignedToId: "clerk-1",
     contractorId: null,
   }),
-  "contractor sees WO assignedToId = user id",
-);
-assert(
-  canAccessWorkOrder(contractorIdentity, {
-    organizationId: ORG_A,
-    assignedToId: "contact-contractor-1",
-    contractorId: null,
-  }),
-  "contractor sees WO assignedToId = their contact id",
-);
-assert(
-  !canAccessWorkOrder(contractorIdentity, {
-    organizationId: ORG_A,
-    assignedToId: null,
-    contractorId: "contact-other",
-  }),
-  "contractor denied other contractor contact",
+  "contractor sees clerk assignment in same org",
 );
 assert(
   !canAccessWorkOrder(contractorIdentity, {
@@ -193,14 +153,6 @@ assert(
     contractorId: "contact-contractor-1",
   }),
   "contractor denied other org",
-);
-assert(
-  !canAccessWorkOrder(contractorIdentity, {
-    organizationId: ORG_A,
-    assignedToId: "clerk-1",
-    contractorId: null,
-  }),
-  "contractor denied clerk-only assignment",
 );
 
 // --- owner ---

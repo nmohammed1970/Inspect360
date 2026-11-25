@@ -4,10 +4,6 @@ import { createHash, randomBytes } from "crypto";
 import { isAuthenticated, requireCompanyModule, requireRole } from "../auth";
 import { db } from "../db";
 import { storage } from "../storage";
-import {
-  buildWorkOrderIdentity,
-  canAccessWorkOrder,
-} from "../workOrderAccess";
 import { sendInvoiceToCustomerEmail } from "./maintenanceFinanceEmails";
 import {
   createDirectInvoice,
@@ -76,15 +72,7 @@ async function assertWoAccess(user: any, workOrderId: string) {
   if (!workOrder || workOrder.organizationId !== user.organizationId) {
     return { error: 404 as const, message: "Work order not found" };
   }
-  const orgContacts = await storage.getContactsByOrganization(user.organizationId);
-  const identity = buildWorkOrderIdentity({
-    userId: user.id,
-    organizationId: user.organizationId,
-    role: user.role || "",
-    email: user.email,
-    orgContacts,
-  });
-  if (!canAccessWorkOrder(identity, workOrder)) {
+  if (user.role === "tenant") {
     return { error: 403 as const, message: "Forbidden" };
   }
   return { workOrder };

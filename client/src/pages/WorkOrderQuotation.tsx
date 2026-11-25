@@ -153,8 +153,9 @@ export default function WorkOrderQuotation() {
   const isOwner =
     user?.role === "owner" || user?.role === "maintenance_admin";
   const canEditRecipient = isOwner;
-  const canSendQuote = isOwner || user?.role === "contractor";
-  const canConvertQuote = canSendQuote;
+  const canSendQuote =
+    isOwner || user?.role === "contractor" || user?.role === "clerk";
+  const canConvertQuote = canSendQuote
   const [lastPublicLink, setLastPublicLink] = useState<string | null>(null);
   const [lastEmailSent, setLastEmailSent] = useState<boolean | null>(null);
   const [pdfDownloading, setPdfDownloading] = useState(false);
