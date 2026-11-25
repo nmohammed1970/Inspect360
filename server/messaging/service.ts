@@ -129,8 +129,16 @@ async function hydrateMessage(message: MessagingMessage) {
   };
 }
 
-export async function touchLastSeen(userId: string) {
-  const now = new Date();
+const LAST_SEEN_THROTTLE_MS = 60_000;
+const lastSeenWrittenAt = new Map<string, number>();
+
+/** Persist lastSeenAt at most once per minute per user (WS heartbeat stays light). */
+export async function touchLastSeen(userId: string, force = false) {
+  const nowMs = Date.now();
+  const prev = lastSeenWrittenAt.get(userId) ?? 0;
+  if (!force && nowMs - prev < LAST_SEEN_THROTTLE_MS) return;
+  lastSeenWrittenAt.set(userId, nowMs);
+  const now = new Date(nowMs);
   await db.update(users).set({ lastSeenAt: now, updatedAt: now }).where(eq(users.id, userId));
 }
 
@@ -445,63 +453,83 @@ export async function listMessages(input: {
   };
 }
 
-async function notifyNewMessage(input: {
+/** Live delivery only — keeps send API fast. */
+function fanoutNewMessageSync(input: {
+  participantIds: string[];
+  message: Awaited<ReturnType<typeof hydrateMessage>>;
+}) {
+  fanoutMessagingMessage(input.participantIds, input.message, "created");
+}
+
+/** Receipts + in-app notifications — must not block HTTP send. */
+function scheduleNewMessageSideEffects(input: {
   organizationId: string;
   conversationId: string;
   message: Awaited<ReturnType<typeof hydrateMessage>>;
   participantIds: string[];
   senderId: string;
 }) {
-  fanoutMessagingMessage(input.participantIds, input.message, "created");
+  setImmediate(() => {
+    void (async () => {
+      try {
+        for (const uid of input.participantIds) {
+          if (uid === input.senderId) continue;
+          try {
+            await pushUnread(uid);
 
-  for (const uid of input.participantIds) {
-    if (uid === input.senderId) continue;
-    await pushUnread(uid);
+            if (isUserConnected(uid)) {
+              const receipt = await upsertReceipt({
+                messageId: input.message.id,
+                userId: uid,
+                deliveredAt: new Date(),
+              });
+              fanoutMessagingReceipt(input.participantIds, receipt);
+            }
 
-    // Delivered ack if online
-    if (isUserConnected(uid)) {
-      await upsertReceipt({
-        messageId: input.message.id,
-        userId: uid,
-        deliveredAt: new Date(),
-      });
-    }
+            const preview =
+              input.message.body?.slice(0, 120) ||
+              (input.message.attachments.length ? "Sent an attachment" : "New message");
+            const senderName = input.message.sender
+              ? displayName(input.message.sender)
+              : "Someone";
 
-    const preview =
-      input.message.body?.slice(0, 120) ||
-      (input.message.attachments.length ? "Sent an attachment" : "New message");
-    const senderName = input.message.sender
-      ? displayName(input.message.sender)
-      : "Someone";
-
-    try {
-      const notification = await storage.createNotification({
-        userId: uid,
-        organizationId: input.organizationId,
-        type: "direct_message",
-        title: `Message from ${senderName}`,
-        message: preview,
-        data: {
-          conversationId: input.conversationId,
-          messageId: input.message.id,
-          actionUrl: `/messages/${input.conversationId}`,
-        },
-      });
-      sendNotificationToUser(uid, {
-        id: notification.id,
-        userId: uid,
-        organizationId: input.organizationId,
-        type: notification.type,
-        title: notification.title,
-        message: notification.message,
-        data: notification.data,
-        isRead: false,
-        createdAt: notification.createdAt || new Date(),
-      });
-    } catch (err) {
-      console.error("[messaging] notification failed:", err);
-    }
-  }
+            const notification = await storage.createNotification({
+              userId: uid,
+              organizationId: input.organizationId,
+              type: "direct_message",
+              title: `Message from ${senderName}`,
+              message: preview,
+              data: {
+                conversationId: input.conversationId,
+                messageId: input.message.id,
+                actionUrl: `/messages/${input.conversationId}`,
+              },
+            });
+            sendNotificationToUser(uid, {
+              id: notification.id,
+              userId: uid,
+              organizationId: input.organizationId,
+              type: notification.type,
+              title: notification.title,
+              message: notification.message,
+              data: notification.data,
+              isRead: false,
+              createdAt: notification.createdAt || new Date(),
+            });
+          } catch (err) {
+            console.error(`[messaging] side effect failed for ${uid}:`, err);
+          }
+        }
+        try {
+          await pushUnread(input.senderId);
+        } catch (err) {
+          console.error("[messaging] sender unread push failed:", err);
+        }
+      } catch (err) {
+        console.error("[messaging] scheduleNewMessageSideEffects failed:", err);
+      }
+    })();
+  });
 }
 
 async function upsertReceipt(input: {
@@ -640,14 +668,14 @@ export async function sendMessage(input: {
 
   const hydrated = await hydrateMessage(created);
   const participantIds = await listParticipantUserIds(input.conversationId);
-  await notifyNewMessage({
+  fanoutNewMessageSync({ participantIds, message: hydrated });
+  scheduleNewMessageSideEffects({
     organizationId: input.organizationId,
     conversationId: input.conversationId,
     message: hydrated,
     participantIds,
     senderId: input.userId,
   });
-  await pushUnread(input.userId);
 
   return hydrated;
 }

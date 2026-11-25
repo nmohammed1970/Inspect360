@@ -1,5 +1,10 @@
 import { sendWsPayloadToUser, isUserConnected } from "../websocket";
 
+/**
+ * In-process WS fanout (single Node instance).
+ * Multi-node deploys will need a shared pub/sub (e.g. Redis) so connections
+ * on other processes receive the same payloads.
+ */
 export function fanoutToUsers(userIds: string[], payload: Record<string, unknown>) {
   const unique = [...new Set(userIds)];
   for (const userId of unique) {

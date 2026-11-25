@@ -50,6 +50,14 @@ import {
   type MessagingMessage,
   type MessagingUserSummary,
 } from "./types";
+import {
+  markOptimisticFailed,
+  upsertOptimisticMessage,
+} from "./applyMessagingEvent";
+import {
+  getMessagingWsConnected,
+  subscribeMessagingWsConnected,
+} from "./wsConnectionState";
 
 const REACTION_EMOJIS = ["👍", "❤️", "😂", "🎉", "👀", "🙏"];
 const COMPOSER_EMOJIS = ["😀", "🙂", "😅", "🙏", "👍", "✅", "🔥", "🎉"];
@@ -127,11 +135,22 @@ export default function MessagesPage() {
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [typingUserIds, setTypingUserIds] = useState<string[]>([]);
   const [dragOver, setDragOver] = useState(false);
+  const [wsConnected, setWsConnected] = useState(getMessagingWsConnected);
+  const [tabVisible, setTabVisible] = useState(
+    () => typeof document === "undefined" || document.visibilityState === "visible",
+  );
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const olderCursor = useRef<string | null>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
+
+  useEffect(() => subscribeMessagingWsConnected(setWsConnected), []);
+  useEffect(() => {
+    const onVis = () => setTabVisible(document.visibilityState === "visible");
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, []);
 
   const { data: conversations = [], isLoading: loadingList } = useQuery<
     MessagingConversation[]
@@ -167,6 +186,9 @@ export default function MessagesPage() {
       return res.json();
     },
     enabled: !!user && !!activeId,
+    // Lightweight poll only while WS is down and this thread is open + visible
+    refetchInterval:
+      !!activeId && tabVisible && !wsConnected ? 4000 : false,
   });
 
   const messages = messagesPage?.messages ?? [];
@@ -210,38 +232,18 @@ export default function MessagesPage() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length, activeId]);
 
+  // Typing + presence only — message cache updates are centralized in useNotifications
   useEffect(() => {
     const handler = (event: Event) => {
       const detail = (event as CustomEvent).detail as {
         type?: string;
-        message?: MessagingMessage;
-        event?: string;
         conversationId?: string;
         userId?: string;
         isTyping?: boolean;
+        online?: boolean;
+        lastSeenAt?: string | null;
       };
       if (!detail?.type) return;
-
-      if (detail.type === "messaging_message" && detail.message) {
-        const msg = detail.message;
-        queryClient.invalidateQueries({ queryKey: ["/api/messaging/conversations"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/messaging/unread-count"] });
-        if (msg.conversationId === activeId) {
-          queryClient.setQueryData(messagesKey, (prev: any) => {
-            if (!prev?.messages) return prev;
-            const exists = prev.messages.some((m: MessagingMessage) => m.id === msg.id);
-            if (exists) {
-              return {
-                ...prev,
-                messages: prev.messages.map((m: MessagingMessage) =>
-                  m.id === msg.id ? msg : m,
-                ),
-              };
-            }
-            return { ...prev, messages: [...prev.messages, msg] };
-          });
-        }
-      }
 
       if (detail.type === "messaging_typing" && detail.conversationId === activeId) {
         const uid = detail.userId;
@@ -254,14 +256,31 @@ export default function MessagesPage() {
         });
       }
 
-      if (detail.type === "messaging_receipt") {
-        queryClient.invalidateQueries({ queryKey: messagesKey });
+      if (detail.type === "messaging_presence" && detail.userId) {
+        queryClient.setQueriesData<MessagingConversation[]>(
+          { queryKey: ["/api/messaging/conversations"] },
+          (list) => {
+            if (!Array.isArray(list)) return list;
+            return list.map((conv) => ({
+              ...conv,
+              participants: conv.participants.map((p) =>
+                p.id === detail.userId
+                  ? {
+                      ...p,
+                      online: detail.online,
+                      lastSeenAt: detail.lastSeenAt ?? p.lastSeenAt,
+                    }
+                  : p,
+              ),
+            }));
+          },
+        );
       }
     };
     window.addEventListener("inspect360:messaging", handler as EventListener);
     return () =>
       window.removeEventListener("inspect360:messaging", handler as EventListener);
-  }, [activeId, messagesKey, queryClient, user?.id]);
+  }, [activeId, queryClient, user?.id]);
 
   const sendTyping = useCallback(
     (isTyping: boolean) => {
@@ -299,54 +318,169 @@ export default function MessagesPage() {
     },
   });
 
+  const postMessage = async (input: {
+    conversationId: string;
+    body: string | null;
+    clientMessageId: string;
+    replyToMessageId?: string | null;
+    attachments: Array<{
+      objectPath: string;
+      fileName: string;
+      mimeType: string;
+      byteSize: number;
+    }>;
+  }) => {
+    const res = await apiRequest(
+      "POST",
+      `/api/messaging/conversations/${input.conversationId}/messages`,
+      {
+        body: input.body,
+        clientMessageId: input.clientMessageId,
+        replyToMessageId: input.replyToMessageId ?? null,
+        attachments: input.attachments,
+      },
+    );
+    return res.json() as Promise<MessagingMessage>;
+  };
+
   const sendMutation = useMutation({
-    mutationFn: async () => {
-      if (!activeId) return;
-      if (editing) {
+    mutationFn: async (retry?: {
+      clientMessageId: string;
+      body: string | null;
+      replyToMessageId?: string | null;
+      attachments: Array<{
+        objectPath: string;
+        fileName: string;
+        mimeType: string;
+        byteSize: number;
+      }>;
+    }) => {
+      if (!activeId || !user) return null;
+      if (editing && !retry) {
         const res = await apiRequest("PATCH", `/api/messaging/messages/${editing.id}`, {
           body: composer.trim(),
         });
-        return res.json();
+        return res.json() as Promise<MessagingMessage>;
       }
+
       const clientMessageId =
-        typeof crypto !== "undefined" && "randomUUID" in crypto
+        retry?.clientMessageId ||
+        (typeof crypto !== "undefined" && "randomUUID" in crypto
           ? crypto.randomUUID()
-          : `${Date.now()}-${Math.random()}`;
-      const res = await apiRequest(
-        "POST",
-        `/api/messaging/conversations/${activeId}/messages`,
-        {
-          body: composer.trim() || null,
-          clientMessageId,
-          replyToMessageId: replyTo?.id ?? null,
-          attachments: pendingFiles.map(({ objectPath, fileName, mimeType, byteSize }) => ({
+          : `${Date.now()}-${Math.random()}`);
+      const body = retry ? retry.body : composer.trim() || null;
+      const replyToMessageId = retry ? retry.replyToMessageId : replyTo?.id ?? null;
+      const attachments = retry
+        ? retry.attachments
+        : pendingFiles.map(({ objectPath, fileName, mimeType, byteSize }) => ({
             objectPath,
             fileName,
             mimeType,
             byteSize,
+          }));
+
+      if (!retry) {
+        const optimistic: MessagingMessage = {
+          id: `temp-${clientMessageId}`,
+          conversationId: activeId,
+          organizationId: user.organizationId || "",
+          senderId: user.id,
+          body,
+          clientMessageId,
+          replyToMessageId: replyToMessageId ?? null,
+          replyTo: replyTo
+            ? {
+                id: replyTo.id,
+                body: replyTo.body,
+                senderId: replyTo.senderId,
+                deletedAt: replyTo.deletedAt,
+              }
+            : null,
+          createdAt: new Date().toISOString(),
+          sender: {
+            id: user.id,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            profileImageUrl: user.profileImageUrl,
+            role: user.role,
+          },
+          attachments: attachments.map((a, i) => ({
+            id: `temp-att-${clientMessageId}-${i}`,
+            messageId: `temp-${clientMessageId}`,
+            objectPath: a.objectPath,
+            fileName: a.fileName,
+            mimeType: a.mimeType,
+            byteSize: a.byteSize,
+            sortOrder: i,
           })),
-        },
-      );
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.message || "Failed to send");
+          reactions: [],
+          receipts: [],
+          pending: true,
+          failed: false,
+        };
+        upsertOptimisticMessage(queryClient, activeId, optimistic);
+        setComposer("");
+        setReplyTo(null);
+        setPendingFiles([]);
+        sendTyping(false);
       }
-      return res.json();
+
+      try {
+        const saved = await postMessage({
+          conversationId: activeId,
+          body,
+          clientMessageId,
+          replyToMessageId,
+          attachments,
+        });
+        upsertOptimisticMessage(queryClient, activeId, {
+          ...saved,
+          pending: false,
+          failed: false,
+        });
+        return saved;
+      } catch (err) {
+        markOptimisticFailed(queryClient, activeId, clientMessageId);
+        throw err;
+      }
     },
-    onSuccess: () => {
-      setComposer("");
-      setReplyTo(null);
-      setEditing(null);
-      setPendingFiles([]);
-      sendTyping(false);
-      queryClient.invalidateQueries({ queryKey: messagesKey });
-      queryClient.invalidateQueries({ queryKey: ["/api/messaging/conversations"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/messaging/unread-count"] });
+    onSuccess: (saved) => {
+      if (editing) {
+        setEditing(null);
+        setComposer("");
+        if (saved && activeId) {
+          upsertOptimisticMessage(queryClient, activeId, {
+            ...saved,
+            pending: false,
+            failed: false,
+          });
+        }
+      }
     },
     onError: (err: Error) => {
       toast({ title: "Send failed", description: err.message, variant: "destructive" });
     },
   });
+
+  const retryFailedMessage = (msg: MessagingMessage) => {
+    if (!msg.clientMessageId || !activeId) return;
+    upsertOptimisticMessage(queryClient, activeId, {
+      ...msg,
+      pending: true,
+      failed: false,
+    });
+    sendMutation.mutate({
+      clientMessageId: msg.clientMessageId,
+      body: msg.body,
+      replyToMessageId: msg.replyToMessageId,
+      attachments: (msg.attachments || []).map((a) => ({
+        objectPath: a.objectPath,
+        fileName: a.fileName,
+        mimeType: a.mimeType,
+        byteSize: a.byteSize,
+      })),
+    });
+  };
 
   const uploadFiles = async (files: FileList | File[]) => {
     const list = Array.from(files);
@@ -700,7 +834,17 @@ export default function MessagesPage() {
                                 >
                                   <span>{formatTime(msg.createdAt)}</span>
                                   {msg.editedAt && !msg.deletedAt && <span>· edited</span>}
-                                  {mine && !msg.deletedAt && (
+                                  {msg.pending && <span>· sending…</span>}
+                                  {msg.failed && (
+                                    <button
+                                      type="button"
+                                      className="underline"
+                                      onClick={() => retryFailedMessage(msg)}
+                                    >
+                                      Failed · Retry
+                                    </button>
+                                  )}
+                                  {mine && !msg.deletedAt && !msg.pending && !msg.failed && (
                                     status === "read" ? (
                                       <CheckCheck className="h-3 w-3" />
                                     ) : status === "delivered" ? (
@@ -730,11 +874,17 @@ export default function MessagesPage() {
                                             "POST",
                                             `/api/messaging/messages/${msg.id}/reactions`,
                                             { emoji },
-                                          ).then(() =>
-                                            queryClient.invalidateQueries({
-                                              queryKey: messagesKey,
-                                            }),
                                           )
+                                            .then((r) => r.json())
+                                            .then((updated: MessagingMessage) => {
+                                              if (activeId) {
+                                                upsertOptimisticMessage(
+                                                  queryClient,
+                                                  activeId,
+                                                  updated,
+                                                );
+                                              }
+                                            })
                                         }
                                       >
                                         {emoji} {count}
@@ -786,11 +936,17 @@ export default function MessagesPage() {
                                             "POST",
                                             `/api/messaging/messages/${msg.id}/reactions`,
                                             { emoji },
-                                          ).then(() =>
-                                            queryClient.invalidateQueries({
-                                              queryKey: messagesKey,
-                                            }),
                                           )
+                                            .then((r) => r.json())
+                                            .then((updated: MessagingMessage) => {
+                                              if (activeId) {
+                                                upsertOptimisticMessage(
+                                                  queryClient,
+                                                  activeId,
+                                                  updated,
+                                                );
+                                              }
+                                            })
                                         }
                                       >
                                         <Smile className="mr-2 h-3.5 w-3.5" />
@@ -814,11 +970,17 @@ export default function MessagesPage() {
                                             apiRequest(
                                               "DELETE",
                                               `/api/messaging/messages/${msg.id}`,
-                                            ).then(() =>
-                                              queryClient.invalidateQueries({
-                                                queryKey: messagesKey,
-                                              }),
                                             )
+                                              .then((r) => r.json())
+                                              .then((updated: MessagingMessage) => {
+                                                if (activeId) {
+                                                  upsertOptimisticMessage(
+                                                    queryClient,
+                                                    activeId,
+                                                    updated,
+                                                  );
+                                                }
+                                              })
                                           }
                                         >
                                           <Trash2 className="mr-2 h-3.5 w-3.5" />

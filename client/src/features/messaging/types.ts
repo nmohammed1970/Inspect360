@@ -56,6 +56,10 @@ export interface MessagingMessage {
   attachments: MessagingAttachment[];
   reactions: MessagingReaction[];
   receipts: MessagingReceipt[];
+  /** Client-only: optimistic send in flight */
+  pending?: boolean;
+  /** Client-only: optimistic send failed */
+  failed?: boolean;
 }
 
 export interface MessagingConversation {
