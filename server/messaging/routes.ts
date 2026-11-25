@@ -388,18 +388,12 @@ export function registerMessagingRoutes(app: Express) {
         });
         const objectStorage = new ObjectStorageService();
         const file = await objectStorage.getObjectEntityFile(attachment.objectPath);
-        res.setHeader(
-          "Content-Type",
-          attachment.mimeType || "application/octet-stream",
+        await objectStorage.downloadObject(
+          file,
+          res,
+          3600,
+          attachment.fileName,
         );
-        const disposition = attachment.mimeType?.startsWith("image/")
-          ? "inline"
-          : "attachment";
-        res.setHeader(
-          "Content-Disposition",
-          `${disposition}; filename="${attachment.fileName.replace(/"/g, "")}"`,
-        );
-        await objectStorage.downloadObject(file, res);
       } catch (error) {
         handleError(res, error, "Failed to download attachment");
       }

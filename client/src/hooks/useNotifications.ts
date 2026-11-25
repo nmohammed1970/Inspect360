@@ -3,6 +3,10 @@ import { useAuth } from "./useAuth";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "../lib/queryClient";
 import { useToast } from "./use-toast";
+import {
+  isViewingMessagingConversation,
+  playMessageReceivedSound,
+} from "@/lib/messageNotificationSound";
 
 export interface Notification {
   id: string;
@@ -224,6 +228,16 @@ export function useNotifications() {
                 queryClient.invalidateQueries({
                   queryKey: ["/api/messaging/conversations"],
                 });
+              }
+              if (
+                data.type === "messaging_message" &&
+                (data.event === "created" || data.event == null) &&
+                data.message?.senderId &&
+                data.message.senderId !== user.id &&
+                data.message.conversationId &&
+                !isViewingMessagingConversation(data.message.conversationId)
+              ) {
+                playMessageReceivedSound();
               }
               window.dispatchEvent(
                 new CustomEvent("inspect360:messaging", { detail: data }),

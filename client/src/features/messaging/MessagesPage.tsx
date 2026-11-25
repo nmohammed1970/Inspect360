@@ -363,9 +363,9 @@ export default function MessagesPage() {
       setUploadProgress(80);
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Upload failed");
-      const next = (data.files as MessagingAttachment[]).map((f) => ({
+      const next = (data.files as MessagingAttachment[]).map((f, i) => ({
         objectPath: f.objectPath,
-        fileName: f.fileName,
+        fileName: f.fileName || list[i]?.name || "file",
         mimeType: f.mimeType,
         byteSize: f.byteSize,
         previewUrl: f.mimeType.startsWith("image/")
