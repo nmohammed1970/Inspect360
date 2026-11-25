@@ -133,7 +133,7 @@ export const WorkOrderFinanceLinks = ({
     return (
       <div className="flex flex-wrap gap-2 w-full">
         <Skeleton className="h-8 w-32" />
-        {invoicesEnabled ? <Skeleton className="h-8 w-28" /> : null}
+        {canShowInvoice ? <Skeleton className="h-8 w-28" /> : null}
       </div>
     );
   }
