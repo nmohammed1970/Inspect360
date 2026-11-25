@@ -12,7 +12,7 @@ import {
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
-export const MESSAGING_CONVERSATION_TYPES = ["direct", "group"] as const;
+export const MESSAGING_CONVERSATION_TYPES = ["direct", "group", "maintenance"] as const;
 export type MessagingConversationType = (typeof MESSAGING_CONVERSATION_TYPES)[number];
 
 export const messagingConversations = pgTable(
@@ -24,6 +24,8 @@ export const messagingConversations = pgTable(
     title: varchar("title"),
     /** Sorted participant ids joined by ':' for unique 1:1 per org */
     directKey: varchar("direct_key"),
+    /** Set for type=maintenance — one conversation per MR */
+    maintenanceRequestId: varchar("maintenance_request_id"),
     createdById: varchar("created_by_id").notNull(),
     lastMessageAt: timestamp("last_message_at"),
     createdAt: timestamp("created_at").defaultNow(),
@@ -37,6 +39,12 @@ export const messagingConversations = pgTable(
     uniqueIndex("messaging_conversations_direct_key_uidx").on(
       table.organizationId,
       table.directKey,
+    ),
+    uniqueIndex("messaging_conversations_mr_uidx").on(table.maintenanceRequestId),
+    index("messaging_conversations_org_type_last_idx").on(
+      table.organizationId,
+      table.type,
+      table.lastMessageAt,
     ),
   ],
 );
@@ -159,6 +167,10 @@ export type MessagingReceipt = typeof messagingReceipts.$inferSelect;
 export const createConversationBodySchema = z.object({
   participantIds: z.array(z.string().min(1)).min(1).max(50),
   title: z.string().trim().min(1).max(120).optional(),
+});
+
+export const ensureMaintenanceDiscussionBodySchema = z.object({
+  maintenanceRequestId: z.string().min(1),
 });
 
 export const sendMessageBodySchema = z.object({

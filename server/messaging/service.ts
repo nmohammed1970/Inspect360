@@ -203,6 +203,7 @@ export async function listConversations(
   organizationId: string,
   userId: string,
   q?: string,
+  category: "all" | "direct" | "maintenance" = "all",
 ) {
   const myParts = await db
     .select()
@@ -222,8 +223,18 @@ export async function listConversations(
     )
     .orderBy(desc(messagingConversations.lastMessageAt), desc(messagingConversations.createdAt));
 
+  const { loadMaintenanceMeta } = await import("./maintenanceThreads");
+
   const results = [];
   for (const conv of conversations) {
+    if (category === "maintenance" && conv.type !== "maintenance") continue;
+    if (
+      category === "direct" &&
+      conv.type !== "direct" &&
+      conv.type !== "group"
+    ) {
+      continue;
+    }
     const participantRows = await db
       .select({
         userId: messagingParticipants.userId,
@@ -252,14 +263,22 @@ export async function listConversations(
         online: isUserConnected(p.userId),
       }));
 
+    const maintenanceRequest =
+      conv.type === "maintenance" && conv.maintenanceRequestId
+        ? await loadMaintenanceMeta(conv.maintenanceRequestId, organizationId)
+        : null;
+
     const title =
-      conv.type === "group"
-        ? conv.title || "Group chat"
-        : peers.map((p) => displayName(p)).join(", ") || "Conversation";
+      conv.type === "maintenance"
+        ? conv.title || maintenanceRequest?.title || "Maintenance discussion"
+        : conv.type === "group"
+          ? conv.title || "Group chat"
+          : peers.map((p) => displayName(p)).join(", ") || "Conversation";
 
     if (q?.trim()) {
       const needle = q.trim().toLowerCase();
-      const hay = `${title} ${peers.map((p) => displayName(p)).join(" ")}`.toLowerCase();
+      const hay =
+        `${title} ${peers.map((p) => displayName(p)).join(" ")} ${maintenanceRequest?.propertyLabel || ""} ${maintenanceRequest?.reference || ""}`.toLowerCase();
       if (!hay.includes(needle)) continue;
     }
 
@@ -289,6 +308,8 @@ export async function listConversations(
       type: conv.type,
       title,
       organizationId: conv.organizationId,
+      maintenanceRequestId: conv.maintenanceRequestId ?? null,
+      maintenanceRequest,
       lastMessageAt: conv.lastMessageAt,
       createdAt: conv.createdAt,
       participants: participantRows.map((p) => ({
@@ -317,6 +338,84 @@ export async function listConversations(
   }
 
   return results;
+}
+
+export async function ensureMaintenanceDiscussion(input: {
+  organizationId: string;
+  maintenanceRequestId: string;
+  createdById: string;
+  actorRole: string;
+}) {
+  const {
+    assertCanAccessMaintenanceRequestForDiscussion,
+    findConversationByMaintenanceRequestId,
+    ensureActorIsParticipant,
+    resolveMaintenanceDiscussionParticipantIds,
+    createMaintenanceConversationRow,
+  } = await import("./maintenanceThreads");
+
+  const request = await assertCanAccessMaintenanceRequestForDiscussion({
+    userId: input.createdById,
+    userRole: input.actorRole,
+    organizationId: input.organizationId,
+    maintenanceRequestId: input.maintenanceRequestId,
+  });
+
+  const existing = await findConversationByMaintenanceRequestId(
+    input.organizationId,
+    input.maintenanceRequestId,
+  );
+  if (existing) {
+    await ensureActorIsParticipant({
+      conversationId: existing.id,
+      userId: input.createdById,
+      actorRole: input.actorRole,
+    });
+    return getConversationDetail(
+      input.organizationId,
+      input.createdById,
+      existing.id,
+    );
+  }
+
+  const participantIds = await resolveMaintenanceDiscussionParticipantIds(
+    input.organizationId,
+    request.reportedBy,
+  );
+  if (!participantIds.includes(input.createdById)) {
+    participantIds.push(input.createdById);
+  }
+
+  const created = await createMaintenanceConversationRow({
+    organizationId: input.organizationId,
+    maintenanceRequestId: request.id,
+    createdById: input.createdById,
+    title: request.title || "Maintenance request",
+    participantIds,
+  });
+
+  return getConversationDetail(
+    input.organizationId,
+    input.createdById,
+    created.id,
+  );
+}
+
+/** Fire-and-forget after MR create — never fails the MR. */
+export function scheduleEnsureMaintenanceDiscussion(input: {
+  organizationId: string;
+  maintenanceRequestId: string;
+  createdById: string;
+  actorRole: string;
+}) {
+  setImmediate(() => {
+    void ensureMaintenanceDiscussion(input).catch((err) => {
+      console.error(
+        `[messaging] ensureMaintenanceDiscussion failed for MR ${input.maintenanceRequestId}:`,
+        err,
+      );
+    });
+  });
 }
 
 export async function getConversationDetail(

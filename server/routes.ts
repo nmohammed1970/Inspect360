@@ -15379,6 +15379,15 @@ ${optionalNotes || "No details provided."}`;
         }),
       );
 
+      void import("./messaging/service").then(({ scheduleEnsureMaintenanceDiscussion }) =>
+        scheduleEnsureMaintenanceDiscussion({
+          organizationId: request.organizationId,
+          maintenanceRequestId: request.id,
+          createdById: userId,
+          actorRole: user.role,
+        }),
+      );
+
       res.json(request);
     } catch (error) {
       console.error("Error creating maintenance request:", error);
@@ -15476,6 +15485,15 @@ ${optionalNotes || "No details provided."}`;
           blockId: request.blockId,
           reportedByUserId: request.reportedBy,
           source: request.source,
+        }),
+      );
+
+      void import("./messaging/service").then(({ scheduleEnsureMaintenanceDiscussion }) =>
+        scheduleEnsureMaintenanceDiscussion({
+          organizationId: request.organizationId,
+          maintenanceRequestId: request.id,
+          createdById: userId,
+          actorRole: user.role,
         }),
       );
 
@@ -33109,6 +33127,15 @@ You can help the tenant with:
             source: maintenanceRequest.source,
           }),
         );
+
+        void import("./messaging/service").then(({ scheduleEnsureMaintenanceDiscussion }) =>
+          scheduleEnsureMaintenanceDiscussion({
+            organizationId: maintenanceRequest.organizationId,
+            maintenanceRequestId: maintenanceRequest.id,
+            createdById: userId,
+            actorRole: user.role || "tenant",
+          }),
+        );
       }
 
       res.json({ chatId: chat.id, userMessage, assistantMessage });
@@ -33185,6 +33212,15 @@ You can help the tenant with:
           blockId: maintenanceRequest.blockId,
           reportedByUserId: maintenanceRequest.reportedBy,
           source: maintenanceRequest.source,
+        }),
+      );
+
+      void import("./messaging/service").then(({ scheduleEnsureMaintenanceDiscussion }) =>
+        scheduleEnsureMaintenanceDiscussion({
+          organizationId: maintenanceRequest.organizationId,
+          maintenanceRequestId: maintenanceRequest.id,
+          createdById: userId,
+          actorRole: user.role || "tenant",
         }),
       );
 
@@ -33290,6 +33326,15 @@ You can help the tenant with:
           blockId: maintenanceRequest.blockId,
           reportedByUserId: maintenanceRequest.reportedBy,
           source: maintenanceRequest.source,
+        }),
+      );
+
+      void import("./messaging/service").then(({ scheduleEnsureMaintenanceDiscussion }) =>
+        scheduleEnsureMaintenanceDiscussion({
+          organizationId: maintenanceRequest.organizationId,
+          maintenanceRequestId: maintenanceRequest.id,
+          createdById: userId,
+          actorRole: user.role || "tenant",
         }),
       );
 

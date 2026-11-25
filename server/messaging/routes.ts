@@ -6,6 +6,7 @@ import { ObjectStorageService } from "../objectStorage";
 import {
   createConversationBodySchema,
   editMessageBodySchema,
+  ensureMaintenanceDiscussionBodySchema,
   forwardMessageBodySchema,
   isMessagingMimeAllowed,
   messagingMaxBytesForMime,
@@ -63,12 +64,46 @@ export function registerMessagingRoutes(app: Express) {
     try {
       const user = await requireMessagingUser(req.user.id);
       const q = typeof req.query.q === "string" ? req.query.q : undefined;
-      const list = await messaging.listConversations(user.organizationId, user.id, q);
+      const rawCategory =
+        typeof req.query.category === "string" ? req.query.category : "all";
+      const category =
+        rawCategory === "direct" || rawCategory === "maintenance"
+          ? rawCategory
+          : "all";
+      const list = await messaging.listConversations(
+        user.organizationId,
+        user.id,
+        q,
+        category,
+      );
       res.json(list);
     } catch (error) {
       handleError(res, error, "Failed to load conversations");
     }
   });
+
+  app.post(
+    "/api/messaging/maintenance-discussions",
+    isAuthenticated,
+    async (req: any, res) => {
+      try {
+        const user = await requireMessagingUser(req.user.id);
+        const parsed = ensureMaintenanceDiscussionBodySchema.safeParse(req.body);
+        if (!parsed.success) {
+          return res.status(400).json({ message: "maintenanceRequestId required" });
+        }
+        const conversation = await messaging.ensureMaintenanceDiscussion({
+          organizationId: user.organizationId,
+          maintenanceRequestId: parsed.data.maintenanceRequestId,
+          createdById: user.id,
+          actorRole: user.role,
+        });
+        res.status(201).json(conversation);
+      } catch (error) {
+        handleError(res, error, "Failed to open maintenance discussion");
+      }
+    },
+  );
 
   app.post("/api/messaging/conversations", isAuthenticated, async (req: any, res) => {
     try {

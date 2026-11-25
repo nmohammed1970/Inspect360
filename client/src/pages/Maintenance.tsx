@@ -1,5 +1,5 @@
 import { PreviewableImage } from "@/components/ImagePreview";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { useLocation, useSearch, useParams } from "wouter";
@@ -9,7 +9,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Plus, Wrench, Upload, Sparkles, Loader2, X, Check, ChevronsUpDown, Pencil, Trash2, Clipboard, Calendar, User as UserIcon, AlertCircle, AlertTriangle, CheckCircle2, Clock, Building2, MoreVertical, ArrowRight, MessageSquare, Info } from "lucide-react";
-import { MaintenanceRequestDiscussion } from "@/components/MaintenanceRequestDiscussion";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -233,7 +232,7 @@ export default function Maintenance() {
   const [workOrderToDelete, setWorkOrderToDelete] = useState<WorkOrder | null>(null);
   const [scheduleWorkOrder, setScheduleWorkOrder] = useState<WorkOrder | null>(null);
   const [scheduleAtLocal, setScheduleAtLocal] = useState("");
-  const [discussionRequest, setDiscussionRequest] = useState<MaintenanceRequestWithDetails | null>(null);
+  const [openingDiscussionId, setOpeningDiscussionId] = useState<string | null>(null);
 
   const { data: completionChecklists = [] } = useQuery<any[]>({
     queryKey: ["/api/completion-checklists"],
@@ -283,6 +282,49 @@ export default function Maintenance() {
     enabled: isMaintenanceEnabled !== false // Only fetch if we're not sure it's disabled, or if it is enabled. Actually better to fetch if enabled.
   });
 
+  const { data: maintenanceConversations = [] } = useQuery<
+    Array<{ id: string; maintenanceRequestId?: string | null; unreadCount?: number }>
+  >({
+    queryKey: ["/api/messaging/conversations", "maintenance"],
+    queryFn: async () => {
+      const res = await apiRequest(
+        "GET",
+        "/api/messaging/conversations?category=maintenance",
+      );
+      return res.json();
+    },
+    enabled: !!user && isMaintenanceEnabled !== false,
+    refetchInterval: 60_000,
+  });
+
+  const discussionUnreadByRequestId = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const c of maintenanceConversations) {
+      if (c.maintenanceRequestId && (c.unreadCount || 0) > 0) {
+        map.set(c.maintenanceRequestId, c.unreadCount || 0);
+      }
+    }
+    return map;
+  }, [maintenanceConversations]);
+
+  const openMaintenanceDiscussion = async (requestId: string) => {
+    setOpeningDiscussionId(requestId);
+    try {
+      const res = await apiRequest("POST", "/api/messaging/maintenance-discussions", {
+        maintenanceRequestId: requestId,
+      });
+      const conv = await res.json();
+      navigate(`/messages/${conv.id}`);
+    } catch (err) {
+      toast({
+        title: "Could not open discussion",
+        description: err instanceof Error ? err.message : "Try again",
+        variant: "destructive",
+      });
+    } finally {
+      setOpeningDiscussionId(null);
+    }
+  };
 
   // Fetch properties
   const { data: properties = [] } = useQuery<Property[]>({
@@ -1830,18 +1872,29 @@ export default function Maintenance() {
                         </PortfolioTableCell>
                         <PortfolioTableCell className="py-2.5">
                           <div className="flex items-center justify-end gap-0.5">
-                            {(isMaintenanceManager ||
-                              isAssigneeRole ||
-                              user?.role === "tenant") && (
+                            {(isMaintenanceManager || user?.role === "tenant") && (
                               <Button
                                 variant="ghost"
                                 size="sm"
                                 className="h-8 px-2 text-primary"
-                                onClick={() => setDiscussionRequest(request)}
+                                disabled={openingDiscussionId === request.id}
+                                onClick={() => openMaintenanceDiscussion(request.id)}
                                 data-testid={`button-discussion-${request.id}`}
                               >
-                                Open
-                                <ArrowRight className="ml-1 h-3.5 w-3.5" />
+                                {openingDiscussionId === request.id ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <>
+                                    Open
+                                    {(discussionUnreadByRequestId.get(request.id) || 0) >
+                                      0 && (
+                                      <Badge className="ml-1 h-4 min-w-4 rounded-full px-1 text-[10px]">
+                                        {discussionUnreadByRequestId.get(request.id)}
+                                      </Badge>
+                                    )}
+                                    <ArrowRight className="ml-1 h-3.5 w-3.5" />
+                                  </>
+                                )}
                               </Button>
                             )}
                             {linkedWorkOrder && (canOwnerAct || canFieldAct) ? (
@@ -2086,18 +2139,26 @@ export default function Maintenance() {
                           )
                         )}
 
-                        {(isMaintenanceManager ||
-                          isAssigneeRole ||
-                          user?.role === "tenant") && (
+                        {(isMaintenanceManager || user?.role === "tenant") && (
                           <Button
                             variant="outline"
                             size="sm"
                             className="h-8 rounded-full px-3 text-xs"
-                            onClick={() => setDiscussionRequest(request)}
+                            disabled={openingDiscussionId === request.id}
+                            onClick={() => openMaintenanceDiscussion(request.id)}
                             data-testid={`button-discussion-${request.id}`}
                           >
-                            <MessageSquare className="mr-1.5 h-3.5 w-3.5" />
+                            {openingDiscussionId === request.id ? (
+                              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <MessageSquare className="mr-1.5 h-3.5 w-3.5" />
+                            )}
                             Discussion
+                            {(discussionUnreadByRequestId.get(request.id) || 0) > 0 && (
+                              <Badge className="ml-1.5 h-4 min-w-4 rounded-full px-1 text-[10px]">
+                                {discussionUnreadByRequestId.get(request.id)}
+                              </Badge>
+                            )}
                           </Button>
                         )}
 
@@ -2597,35 +2658,6 @@ export default function Maintenance() {
           )}
         </TabsContent>
       </Tabs>
-
-      <Dialog
-        open={!!discussionRequest}
-        onOpenChange={(open) => {
-          if (!open) setDiscussionRequest(null);
-        }}
-      >
-        <DialogContent className={cn(dialogContentBase, "max-w-lg")} data-testid="dialog-mr-discussion">
-          <DialogHeader>
-            <DialogTitle>Discussion</DialogTitle>
-            <DialogDescription>
-              {user?.role === "tenant"
-                ? "Messages with your maintenance team about this request."
-                : "Tips and updates with the tenant on this request."}
-            </DialogDescription>
-          </DialogHeader>
-          {discussionRequest ? (
-            <MaintenanceRequestDiscussion
-              requestId={discussionRequest.id}
-              apiBase={
-                user?.role === "tenant"
-                  ? `/api/tenant/maintenance-requests/${discussionRequest.id}/messages`
-                  : `/api/maintenance/${discussionRequest.id}/messages`
-              }
-              requestTitle={discussionRequest.title}
-            />
-          ) : null}
-        </DialogContent>
-      </Dialog>
 
       <WorkOrderCompleteDialog
         workOrderId={completeWorkOrderId}

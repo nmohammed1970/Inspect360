@@ -62,11 +62,21 @@ export interface MessagingMessage {
   failed?: boolean;
 }
 
+export interface MaintenanceRequestMeta {
+  requestId: string;
+  title: string;
+  status: string;
+  propertyLabel: string | null;
+  reference: string;
+}
+
 export interface MessagingConversation {
   id: string;
   type: string;
   title: string;
   organizationId: string;
+  maintenanceRequestId?: string | null;
+  maintenanceRequest?: MaintenanceRequestMeta | null;
   lastMessageAt?: string | Date | null;
   createdAt?: string | Date | null;
   participants: MessagingUserSummary[];

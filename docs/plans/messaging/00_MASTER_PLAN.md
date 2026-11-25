@@ -47,6 +47,7 @@ Do not start the next phase until the current phase acceptance criteria pass.
 | 03 Rich chat | Done |
 | 04 Media | Done |
 | 05 Hardening | Done |
+| Maintenance discussion threads | Done |
 
 ## 5. Contabo migrations
 

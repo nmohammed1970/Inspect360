@@ -77,6 +77,8 @@ function patchConversationListOnCreate(
 
     const updated: MessagingConversation = {
       ...conv,
+      maintenanceRequestId: conv.maintenanceRequestId,
+      maintenanceRequest: conv.maintenanceRequest,
       lastMessageAt: message.createdAt,
       lastMessage: {
         id: message.id,
