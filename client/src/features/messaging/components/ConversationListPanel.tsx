@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useMemo } from "react";
 import { Loader2, Plus, Search } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -8,10 +9,13 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import { StatusPill } from "@/components/workspace/StatusPill";
 import { cn } from "@/lib/utils";
+import { maintenanceRequestStatusTone } from "@shared/statusPriorityStyles";
 import {
   conversationAvatarFallback,
   conversationAvatarSrc,
+  messagingDisplayName,
   type MessagingConversation,
 } from "../types";
 import { formatMessageTime } from "../messagingFormat";
@@ -28,6 +32,36 @@ export interface ConversationListPanelProps {
   className?: string;
   footer?: ReactNode;
 }
+
+function humanizeStatus(status?: string | null) {
+  if (!status) return "Unknown";
+  return status
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function lastMessagePreview(
+  conv: MessagingConversation,
+  selfId?: string,
+): string {
+  const last = conv.lastMessage;
+  if (!last) return "No messages yet";
+  if (last.deletedAt) return "Message deleted";
+
+  const sender =
+    last.senderId === selfId
+      ? "You"
+      : messagingDisplayName(
+          conv.participants.find((p) => p.id === last.senderId),
+        );
+  const body = last.body?.trim() || "Attachment";
+  return `${sender}: ${body}`;
+}
+
+const unreadBadgeClass =
+  "ml-1 h-4 min-w-4 justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold text-destructive-foreground";
 
 export const ConversationListPanel = ({
   listCategory,
@@ -60,6 +94,30 @@ export const ConversationListPanel = ({
     enabled: !!user,
   });
 
+  const { data: allConversations = [] } = useQuery<MessagingConversation[]>({
+    queryKey: ["/api/messaging/conversations", "all", ""],
+    queryFn: async () => {
+      const res = await apiRequest(
+        "GET",
+        `/api/messaging/conversations?category=all`,
+      );
+      return res.json();
+    },
+    enabled: !!user,
+  });
+
+  const { directUnread, maintenanceUnread } = useMemo(() => {
+    let direct = 0;
+    let maintenance = 0;
+    for (const conv of allConversations) {
+      const count = conv.unreadCount || 0;
+      if (count <= 0) continue;
+      if (conv.type === "maintenance") maintenance += count;
+      else direct += count;
+    }
+    return { directUnread: direct, maintenanceUnread: maintenance };
+  }, [allConversations]);
+
   return (
     <div className={cn("flex min-h-0 flex-1 flex-col", className)}>
       <div className={cn("space-y-2 border-b", compact ? "p-2" : "p-3")}>
@@ -67,7 +125,7 @@ export const ConversationListPanel = ({
           <button
             type="button"
             className={cn(
-              "rounded-md px-2 py-1.5 text-xs font-medium transition-colors",
+              "inline-flex items-center justify-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors",
               listCategory === "direct"
                 ? "bg-background shadow-sm"
                 : "text-muted-foreground",
@@ -75,12 +133,20 @@ export const ConversationListPanel = ({
             onClick={() => onListCategoryChange("direct")}
             data-testid="tab-direct-messages"
           >
-            Direct Messages
+            <span>Direct Messages</span>
+            {directUnread > 0 && (
+              <Badge
+                className={unreadBadgeClass}
+                data-testid="badge-tab-direct-unread"
+              >
+                {directUnread > 99 ? "99+" : directUnread}
+              </Badge>
+            )}
           </button>
           <button
             type="button"
             className={cn(
-              "rounded-md px-2 py-1.5 text-xs font-medium transition-colors",
+              "inline-flex items-center justify-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors",
               listCategory === "maintenance"
                 ? "bg-background shadow-sm"
                 : "text-muted-foreground",
@@ -88,7 +154,15 @@ export const ConversationListPanel = ({
             onClick={() => onListCategoryChange("maintenance")}
             data-testid="tab-maintenance-discussions"
           >
-            Maintenance
+            <span>Maintenance</span>
+            {maintenanceUnread > 0 && (
+              <Badge
+                className={unreadBadgeClass}
+                data-testid="badge-tab-maintenance-unread"
+              >
+                {maintenanceUnread > 99 ? "99+" : maintenanceUnread}
+              </Badge>
+            )}
           </button>
         </div>
         <div className="flex items-center gap-2">
@@ -127,10 +201,11 @@ export const ConversationListPanel = ({
               : "No conversations yet. Start a new message."}
           </div>
         ) : (
-            conversations.map((conv) => {
+          conversations.map((conv) => {
             const other = conv.participants.filter((p) => p.id !== user?.id);
             const avatarUser = other[0];
             const isMr = conv.type === "maintenance";
+            const status = conv.maintenanceRequest?.status;
             return (
               <button
                 key={conv.id}
@@ -159,24 +234,33 @@ export const ConversationListPanel = ({
                     </span>
                   </div>
                   {isMr && (
-                    <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
-                      {[
-                        conv.maintenanceRequest?.reference,
-                        conv.maintenanceRequest?.propertyLabel,
-                        conv.maintenanceRequest?.status,
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </p>
+                    <div className="mt-0.5 flex min-w-0 items-center gap-1.5">
+                      {conv.maintenanceRequest?.propertyLabel ? (
+                        <p className="min-w-0 truncate text-[11px] text-muted-foreground">
+                          {conv.maintenanceRequest.propertyLabel}
+                        </p>
+                      ) : null}
+                      {status ? (
+                        <StatusPill
+                          tone={maintenanceRequestStatusTone(status)}
+                          className="shrink-0 px-1.5 py-0 text-[10px]"
+                        >
+                          {humanizeStatus(status)}
+                        </StatusPill>
+                      ) : null}
+                    </div>
                   )}
                   <div className="mt-0.5 flex items-center gap-2">
                     <p className="truncate text-xs text-muted-foreground">
-                      {conv.lastMessage?.deletedAt
-                        ? "Message deleted"
-                        : conv.lastMessage?.body || "No messages yet"}
+                      {lastMessagePreview(conv, user?.id)}
                     </p>
                     {conv.unreadCount > 0 && (
-                      <Badge className="ml-auto h-5 min-w-5 justify-center rounded-full px-1.5 text-[10px]">
+                      <Badge
+                        className={cn(
+                          "ml-auto h-5 min-w-5 justify-center rounded-full px-1.5 text-[10px]",
+                          "bg-destructive text-destructive-foreground hover:bg-destructive",
+                        )}
+                      >
                         {conv.unreadCount > 99 ? "99+" : conv.unreadCount}
                       </Badge>
                     )}
