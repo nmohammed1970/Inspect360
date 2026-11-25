@@ -303,6 +303,11 @@ const WorkOrderDetailPage = () => {
 
   const isClosed =
     workOrder?.status === "completed" || workOrder?.status === "rejected";
+  const quoteRequired = workOrder?.authorisationStatus === "quote_required";
+  const canMarkComplete =
+    !isClosed &&
+    !quoteRequired &&
+    workOrder?.status !== "pending_acceptance";
 
   if (isLoading) {
     return (
@@ -347,7 +352,7 @@ const WorkOrderDetailPage = () => {
           "Work order details"
         }
         actions={
-          !isClosed ? (
+          canMarkComplete ? (
             <Button
               onClick={() => completeMutation.mutate()}
               disabled={completeMutation.isPending}
@@ -404,6 +409,15 @@ const WorkOrderDetailPage = () => {
           </div>
         )}
 
+        {quoteRequired && !isClosed && (
+          <div
+            className="rounded-md border border-dashed p-3 text-sm text-muted-foreground"
+            data-testid="text-quote-required-blocker"
+          >
+            Quotation must be accepted before scheduling or completing.
+          </div>
+        )}
+
         {completeError && (
           <div
             className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
@@ -439,7 +453,9 @@ const WorkOrderDetailPage = () => {
                 <SelectItem value="assigned">Assigned</SelectItem>
                 <SelectItem value="in_progress">In Progress</SelectItem>
                 <SelectItem value="waiting_parts">Waiting Parts</SelectItem>
-                <SelectItem value="completed">Completed</SelectItem>
+                {!quoteRequired && (
+                  <SelectItem value="completed">Completed</SelectItem>
+                )}
               </SelectContent>
             </Select>
           </div>

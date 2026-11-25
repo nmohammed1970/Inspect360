@@ -2442,131 +2442,153 @@ export default function Maintenance() {
                             </div>
                           </div>
 
-                          <div className="mt-4 flex flex-wrap items-center gap-3 pt-3 border-t">
-                            {canReassignWorkOrder &&
-                              workOrder.status !== "completed" &&
-                              workOrder.status !== "rejected" &&
-                              (workOrder.teamId || workOrder.team?.id) && (
-                                <WorkOrderAssigneeSelect
-                                  workOrder={workOrder}
-                                  disabled={reassignWorkOrderMutation.isPending}
-                                  onAssign={({ assignedToId, contractorId }) => {
-                                    reassignWorkOrderMutation.mutate({
-                                      id: workOrder.id,
-                                      assignedToId,
-                                      contractorId,
-                                      status:
-                                        workOrder.status === "pending_acceptance"
-                                          ? "assigned"
-                                          : undefined,
-                                    });
-                                  }}
-                                />
-                              )}
-                            {canFieldAct &&
-                              workOrder.status !== "completed" &&
-                              workOrder.status !== "rejected" &&
-                              workOrder.status !== "pending_acceptance" && (
-                              <div className="flex items-center gap-2">
-                                <label className="text-sm font-medium">Update Status:</label>
-                                <Select
-                                  value={workOrder.status}
-                                  onValueChange={(status) => {
-                                    if (status === "completed") {
-                                      setCompleteWorkOrderId(workOrder.id);
-                                      return;
-                                    }
-                                    updateWorkOrderStatusMutation.mutate({ id: workOrder.id, status });
-                                  }}
-                                >
-                                  <SelectTrigger
-                                    className={cn(
-                                      "w-full sm:w-auto sm:min-w-0 sm:max-w-[12rem] h-8 rounded-full text-[11px] font-medium",
-                                      toneClass(workOrderStatusTone(workOrder.status)),
+                          {(() => {
+                            const isClosedWo =
+                              workOrder.status === "completed" ||
+                              workOrder.status === "rejected";
+                            const quoteRequired =
+                              workOrder.authorisationStatus === "quote_required";
+                            const canMarkComplete =
+                              canFieldAct &&
+                              !isClosedWo &&
+                              !quoteRequired &&
+                              workOrder.status !== "pending_acceptance";
+                            const canUpdateStatus =
+                              canFieldAct &&
+                              !isClosedWo &&
+                              workOrder.status !== "pending_acceptance";
+                            const canFieldVisit =
+                              canScheduleWorkOrder &&
+                              !isClosedWo &&
+                              !quoteRequired;
+
+                            return (
+                              <div className="mt-4 space-y-3 pt-3 border-t">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  {canReassignWorkOrder &&
+                                    !isClosedWo &&
+                                    (workOrder.teamId || workOrder.team?.id) && (
+                                      <WorkOrderAssigneeSelect
+                                        workOrder={workOrder}
+                                        disabled={reassignWorkOrderMutation.isPending}
+                                        onAssign={({ assignedToId, contractorId }) => {
+                                          reassignWorkOrderMutation.mutate({
+                                            id: workOrder.id,
+                                            assignedToId,
+                                            contractorId,
+                                            status:
+                                              workOrder.status === "pending_acceptance"
+                                                ? "assigned"
+                                                : undefined,
+                                          });
+                                        }}
+                                      />
                                     )}
-                                    data-testid={`select-work-order-status-${workOrder.id}`}
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8"
+                                    onClick={() =>
+                                      navigateWithContext(navigate, {
+                                        href: `/maintenance/work-orders/${workOrder.id}`,
+                                        fromPath: location,
+                                        fromLabel: "Maintenance",
+                                      })
+                                    }
+                                    data-testid={`button-view-work-order-${workOrder.id}`}
                                   >
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="assigned">Assigned</SelectItem>
-                                    <SelectItem value="in_progress">In Progress</SelectItem>
-                                    <SelectItem value="waiting_parts">Waiting Parts</SelectItem>
-                                    <SelectItem value="completed">Completed</SelectItem>
-                                  </SelectContent>
-                                </Select>
+                                    View details
+                                  </Button>
+                                  {canUpdateStatus && (
+                                    <div className="flex items-center gap-2">
+                                      <label className="text-sm font-medium">Status</label>
+                                      <Select
+                                        value={workOrder.status}
+                                        onValueChange={(status) => {
+                                          if (status === "completed") {
+                                            setCompleteWorkOrderId(workOrder.id);
+                                            return;
+                                          }
+                                          updateWorkOrderStatusMutation.mutate({
+                                            id: workOrder.id,
+                                            status,
+                                          });
+                                        }}
+                                      >
+                                        <SelectTrigger
+                                          className={cn(
+                                            "w-full sm:w-auto sm:min-w-0 sm:max-w-[12rem] h-8 rounded-full text-[11px] font-medium",
+                                            toneClass(workOrderStatusTone(workOrder.status)),
+                                          )}
+                                          data-testid={`select-work-order-status-${workOrder.id}`}
+                                        >
+                                          <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="assigned">Assigned</SelectItem>
+                                          <SelectItem value="in_progress">In Progress</SelectItem>
+                                          <SelectItem value="waiting_parts">
+                                            Waiting Parts
+                                          </SelectItem>
+                                          {!quoteRequired && (
+                                            <SelectItem value="completed">Completed</SelectItem>
+                                          )}
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                  )}
+                                  {canFieldVisit && (
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-8"
+                                      onClick={() => openScheduleDialog(workOrder)}
+                                      data-testid={`button-schedule-work-order-${workOrder.id}`}
+                                    >
+                                      <Calendar className="w-3.5 h-3.5 mr-1.5" />
+                                      {workOrder.scheduledAt ? "Reschedule" : "Schedule Job"}
+                                    </Button>
+                                  )}
+                                  {canFieldVisit && !workOrder.arrivedAt && (
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-8"
+                                      disabled={arriveOnSiteMutation.isPending}
+                                      onClick={() => arriveOnSiteMutation.mutate(workOrder.id)}
+                                      data-testid={`button-arrive-work-order-${workOrder.id}`}
+                                    >
+                                      <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+                                      {arriveOnSiteMutation.isPending
+                                        ? "Recording…"
+                                        : "Arrived on Site"}
+                                    </Button>
+                                  )}
+                                  {canMarkComplete && (
+                                    <Button
+                                      size="sm"
+                                      className="h-8"
+                                      onClick={() => setCompleteWorkOrderId(workOrder.id)}
+                                      data-testid={`button-mark-complete-${workOrder.id}`}
+                                    >
+                                      <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+                                      Mark Job As Complete
+                                    </Button>
+                                  )}
+                                </div>
+                                {quoteRequired && !isClosedWo && (
+                                  <p className="text-xs text-muted-foreground">
+                                    Quotation must be accepted before scheduling or completing.
+                                  </p>
+                                )}
+                                <WorkOrderFinanceLinks
+                                  workOrderId={workOrder.id}
+                                  authorisationStatus={workOrder.authorisationStatus}
+                                  workOrderStatus={workOrder.status}
+                                />
                               </div>
-                            )}
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-8"
-                              onClick={() =>
-                                navigateWithContext(navigate, {
-                                  href: `/maintenance/work-orders/${workOrder.id}`,
-                                  fromPath: location,
-                                  fromLabel: "Maintenance",
-                                })
-                              }
-                              data-testid={`button-view-work-order-${workOrder.id}`}
-                            >
-                              View details
-                            </Button>
-                            {canFieldAct &&
-                              workOrder.status !== "completed" &&
-                              workOrder.status !== "rejected" && (
-                                <Button
-                                  size="sm"
-                                  className="h-8"
-                                  onClick={() => setCompleteWorkOrderId(workOrder.id)}
-                                  data-testid={`button-mark-complete-${workOrder.id}`}
-                                >
-                                  <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
-                                  Mark Job As Complete
-                                </Button>
-                              )}
-                            {canScheduleWorkOrder &&
-                              workOrder.status !== "completed" &&
-                              workOrder.status !== "rejected" &&
-                              workOrder.authorisationStatus !== "quote_required" && (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-8"
-                                  onClick={() => openScheduleDialog(workOrder)}
-                                  data-testid={`button-schedule-work-order-${workOrder.id}`}
-                                >
-                                  <Calendar className="w-3.5 h-3.5 mr-1.5" />
-                                  {workOrder.scheduledAt ? "Reschedule" : "Schedule Job"}
-                                </Button>
-                              )}
-                            {canScheduleWorkOrder &&
-                              workOrder.status !== "completed" &&
-                              workOrder.status !== "rejected" &&
-                              workOrder.authorisationStatus !== "quote_required" &&
-                              !workOrder.arrivedAt && (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-8"
-                                  disabled={arriveOnSiteMutation.isPending}
-                                  onClick={() => arriveOnSiteMutation.mutate(workOrder.id)}
-                                  data-testid={`button-arrive-work-order-${workOrder.id}`}
-                                >
-                                  <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
-                                  {arriveOnSiteMutation.isPending ? "Recording…" : "Arrived on Site"}
-                                </Button>
-                              )}
-                            {canScheduleWorkOrder &&
-                              workOrder.status !== "completed" &&
-                              workOrder.status !== "rejected" &&
-                              workOrder.authorisationStatus === "quote_required" && (
-                                <span className="text-xs text-muted-foreground self-center">
-                                  Accept quotation before scheduling
-                                </span>
-                              )}
-                            <WorkOrderFinanceLinks workOrderId={workOrder.id} />
-                          </div>
+                            );
+                          })()}
                         </CardContent>
                       </Card>
                     ))}
