@@ -37,10 +37,10 @@ export function isQuoteRevisable(status: string): boolean {
 
 export const MAINTENANCE_QUOTE_STATUS_LABELS: Record<string, string> = {
   draft: "Draft",
-  sent: "Sent to Customer",
-  accepted: "Customer Accepted",
-  declined: "Customer Declined",
-  customer_changes_requested: "Customer Changes Requested",
+  sent: "Sent to Recipient",
+  accepted: "Recipient Accepted",
+  declined: "Recipient Declined",
+  customer_changes_requested: "Recipient Changes Requested",
   expired: "Expired",
   converted: "Converted",
   cancelled: "Cancelled",

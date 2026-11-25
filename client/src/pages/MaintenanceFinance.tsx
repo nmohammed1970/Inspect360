@@ -145,7 +145,7 @@ export default function MaintenanceFinance() {
           <MetricSummaryCard
             label="Awaiting"
             value={counts?.awaitingCustomer ?? 0}
-            subLabel="Customer response"
+            subLabel="Recipient response"
             tone="info"
             icon={Clock}
           />
@@ -206,14 +206,14 @@ export default function MaintenanceFinance() {
           ) : (
             <>
               <QuoteTableSection
-                title="Awaiting customer response"
-                subtitle="Sent to the customer, or changes requested"
+                title="Awaiting recipient response"
+                subtitle="Sent to the recipient, or changes requested"
                 rows={data?.quotes.awaitingCustomer || []}
                 dateFor={(q) => q.sentAt || q.updatedAt}
               />
 
               <QuoteTableSection
-                title="Customer accepted"
+                title="Recipient accepted"
                 subtitle="Ready to convert to an invoice"
                 rows={data?.quotes.customerAccepted || []}
                 dateFor={(q) => q.customerDecidedAt || q.updatedAt}
@@ -250,7 +250,7 @@ export default function MaintenanceFinance() {
 
               <InvoiceTableSection
                 title="Drafts"
-                subtitle="Invoices not yet sent to the customer"
+                subtitle="Invoices not yet sent to the recipient"
                 rows={data?.invoices.drafts || []}
                 dateFor={(inv) => inv.updatedAt || inv.createdAt}
               />

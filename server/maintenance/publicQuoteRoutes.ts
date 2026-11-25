@@ -5,26 +5,11 @@ import {
   maintenanceQuoteLines,
   maintenanceQuotes,
 } from "@shared/schema";
-import { customerDecisionSchema } from "@shared/maintenanceQuoteConstants";
-import {
-  appendWorkOrderEvent,
-  findValidQuoteToken,
-  onQuoteAccepted,
-  publicAppBaseUrl,
-  revokeActiveQuoteTokens,
-  transitionOrThrow,
-} from "./quoteLifecycle";
-import { sendQuoteCustomerResponseEmail } from "./maintenanceFinanceEmails";
+import { findValidQuoteToken } from "./quoteLifecycle";
 import {
   loadPublicOrgBrand,
   loadPublicWorkContext,
 } from "./publicFinanceContext";
-import { resolveQuoteStaffNotifyRecipients } from "./resolveQuoteStaffNotifyRecipients";
-import {
-  notifyFinanceUsers,
-  quoteCustomerDecisionNotifyType,
-  quoteCustomerDecisionTitle,
-} from "./notifyFinanceUsers";
 
 
 async function loadPublicQuote(rawToken: string) {
@@ -140,118 +125,22 @@ export function registerPublicMaintenanceQuoteRoutes(app: Express) {
       if (!loaded) {
         return res.status(404).json({ message: "Link is invalid or expired" });
       }
-      const { quote, lines } = loaded;
-      if (quote.status !== "sent") {
-        return res.status(409).json({ message: "This quotation is no longer awaiting a response" });
-      }
-
-      const parsed = customerDecisionSchema.safeParse(req.body || {});
-      if (!parsed.success) {
-        return res.status(400).json({ message: "Invalid payload" });
-      }
-      const reason = parsed.data.reason?.trim() || null;
-      if (decision !== "accept" && !reason) {
-        return res.status(400).json({ message: "Please provide a brief reason" });
-      }
-
-      const statusMap = {
-        accept: "accepted",
-        decline: "declined",
-        request_changes: "customer_changes_requested",
-      } as const;
-      const nextStatus = statusMap[decision];
-      transitionOrThrow(quote.status, nextStatus, "customer");
-
-      const [updated] = await db
-        .update(maintenanceQuotes)
-        .set({
-          status: nextStatus,
-          customerDecision: decision,
-          customerDecisionReason: reason,
-          customerDecidedAt: new Date(),
-          updatedAt: new Date(),
-        })
-        .where(eq(maintenanceQuotes.id, quote.id))
-        .returning();
-
-      await revokeActiveQuoteTokens(quote.id);
-      await appendWorkOrderEvent({
-        organizationId: quote.organizationId,
-        workOrderId: quote.workOrderId,
-        eventType: `quote_customer_${decision}`,
-        payload: { quoteId: quote.id, nextStatus, reason },
+      const { quote } = loaded;
+      const { parseRecipientDecisionBody, applyQuoteRecipientDecision } = await import(
+        "./quoteRecipientDecision"
+      );
+      const { reason } = parseRecipientDecisionBody(req.body);
+      const result = await applyQuoteRecipientDecision({
+        quote,
+        decision,
+        reason,
+        req,
       });
-
-      if (decision === "accept") {
-        await onQuoteAccepted(updated);
-      }
-
-      try {
-        const baseUrl = publicAppBaseUrl(req);
-        const work = await loadPublicWorkContext(quote.workOrderId, quote.organizationId);
-        const recipients = await resolveQuoteStaffNotifyRecipients(quote);
-
-        const emailPayload = {
-          organizationId: quote.organizationId,
-          workOrderId: quote.workOrderId,
-          quoteId: quote.id,
-          quoteReference: quote.quoteReference,
-          decision,
-          reason,
-          currency: quote.currency,
-          subtotalMinor: quote.subtotalMinor,
-          taxMinor: quote.taxMinor,
-          totalMinor: quote.totalMinor,
-          lines,
-          issueTitle: work?.issueTitle,
-          locationLabel: work?.locationLabel,
-          baseUrl,
-        } as const;
-
-        // Owners / maintenance admins (cap 5) + field staff (preparer, assignee, contractor)
-        const emailTargets = [
-          ...recipients.ownersAdmins.slice(0, 5),
-          ...recipients.fieldStaff,
-        ].filter((r) => !!(r.email || "").trim());
-
-        const emailed = new Set<string>();
-        for (const target of emailTargets) {
-          const to = target.email!.trim();
-          const key = to.toLowerCase();
-          if (emailed.has(key)) continue;
-          emailed.add(key);
-          await sendQuoteCustomerResponseEmail({ to, ...emailPayload });
-        }
-
-        const decisionLabel =
-          decision === "accept"
-            ? "accepted"
-            : decision === "decline"
-              ? "declined"
-              : "requested changes on";
-        await notifyFinanceUsers({
-          userIds: recipients.notifyUserIds,
-          organizationId: quote.organizationId,
-          type: quoteCustomerDecisionNotifyType(decision),
-          title: quoteCustomerDecisionTitle(decision),
-          message: `Customer ${decisionLabel} ${quote.quoteReference}${
-            work?.issueTitle ? ` — ${work.issueTitle}` : ""
-          }`,
-          data: {
-            workOrderId: quote.workOrderId,
-            quoteId: quote.id,
-            quoteReference: quote.quoteReference,
-            decision,
-          },
-        });
-      } catch (emailErr) {
-        console.warn("[public-quote] notify failed:", emailErr);
-      }
-
-      res.json({ status: nextStatus, message: "Response recorded" });
+      res.json({ status: result.status, message: "Response recorded" });
     } catch (error: any) {
       console.error("[public-quote] decide failed:", error);
-      res.status(500).json({ message: error?.message || "Failed to record response" });
+      const status = typeof error?.status === "number" ? error.status : 500;
+      res.status(status).json({ message: error?.message || "Failed to record response" });
     }
   }
 

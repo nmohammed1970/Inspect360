@@ -678,8 +678,67 @@ export function registerMaintenanceQuoteRoutes(app: Express) {
     ...quoteGuards,
     async (_req: any, res: Response) => {
       return res.status(410).json({
-        message: "Owner approval is removed. Send the quote directly to the customer.",
+        message:
+          "Owner pre-approval is removed. Use Send to recipient, then recipient-decision.",
       });
+    },
+  );
+
+  app.post(
+    "/api/work-orders/:workOrderId/quotes/:quoteId/recipient-decision",
+    ...quoteGuards,
+    requireRole("owner", "maintenance_admin"),
+    async (req: any, res: Response) => {
+      try {
+        const organizationId = orgId(req);
+        const access = await assertWoAccess(req.user, req.params.workOrderId);
+        if ("error" in access) {
+          return res.status(access.error).json({ message: access.message });
+        }
+
+        const quote = await getQuoteForWo(
+          organizationId,
+          req.params.workOrderId,
+          req.params.quoteId,
+        );
+        if (!quote) return res.status(404).json({ message: "Quote not found" });
+
+        const rawDecision = String(req.body?.decision || "")
+          .trim()
+          .toLowerCase()
+          .replace(/-/g, "_");
+        const decision =
+          rawDecision === "accept" ||
+          rawDecision === "decline" ||
+          rawDecision === "request_changes"
+            ? rawDecision
+            : null;
+        if (!decision) {
+          return res.status(400).json({
+            message: "decision must be accept, decline, or request-changes",
+          });
+        }
+
+        const {
+          parseRecipientDecisionBody,
+          applyQuoteRecipientDecision,
+        } = await import("./quoteRecipientDecision");
+        const { reason } = parseRecipientDecisionBody(req.body);
+        const result = await applyQuoteRecipientDecision({
+          quote,
+          decision,
+          reason,
+          actorUserId: req.user.id,
+          req,
+        });
+        res.json({ status: result.status, message: "Response recorded", quote: result.quote });
+      } catch (error: any) {
+        console.error("[quotes] recipient-decision failed:", error);
+        const status = typeof error?.status === "number" ? error.status : 500;
+        res.status(status).json({
+          message: error?.message || "Failed to record recipient decision",
+        });
+      }
     },
   );
 
