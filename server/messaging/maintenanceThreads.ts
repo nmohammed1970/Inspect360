@@ -16,6 +16,8 @@ export type MaintenanceRequestMeta = {
   status: string;
   propertyLabel: string | null;
   reference: string;
+  /** First maintenance request photo, used as the discussion avatar. */
+  imageUrl: string | null;
 };
 
 export async function loadMaintenanceMeta(
@@ -27,6 +29,7 @@ export async function loadMaintenanceMeta(
       id: maintenanceRequests.id,
       title: maintenanceRequests.title,
       status: maintenanceRequests.status,
+      photoUrls: maintenanceRequests.photoUrls,
       propertyName: properties.name,
       propertyAddress: properties.address,
     })
@@ -43,12 +46,17 @@ export async function loadMaintenanceMeta(
   const propertyLabel =
     row.propertyName ||
     (row.propertyAddress ? String(row.propertyAddress).slice(0, 80) : null);
+  const photos = Array.isArray(row.photoUrls) ? row.photoUrls : [];
+  const imageUrl =
+    photos.find((url): url is string => typeof url === "string" && !!url.trim()) ??
+    null;
   return {
     requestId: row.id,
     title: row.title,
     status: row.status,
     propertyLabel,
     reference: `MR-${row.id.slice(0, 8).toUpperCase()}`,
+    imageUrl,
   };
 }
 

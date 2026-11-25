@@ -68,6 +68,8 @@ export interface MaintenanceRequestMeta {
   status: string;
   propertyLabel: string | null;
   reference: string;
+  /** First maintenance request photo for the discussion avatar. */
+  imageUrl?: string | null;
 }
 
 export interface MessagingConversation {
@@ -101,4 +103,24 @@ export function messagingInitials(u?: MessagingUserSummary | null): string {
   const parts = name.split(/\s+/).filter(Boolean);
   if (parts.length >= 2) return `${parts[0]![0]}${parts[1]![0]}`.toUpperCase();
   return name.slice(0, 2).toUpperCase();
+}
+
+/** Avatar image for a conversation list/header: MR photo or peer profile. */
+export function conversationAvatarSrc(
+  conv?: Pick<MessagingConversation, "type" | "maintenanceRequest"> | null,
+  peer?: MessagingUserSummary | null,
+): string | undefined {
+  if (conv?.type === "maintenance") {
+    return conv.maintenanceRequest?.imageUrl || undefined;
+  }
+  return peer?.profileImageUrl || undefined;
+}
+
+/** Fallback initials/label when no avatar image is available. */
+export function conversationAvatarFallback(
+  conv?: Pick<MessagingConversation, "type"> | null,
+  peer?: MessagingUserSummary | null,
+): string {
+  if (conv?.type === "maintenance") return "MR";
+  return messagingInitials(peer);
 }

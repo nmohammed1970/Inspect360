@@ -5,7 +5,6 @@ import {
   Maximize2,
   MessageSquare,
   Minus,
-  Wrench,
   X,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
@@ -23,7 +22,8 @@ import {
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import {
-  messagingInitials,
+  conversationAvatarFallback,
+  conversationAvatarSrc,
   type MessagingConversation,
 } from "./types";
 import { ConversationListPanel } from "./components/ConversationListPanel";
@@ -360,8 +360,10 @@ const IncomingBubble = ({
     },
   });
 
-  const isMr = conv?.type === "maintenance";
-  const peer = conv?.participants?.[0];
+  const { user } = useAuth();
+  const peer =
+    conv?.participants?.find((p) => p.id !== user?.id) ||
+    conv?.participants?.[0];
   const unread = conv?.unreadCount ?? 0;
   const offset = 72 + index * 56;
 
@@ -377,14 +379,12 @@ const IncomingBubble = ({
           className="flex h-12 w-12 items-center justify-center rounded-full border bg-background shadow-lg transition hover:scale-105"
           data-testid={`button-incoming-bubble-${conversationId}`}
         >
-          {isMr ? (
-            <Wrench className="h-5 w-5 text-muted-foreground" />
-          ) : (
-            <Avatar className="h-12 w-12">
-              <AvatarImage src={peer?.profileImageUrl || undefined} />
-              <AvatarFallback>{messagingInitials(peer)}</AvatarFallback>
-            </Avatar>
-          )}
+          <Avatar className="h-12 w-12">
+            <AvatarImage src={conversationAvatarSrc(conv, peer)} />
+            <AvatarFallback>
+              {conversationAvatarFallback(conv, peer)}
+            </AvatarFallback>
+          </Avatar>
         </button>
         {unread > 0 && (
           <Badge className="absolute -right-1 -top-1 h-5 min-w-5 justify-center rounded-full px-1 text-[10px]">
@@ -483,6 +483,7 @@ const MinimizedChatPill = ({
   onRestore: () => void;
   onClose: () => void;
 }) => {
+  const { user } = useAuth();
   const { data: conv } = useQuery<MessagingConversation>({
     queryKey: ["/api/messaging/conversations", conversationId, "detail"],
     queryFn: async () => {
@@ -493,6 +494,9 @@ const MinimizedChatPill = ({
       return res.json();
     },
   });
+  const peer =
+    conv?.participants?.find((p) => p.id !== user?.id) ||
+    conv?.participants?.[0];
 
   return (
     <div className="flex items-center gap-1 rounded-full border bg-background py-1 pl-1 pr-2 shadow-md">
@@ -502,10 +506,9 @@ const MinimizedChatPill = ({
         onClick={onRestore}
       >
         <Avatar className="h-7 w-7">
+          <AvatarImage src={conversationAvatarSrc(conv, peer)} />
           <AvatarFallback className="text-[10px]">
-            {conv?.type === "maintenance"
-              ? "MR"
-              : messagingInitials(conv?.participants?.[0])}
+            {conversationAvatarFallback(conv, peer)}
           </AvatarFallback>
         </Avatar>
         <span className="truncate text-xs font-medium">

@@ -10,7 +10,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import {
-  messagingInitials,
+  conversationAvatarFallback,
+  conversationAvatarSrc,
   type MessagingConversation,
 } from "../types";
 import { formatMessageTime } from "../messagingFormat";
@@ -126,7 +127,7 @@ export const ConversationListPanel = ({
               : "No conversations yet. Start a new message."}
           </div>
         ) : (
-          conversations.map((conv) => {
+            conversations.map((conv) => {
             const other = conv.participants.filter((p) => p.id !== user?.id);
             const avatarUser = other[0];
             const isMr = conv.type === "maintenance";
@@ -143,11 +144,9 @@ export const ConversationListPanel = ({
                 data-testid={`button-conversation-${conv.id}`}
               >
                 <Avatar className={cn(compact ? "h-9 w-9" : "h-10 w-10")}>
-                  <AvatarImage
-                    src={avatarUser?.profileImageUrl || undefined}
-                  />
+                  <AvatarImage src={conversationAvatarSrc(conv, avatarUser)} />
                   <AvatarFallback>
-                    {isMr ? "MR" : messagingInitials(avatarUser)}
+                    {conversationAvatarFallback(conv, avatarUser)}
                   </AvatarFallback>
                 </Avatar>
                 <div className="min-w-0 flex-1">

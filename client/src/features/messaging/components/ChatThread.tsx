@@ -53,6 +53,8 @@ import {
 import { cn } from "@/lib/utils";
 import { getTeamRoleDisplayLabel } from "@shared/roleLabels";
 import {
+  conversationAvatarFallback,
+  conversationAvatarSrc,
   messagingDisplayName,
   messagingInitials,
   type MessagingAttachment,
@@ -608,14 +610,10 @@ export const ChatThread = ({
         {headerLeading}
         <Avatar className={cn(compact ? "h-8 w-8" : "h-9 w-9")}>
           <AvatarImage
-            src={
-              isMaintenanceThread
-                ? undefined
-                : peers[0]?.profileImageUrl || undefined
-            }
+            src={conversationAvatarSrc(activeConversation, peers[0])}
           />
           <AvatarFallback>
-            {isMaintenanceThread ? "MR" : messagingInitials(peers[0])}
+            {conversationAvatarFallback(activeConversation, peers[0])}
           </AvatarFallback>
         </Avatar>
         <div className="min-w-0 flex-1">
