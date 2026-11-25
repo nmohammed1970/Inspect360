@@ -120,10 +120,8 @@ const WorkOrderDetailPage = () => {
   const [padKey, setPadKey] = useState(0);
   const padRef = useRef<SignatureCanvas>(null);
 
-  const canFieldAct =
-    user?.role === "clerk" ||
-    user?.role === "contractor" ||
-    user?.role === "maintenance_admin";
+  const canUpdateStatus =
+    user?.role === "owner" || user?.role === "maintenance_admin";
   const canScheduleWorkOrder =
     user?.role === "owner" ||
     user?.role === "clerk" ||
@@ -427,7 +425,7 @@ const WorkOrderDetailPage = () => {
           </div>
         )}
 
-        {canFieldAct && !isClosed && workOrder.status !== "pending_acceptance" && (
+        {canUpdateStatus && !isClosed && workOrder.status !== "pending_acceptance" && (
           <div className="flex flex-wrap items-center gap-2">
             <Label className="text-sm font-medium">Update Status</Label>
             <Select

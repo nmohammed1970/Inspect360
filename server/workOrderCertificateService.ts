@@ -396,16 +396,14 @@ export async function updateWorkOrderFields(input: {
 }): Promise<typeof workOrders.$inferSelect> {
   const ctx = await resolveWorkOrderContext(input.workOrderId, input.organizationId);
   const canReassign =
-    input.userRole === "owner" ||
-    input.userRole === "maintenance_admin" ||
-    input.userRole === "clerk";
+    input.userRole === "owner" || input.userRole === "maintenance_admin";
   const reassignRequested =
     input.teamId !== undefined ||
     input.assignedToId !== undefined ||
     input.contractorId !== undefined;
 
   if (reassignRequested && !canReassign) {
-    throw httpError("Only owners, maintenance admins, or clerks can reassign work orders", 403);
+    throw httpError("Only owners or maintenance admins can reassign work orders", 403);
   }
 
   const updates: Record<string, unknown> = { updatedAt: new Date() };

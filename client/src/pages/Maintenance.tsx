@@ -259,9 +259,7 @@ export default function Maintenance() {
   const isMaintenanceManager =
     user?.role === "owner" || user?.role === "maintenance_admin";
   const canReassignWorkOrder =
-    user?.role === "owner" ||
-    user?.role === "maintenance_admin" ||
-    user?.role === "clerk";
+    user?.role === "owner" || user?.role === "maintenance_admin";
   const tabFromUrl = new URLSearchParams(searchParams).get("tab");
   const defaultWorkOrdersTab =
     tabFromUrl === "work-orders" || (canFieldAct && tabFromUrl !== "requests");
@@ -2454,7 +2452,7 @@ export default function Maintenance() {
                               !quoteRequired &&
                               workOrder.status !== "pending_acceptance";
                             const canUpdateStatus =
-                              canFieldAct &&
+                              isMaintenanceManager &&
                               !isClosedWo &&
                               workOrder.status !== "pending_acceptance";
                             const canFieldVisit =
