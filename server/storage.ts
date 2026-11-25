@@ -4894,7 +4894,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getNotificationsByUser(userId: string, unreadOnly: boolean = false): Promise<Notification[]> {
-    const conditions = [eq(notifications.userId, userId)];
+    const conditions = [
+      eq(notifications.userId, userId),
+      // Messaging has its own unread channel — keep bell non-messaging only
+      ne(notifications.type, "direct_message"),
+    ];
 
     if (unreadOnly) {
       conditions.push(eq(notifications.isRead, false));
@@ -4927,7 +4931,13 @@ export class DatabaseStorage implements IStorage {
     const result = await db
       .select({ count: sql<number>`count(*)` })
       .from(notifications)
-      .where(and(eq(notifications.userId, userId), eq(notifications.isRead, false)));
+      .where(
+        and(
+          eq(notifications.userId, userId),
+          eq(notifications.isRead, false),
+          ne(notifications.type, "direct_message"),
+        ),
+      );
     return result[0]?.count || 0;
   }
 

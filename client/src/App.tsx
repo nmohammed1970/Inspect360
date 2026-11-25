@@ -100,6 +100,8 @@ import { Loader2 } from "lucide-react";
 import { UserProfileMenu } from "@/components/UserProfileMenu";
 import { AppBreadcrumbs } from "@/navigation";
 import { HeaderNotifications } from "@/components/workspace/HeaderNotifications";
+import { HeaderMessagingButton } from "@/features/messaging/HeaderMessagingButton";
+import { MessagingDockHost } from "@/features/messaging/MessagingDockHost";
 import { TenantProfileMenu } from "@/components/TenantProfileMenu";
 import { AIChatbot } from "@/components/AIChatbot";
 import { IvyChatbot } from "@/components/IvyChatbot";
@@ -580,6 +582,7 @@ function AppContent() {
                 <SidebarTrigger data-testid="button-sidebar-toggle" className="shrink-0" />
                 <AppBreadcrumbs />
                 <div className="flex-1 min-w-0" />
+                <HeaderMessagingButton />
                 <TenantProfileMenu />
               </header>
               <main className="flex-1 overflow-auto bg-background min-w-0">
@@ -607,6 +610,7 @@ function AppContent() {
           </div>
         </SidebarProvider>
         <NotificationSystem />
+        <MessagingDockHost />
         {/* Show AI Chatbot for tenants only if enabled */}
         {showChatbot && <AIChatbot />}
         <Toaster />
@@ -677,6 +681,7 @@ function AppContent() {
                 >
                   Help
                 </a>
+                <HeaderMessagingButton />
                 <HeaderNotifications />
                 <UserProfileMenu />
               </div>
@@ -936,6 +941,7 @@ function AppContent() {
         </div>
       </SidebarProvider>
       <NotificationSystem />
+      <MessagingDockHost />
       {/* Show Ivy chatbot for all authenticated operators (non-tenants) */}
       <IvyChatbot />
       <Toaster />

@@ -101,7 +101,7 @@ export function AIChatbot() {
     <>
       <Button
         size="icon"
-        className="fixed bottom-24 right-6 h-14 w-14 rounded-full shadow-xl z-[99999] bg-primary hover:bg-primary/90 transition-all"
+        className="fixed bottom-24 right-20 h-14 w-14 rounded-full shadow-xl z-[99999] bg-primary hover:bg-primary/90 transition-all"
         onClick={() => setIsOpen(true)}
         data-testid="button-chatbot-open"
         style={{ position: 'fixed', bottom: '6rem', right: '1.5rem' }}

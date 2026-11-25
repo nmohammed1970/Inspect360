@@ -1,7 +1,6 @@
 import {
   Home,
   MessageSquare,
-  MessagesSquare,
   FileText,
   FileCheck,
   Users,
@@ -15,7 +14,6 @@ import {
   SidebarGroupContent,
   SidebarHeader,
   SidebarMenu,
-  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   useSidebar,
@@ -27,7 +25,7 @@ import type { Organization } from "@shared/schema";
 import { BRAND_LOGO_MASTER } from "@/lib/brandAssets";
 import { isLockedAppPath } from "@shared/entitlements";
 import { useEntitlement } from "@/hooks/useEntitlement";
-import { apiRequest, notifyEntitlementLock } from "@/lib/queryClient";
+import { notifyEntitlementLock } from "@/lib/queryClient";
 import { isCompanyModuleEnabled } from "@shared/companyModules";
 
 export function TenantSidebar() {
@@ -53,29 +51,12 @@ export function TenantSidebar() {
   const logoSrc = getLogoSrc();
   const companyName = organization?.brandingName || organization?.name || "Inspect360";
 
-  const { data: messagingUnread } = useQuery<{ count: number }>({
-    queryKey: ["/api/messaging/unread-count"],
-    queryFn: async () => {
-      const res = await apiRequest("GET", "/api/messaging/unread-count");
-      return res.json();
-    },
-    enabled: !!user,
-    refetchInterval: 60_000,
-  });
-  const messagingUnreadCount = messagingUnread?.count ?? 0;
-
   const menuItems = [
     {
       title: "Home",
       url: "/dashboard",
       icon: Home,
       enabled: true, // Always enabled
-    },
-    {
-      title: "Messages",
-      url: "/messages",
-      icon: MessagesSquare,
-      enabled: true,
     },
     {
       title: "My Inspections",
@@ -165,8 +146,6 @@ export function TenantSidebar() {
                   location.startsWith(item.url + "/") ||
                   (item.url === "/dashboard" && (location === "/" || location === "/tenant/home"));
                 const itemLocked = !!entitlement?.locked && isLockedAppPath(item.url);
-                const showMessagesBadge =
-                  item.url === "/messages" && messagingUnreadCount > 0;
                 return (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton
@@ -194,14 +173,6 @@ export function TenantSidebar() {
                         <span className="truncate">{item.title}</span>
                       </Link>
                     </SidebarMenuButton>
-                    {showMessagesBadge ? (
-                      <SidebarMenuBadge
-                        className="bg-primary text-primary-foreground"
-                        data-testid="badge-messaging-unread-tenant"
-                      >
-                        {messagingUnreadCount > 99 ? "99+" : messagingUnreadCount}
-                      </SidebarMenuBadge>
-                    ) : null}
                   </SidebarMenuItem>
                 );
               })}

@@ -94,7 +94,7 @@ export function IvyChatbot() {
         <TooltipTrigger asChild>
           <button
             onClick={() => setIsOpen(true)}
-            className="fixed bottom-6 right-6 h-14 w-14 rounded-full shadow-2xl z-[99999] bg-gradient-to-br from-primary via-teal-500 to-emerald-500 hover:from-primary/90 hover:via-teal-500/90 hover:to-emerald-500/90 border-2 border-white/30 flex items-center justify-center cursor-pointer transition-transform hover:scale-105"
+            className="fixed bottom-6 right-20 h-14 w-14 rounded-full shadow-2xl z-[99999] bg-gradient-to-br from-primary via-teal-500 to-emerald-500 hover:from-primary/90 hover:via-teal-500/90 hover:to-emerald-500/90 border-2 border-white/30 flex items-center justify-center cursor-pointer transition-transform hover:scale-105"
             data-testid="button-ivy-open"
             style={{ minWidth: '56px', minHeight: '56px' }}
           >

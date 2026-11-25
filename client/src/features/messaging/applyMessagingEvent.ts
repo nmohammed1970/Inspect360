@@ -4,6 +4,7 @@ import type {
   MessagingMessage,
   MessagingReceipt,
 } from "./types";
+import { isConversationActivelyViewed } from "./viewingRegistry";
 
 export type MessagingWsPayload = {
   type: string;
@@ -23,10 +24,7 @@ function messagesKey(conversationId: string) {
 }
 
 function isViewingConversation(conversationId: string): boolean {
-  if (typeof document === "undefined" || typeof window === "undefined") return false;
-  if (document.hidden || document.visibilityState === "hidden") return false;
-  const path = window.location.pathname.replace(/\/+$/, "") || "/";
-  return path === `/messages/${conversationId}`;
+  return isConversationActivelyViewed(conversationId);
 }
 
 function upsertMessageInList(

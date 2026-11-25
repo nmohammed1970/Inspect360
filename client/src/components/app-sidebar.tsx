@@ -16,7 +16,6 @@ import {
   CreditCard,
   Shield,
   MessageSquarePlus,
-  MessagesSquare,
 } from "lucide-react";
 import {
   Sidebar,
@@ -98,36 +97,12 @@ export function AppSidebar() {
     roles: string[];
   };
 
-  const { data: messagingUnread } = useQuery<{ count: number }>({
-    queryKey: ["/api/messaging/unread-count"],
-    queryFn: async () => {
-      const res = await apiRequest("GET", "/api/messaging/unread-count");
-      return res.json();
-    },
-    enabled: !!user,
-    refetchInterval: 60_000,
-  });
-  const messagingUnreadCount = messagingUnread?.count ?? 0;
-
   const workspaceItems: MenuItem[] = [
     {
       title: "Dashboard",
       url: "/dashboard",
       icon: LayoutDashboard,
       roles: ["owner", "compliance", "tenant", "maintenance_admin"],
-    },
-    {
-      title: "Messages",
-      url: "/messages",
-      icon: MessagesSquare,
-      roles: [
-        "owner",
-        "clerk",
-        "compliance",
-        "tenant",
-        "contractor",
-        "maintenance_admin",
-      ],
     },
     {
       title: "Blocks",
@@ -288,8 +263,6 @@ export function AppSidebar() {
     };
     const showFinanceBadge =
       item.url === "/maintenance/finance" && financePendingCount > 0;
-    const showMessagesBadge =
-      item.url === "/messages" && messagingUnreadCount > 0;
 
     return (
       <SidebarMenuItem key={item.title}>
@@ -315,14 +288,6 @@ export function AppSidebar() {
             data-testid="badge-finance-pending"
           >
             {financePendingCount > 99 ? "99+" : financePendingCount}
-          </SidebarMenuBadge>
-        ) : null}
-        {showMessagesBadge ? (
-          <SidebarMenuBadge
-            className="bg-primary text-primary-foreground"
-            data-testid="badge-messaging-unread"
-          >
-            {messagingUnreadCount > 99 ? "99+" : messagingUnreadCount}
           </SidebarMenuBadge>
         ) : null}
       </SidebarMenuItem>

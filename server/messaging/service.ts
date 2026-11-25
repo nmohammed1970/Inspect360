@@ -35,7 +35,6 @@ import {
   fanoutMessagingUnread,
   isUserConnected,
 } from "./wsFanout";
-import { sendNotificationToUser } from "../websocket";
 
 function displayName(u: {
   firstName?: string | null;
@@ -585,36 +584,7 @@ function scheduleNewMessageSideEffects(input: {
               fanoutMessagingReceipt(input.participantIds, receipt);
             }
 
-            const preview =
-              input.message.body?.slice(0, 120) ||
-              (input.message.attachments.length ? "Sent an attachment" : "New message");
-            const senderName = input.message.sender
-              ? displayName(input.message.sender)
-              : "Someone";
-
-            const notification = await storage.createNotification({
-              userId: uid,
-              organizationId: input.organizationId,
-              type: "direct_message",
-              title: `Message from ${senderName}`,
-              message: preview,
-              data: {
-                conversationId: input.conversationId,
-                messageId: input.message.id,
-                actionUrl: `/messages/${input.conversationId}`,
-              },
-            });
-            sendNotificationToUser(uid, {
-              id: notification.id,
-              userId: uid,
-              organizationId: input.organizationId,
-              type: notification.type,
-              title: notification.title,
-              message: notification.message,
-              data: notification.data,
-              isRead: false,
-              createdAt: notification.createdAt || new Date(),
-            });
+            // Messaging UX uses messaging_* WS events + dock/unread badge — no bell rows.
           } catch (err) {
             console.error(`[messaging] side effect failed for ${uid}:`, err);
           }

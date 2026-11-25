@@ -1,5 +1,8 @@
 /** WhatsApp-style incoming message chime (Web Audio; no asset file). */
 
+import { isConversationActivelyViewed } from "@/features/messaging/viewingRegistry";
+
+
 let audioCtx: AudioContext | null = null;
 let unlocked = false;
 let lastPlayAt = 0;
@@ -82,10 +85,7 @@ export function playMessageReceivedSound(): void {
   start();
 }
 
-/** True when the user is focused on this conversation in the Messages UI. */
+/** True when the user is focused on this conversation (full page or open mini chat). */
 export function isViewingMessagingConversation(conversationId: string): boolean {
-  if (typeof document === "undefined" || typeof window === "undefined") return false;
-  if (document.hidden || document.visibilityState === "hidden") return false;
-  const path = window.location.pathname.replace(/\/+$/, "") || "/";
-  return path === `/messages/${conversationId}`;
+  return isConversationActivelyViewed(conversationId);
 }

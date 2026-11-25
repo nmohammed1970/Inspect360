@@ -43,13 +43,14 @@ export function useNotifications() {
   const lastPongAtRef = useRef(Date.now());
   const intentionalCloseRef = useRef(false);
 
-  // Fetch notifications
+  // Fetch notifications (messaging rows excluded server-side; filter defensively)
   const { data: notifications = [] } = useQuery<Notification[]>({
     queryKey: ["/api/notifications"],
     queryFn: async () => {
       const res = await apiRequest("GET", "/api/notifications");
       const data = await res.json();
-      return data;
+      const list = Array.isArray(data) ? data : [];
+      return list.filter((n: Notification) => n.type !== "direct_message");
     },
     enabled: isAuthenticated && !!user,
     refetchOnWindowFocus: true,
@@ -233,6 +234,11 @@ export function useNotifications() {
 
             if (data.type === "notification") {
               const notification = data.notification as Notification;
+              // Messaging uses dedicated badge/dock — never surface in bell toasts
+              if (notification.type === "direct_message") {
+                return;
+              }
+
               setUnreadCount((prev) => prev + 1);
               queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
               queryClient.invalidateQueries({ queryKey: ["/api/notifications/unread-count"] });
@@ -250,7 +256,6 @@ export function useNotifications() {
                 });
               }
 
-              // Messaging cache already updated via messaging_message — toast only
               if (user.role === "tenant") {
                 setPopupNotification(notification);
               } else {
