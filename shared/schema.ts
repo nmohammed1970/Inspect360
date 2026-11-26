@@ -256,8 +256,8 @@ export const organizations = pgTable("organizations", {
   maintenanceEnabled: boolean("maintenance_enabled").notNull().default(true),
   /** HMO Compliance Intelligence — opt-in (default OFF). */
   hmoComplianceEnabled: boolean("hmo_compliance_enabled").notNull().default(false),
-  /** Communications Hub — opt-in (default OFF). */
-  communicationsEnabled: boolean("communications_enabled").notNull().default(false),
+  /** Communications Hub — default ON (can be turned off in Internal Modules). */
+  communicationsEnabled: boolean("communications_enabled").notNull().default(true),
   communicationsEmergencyGuidance: text("communications_emergency_guidance"),
   communicationsDefaultLanding: boolean("communications_default_landing").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow(),

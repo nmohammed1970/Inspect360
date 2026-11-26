@@ -33,6 +33,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { FiltersSection } from "@/components/FiltersSection";
 import { FeedbackStatusBadge, FeedbackTypeBadge } from "@/components/feedback/FeedbackBadges";
 import { pagePad } from "@/lib/responsive";
+import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/PageHeader";
 import { FEEDBACK_STATUSES, FEEDBACK_TYPES } from "@shared/feedbackSchema";
 import { feedbackStatusLabel, feedbackTypeLabel } from "@shared/feedbackLabels";
@@ -99,7 +100,7 @@ export default function AdminFeedbackInbox() {
   ];
 
   return (
-    <div className={pagePad}>
+    <div className={cn("container mx-auto min-w-0 space-y-6 md:space-y-8", pagePad)}>
       <PageHeader
         icon={Inbox}
         title="Feedback Inbox"

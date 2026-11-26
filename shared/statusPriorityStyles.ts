@@ -15,31 +15,26 @@ export type SemanticTone =
 
 /** Soft tinted pill classes (border + bg + text) using brand CSS variables. */
 export const SEMANTIC_TONE_CLASS: Record<SemanticTone, string> = {
-  muted: "border-border bg-muted text-muted-foreground",
-  info: "border-[color:var(--brand-info)]/30 bg-[color:var(--brand-info)]/10 text-[color:var(--brand-info)]",
-  success:
-    "border-[color:var(--brand-success)]/30 bg-[color:var(--brand-success)]/10 text-[color:var(--brand-success)]",
-  warning:
-    "border-[color:var(--brand-warning)]/50 bg-[color:var(--brand-warning)]/20 text-[color:var(--brand-slate)]",
-  critical:
-    "border-[color:var(--brand-critical)]/30 bg-[color:var(--brand-critical)]/10 text-[color:var(--brand-critical)]",
-  action:
-    "border-[color:var(--brand-warning)]/50 bg-[color:var(--brand-warning)]/20 text-[color:var(--brand-slate)]",
-  primary: "border-primary/25 bg-primary/10 text-primary",
-  urgent:
-    "border-[color:var(--brand-critical)]/30 bg-[color:var(--brand-critical)]/10 text-[color:var(--brand-critical)]",
+  muted: "border-slate-300 bg-slate-100 text-slate-600",
+  info: "border-sky-300 bg-sky-50 text-sky-800",
+  success: "border-emerald-300 bg-emerald-50 text-emerald-800",
+  warning: "border-amber-300 bg-amber-50 text-amber-900",
+  critical: "border-red-300 bg-red-50 text-red-700",
+  action: "border-orange-300 bg-orange-50 text-orange-800",
+  primary: "border-teal-300 bg-teal-50 text-teal-800",
+  urgent: "border-rose-400 bg-rose-100 text-rose-800",
 };
 
 /** Solid-ish background classes for denser badges (work-order boards, etc.). */
 export const SEMANTIC_TONE_SOLID_CLASS: Record<SemanticTone, string> = {
-  muted: "bg-muted text-muted-foreground border-transparent",
-  info: "bg-[color:var(--brand-info)]/15 text-[color:var(--brand-info)] border-transparent",
-  success: "bg-[color:var(--brand-success)]/15 text-[color:var(--brand-success)] border-transparent",
-  warning: "bg-[color:var(--brand-warning)]/25 text-[color:var(--brand-slate)] border-transparent",
-  critical: "bg-[color:var(--brand-critical)]/15 text-[color:var(--brand-critical)] border-transparent",
-  action: "bg-[color:var(--brand-warning)]/25 text-[color:var(--brand-slate)] border-transparent",
-  primary: "bg-primary/15 text-primary border-transparent",
-  urgent: "bg-[color:var(--brand-critical)]/15 text-[color:var(--brand-critical)] border-transparent",
+  muted: "bg-slate-100 text-slate-600 border-transparent",
+  info: "bg-sky-100 text-sky-800 border-transparent",
+  success: "bg-emerald-100 text-emerald-800 border-transparent",
+  warning: "bg-amber-100 text-amber-900 border-transparent",
+  critical: "bg-red-100 text-red-700 border-transparent",
+  action: "bg-orange-100 text-orange-800 border-transparent",
+  primary: "bg-teal-100 text-teal-800 border-transparent",
+  urgent: "bg-rose-100 text-rose-800 border-transparent",
 };
 
 export type BadgeVariantName =
@@ -75,17 +70,19 @@ export function toneClass(tone: SemanticTone, solid = false): string {
   return solid ? SEMANTIC_TONE_SOLID_CLASS[tone] : SEMANTIC_TONE_CLASS[tone];
 }
 
-/** Maintenance request / tenant request priority */
+/** Maintenance request / tenant request / communications priority */
 export function priorityTone(priority: string | null | undefined): SemanticTone {
   switch ((priority || "").toLowerCase()) {
     case "urgent":
+    case "critical":
       return "urgent";
     case "high":
       return "critical";
     case "medium":
-      return "action";
+    case "normal":
+      return "warning";
     case "low":
-      return "muted";
+      return "info";
     default:
       return "muted";
   }
@@ -97,21 +94,27 @@ export function communicationCaseStatusTone(
 ): SemanticTone {
   switch ((status || "").toLowerCase()) {
     case "resolved":
-    case "closed":
       return "success";
+    case "closed":
+      return "primary";
     case "cancelled":
+      return "muted";
     case "duplicate":
       return "muted";
     case "awaiting_tenant":
+      return "action";
     case "awaiting_approval":
+      return "warning";
     case "awaiting_third_party":
       return "action";
     case "in_progress":
+      return "primary";
     case "assigned":
-      return "warning";
-    case "new":
-    case "triaged":
       return "info";
+    case "new":
+      return "info";
+    case "triaged":
+      return "warning";
     default:
       return "muted";
   }

@@ -146,7 +146,8 @@ export default function CommunicationsSettings() {
           <div>
             <Label>Default landing = Communications inbox</Label>
             <p className="text-xs text-muted-foreground mt-1">
-              When enabled, staff home can prefer the communications inbox.
+              When enabled, opening the app home (/) goes to the Communications inbox.
+              The Dashboard sidebar link always stays on Dashboard.
             </p>
           </div>
           <Switch checked={defaultLanding} onCheckedChange={setDefaultLanding} />

@@ -16,6 +16,7 @@ import { downloadPdfFromUrl } from "@/components/maintenance-quotes/downloadPdf"
 import { PageHeader } from "@/components/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { PdfActionButton } from "@/components/PdfActionButton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -538,19 +539,15 @@ export default function WorkOrderQuotation() {
         description={subtitle}
         actions={
           <>
-            <Button
+            <PdfActionButton
               variant="outline"
-              disabled={pdfDownloading}
+              pending={pdfDownloading}
               onClick={() => void downloadPdf()}
               data-testid="button-download-quote-pdf"
             >
-              {pdfDownloading ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Download className="mr-2 h-4 w-4" />
-              )}
+              <Download className="mr-2 h-4 w-4" />
               Download PDF
-            </Button>
+            </PdfActionButton>
             {editable ? (
               <Button
                 variant="outline"

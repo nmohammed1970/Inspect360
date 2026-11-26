@@ -105,7 +105,6 @@ import {
   PortfolioTableRow,
   PortfolioTableHead,
   PortfolioTableCell,
-  OpenRowLink,
 } from "@/components/workspace";
 
 type MaintenanceRequestWithDetails = MaintenanceRequest & {
@@ -1720,36 +1719,36 @@ export default function Maintenance() {
                   )
                 }
               >
-                <Select value={filterBlock} onValueChange={setFilterBlock}>
+                          <Select value={filterBlock} onValueChange={setFilterBlock}>
                   <SelectTrigger className="h-9 w-full sm:w-[11rem]" data-testid="select-filter-block">
-                    <SelectValue placeholder="All Blocks" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Blocks</SelectItem>
-                    {blocks.map((block) => (
-                      <SelectItem key={block.id} value={block.id}>
-                        {block.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select value={filterProperty} onValueChange={setFilterProperty}>
+                              <SelectValue placeholder="All Blocks" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">All Blocks</SelectItem>
+                              {blocks.map((block) => (
+                                <SelectItem key={block.id} value={block.id}>
+                                  {block.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Select value={filterProperty} onValueChange={setFilterProperty}>
                   <SelectTrigger className="h-9 w-full sm:w-[11rem]" data-testid="select-filter-property">
-                    <SelectValue placeholder="All Properties" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Properties</SelectItem>
-                    {properties
-                      .filter((p) => filterBlock === "all" || p.blockId === filterBlock)
-                      .map((property) => (
-                        <SelectItem key={property.id} value={property.id}>
-                          {property.name}
-                        </SelectItem>
-                      ))}
-                  </SelectContent>
-                </Select>
+                              <SelectValue placeholder="All Properties" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">All Properties</SelectItem>
+                              {properties
+                                .filter((p) => filterBlock === "all" || p.blockId === filterBlock)
+                                .map((property) => (
+                                  <SelectItem key={property.id} value={property.id}>
+                                    {property.name}
+                                  </SelectItem>
+                                ))}
+                            </SelectContent>
+                          </Select>
               </FilterToolbar>
-            </div>
+                        </div>
           )}
 
           {/* Maintenance Requests List */}
@@ -1841,7 +1840,7 @@ export default function Maintenance() {
                               }
                             >
                               <SelectTrigger
-                                className={cn(
+                  className={cn(
                                   "h-7 w-auto min-w-[7rem] gap-1 rounded-full border px-2.5 text-[11px] font-medium shadow-none [&>svg]:h-3 [&>svg]:w-3",
                                   statusSelectClass(request.status),
                                 )}
@@ -1903,24 +1902,34 @@ export default function Maintenance() {
                               </Button>
                             )}
                             {linkedWorkOrder && (canOwnerAct || canFieldAct) ? (
-                              <OpenRowLink
-                                href={`/maintenance/work-orders/${linkedWorkOrder.id}`}
-                                label="WO"
-                                fromLabel="Maintenance"
-                                testId={`button-view-work-order-${request.id}`}
-                                className="ml-1"
-                              />
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="ml-1 h-8 rounded-full border-primary/40 px-3 text-xs text-primary hover:bg-primary/10 hover:text-primary"
+                                onClick={() =>
+                                  navigateWithContext(navigate, {
+                                    href: `/maintenance/work-orders/${linkedWorkOrder.id}`,
+                                    fromPath: location,
+                                    fromLabel: "Maintenance",
+                                  })
+                                }
+                                data-testid={`button-view-work-order-${request.id}`}
+                              >
+                                Open WO
+                                <ArrowRight className="ml-1 h-3.5 w-3.5" />
+                              </Button>
                             ) : null}
                             {canCreateWorkOrder ? (
                               <Button
                                 size="sm"
-                                className="h-8 px-2"
+                                className="ml-1 h-8 rounded-full px-3 text-xs"
                                 onClick={() => {
                                   setSelectedRequestForWorkOrder(request);
                                   setIsWorkOrderDialogOpen(true);
                                 }}
                                 data-testid={`button-create-work-order-${request.id}`}
                               >
+                                <Plus className="mr-1 h-3.5 w-3.5" />
                                 Create WO
                               </Button>
                             ) : null}
@@ -1955,7 +1964,7 @@ export default function Maintenance() {
                   })}
                 </PortfolioTableBody>
               </PortfolioDataTable>
-            </div>
+                        </div>
             {/* Mobile cards */}
             <div className="space-y-3 md:hidden">
               {filteredRequests.map((request) => {
@@ -2142,7 +2151,7 @@ export default function Maintenance() {
                               </SelectContent>
                             </Select>
                           )
-                        )}
+                          )}
 
                         {(isMaintenanceManager || user?.role === "tenant") && (
                           <Button
@@ -2171,19 +2180,9 @@ export default function Maintenance() {
                           linkedWorkOrder &&
                           (canOwnerAct || canFieldAct) && (
                             <Button
-                              variant={
-                                linkedWorkOrder.status === "completed" ||
-                                linkedWorkOrder.status === "rejected"
-                                  ? "outline"
-                                  : "default"
-                              }
+                              variant="outline"
                               size="sm"
-                              className={cn(
-                                "h-8 rounded-full px-3 text-xs",
-                                linkedWorkOrder.status !== "completed" &&
-                                  linkedWorkOrder.status !== "rejected" &&
-                                  "bg-primary text-primary-foreground hover:bg-[hsl(var(--primary-hover))]",
-                              )}
+                              className="h-8 rounded-full border-primary/40 px-3 text-xs text-primary hover:bg-primary/10 hover:text-primary"
                               onClick={() => {
                                 navigateWithContext(navigate, {
                                   href: `/maintenance/work-orders/${linkedWorkOrder.id}`,
@@ -2193,86 +2192,87 @@ export default function Maintenance() {
                               }}
                               data-testid={`button-view-work-order-${request.id}`}
                             >
-                              View work order
+                              Open work order
                               <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
                             </Button>
                           )}
                         {canCreateWorkOrder && (
                           <Button
                             size="sm"
-                            className="h-8 rounded-full bg-primary px-3 text-xs text-primary-foreground hover:bg-[hsl(var(--primary-hover))]"
+                            className="h-8 rounded-full px-3 text-xs"
                             onClick={() => {
                               setSelectedRequestForWorkOrder(request);
                               setIsWorkOrderDialogOpen(true);
                             }}
                             data-testid={`button-create-work-order-${request.id}`}
                           >
+                            <Plus className="mr-1.5 h-3.5 w-3.5" />
                             Create work order
                           </Button>
                         )}
 
                         {canOwnerAct &&
                           isHmoFinding &&
-                          (request.verificationStatus === "awaiting_verification" ||
-                            request.verificationStatus === "rejected" ||
-                            request.status === "in_progress") && (
-                            <>
-                              <Button
-                                size="sm"
+                            (request.verificationStatus === "awaiting_verification" ||
+                              request.verificationStatus === "rejected" ||
+                              request.status === "in_progress") && (
+                              <>
+                                <Button
+                                  size="sm"
                                 className="h-8 rounded-full"
-                                data-testid={`button-hmo-verify-${request.id}`}
-                                onClick={async () => {
-                                  try {
-                                    await apiRequest(
-                                      "POST",
-                                      `/api/maintenance/${request.id}/hmo-verification`,
-                                      { action: "verify" },
-                                    );
-                                    queryClient.invalidateQueries({
-                                      queryKey: ["/api/maintenance"],
-                                    });
-                                    toast({ title: "HMO issue verified closed" });
-                                  } catch (e: any) {
-                                    toast({
-                                      title: "Verification failed",
-                                      description: e.message,
-                                      variant: "destructive",
-                                    });
-                                  }
-                                }}
-                              >
-                                Confirm resolved
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="secondary"
+                                  data-testid={`button-hmo-verify-${request.id}`}
+                                  onClick={async () => {
+                                    try {
+                                      await apiRequest(
+                                        "POST",
+                                        `/api/maintenance/${request.id}/hmo-verification`,
+                                        { action: "verify" },
+                                      );
+                                      queryClient.invalidateQueries({
+                                        queryKey: ["/api/maintenance"],
+                                      });
+                                      toast({ title: "HMO issue verified closed" });
+                                    } catch (e: any) {
+                                      toast({
+                                        title: "Verification failed",
+                                        description: e.message,
+                                        variant: "destructive",
+                                      });
+                                    }
+                                  }}
+                                >
+                                  Confirm resolved
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
                                 className="h-8 rounded-full"
-                                data-testid={`button-hmo-reject-${request.id}`}
-                                onClick={async () => {
-                                  try {
-                                    await apiRequest(
-                                      "POST",
-                                      `/api/maintenance/${request.id}/hmo-verification`,
-                                      { action: "reject", notes: "Rejected — reopen" },
-                                    );
-                                    queryClient.invalidateQueries({
-                                      queryKey: ["/api/maintenance"],
-                                    });
-                                    toast({ title: "Reopened — verification rejected" });
-                                  } catch (e: any) {
-                                    toast({
-                                      title: "Could not reject",
-                                      description: e.message,
-                                      variant: "destructive",
-                                    });
-                                  }
-                                }}
-                              >
-                                Reject — reopen
-                              </Button>
-                            </>
-                          )}
-                      </div>
+                                  data-testid={`button-hmo-reject-${request.id}`}
+                                  onClick={async () => {
+                                    try {
+                                      await apiRequest(
+                                        "POST",
+                                        `/api/maintenance/${request.id}/hmo-verification`,
+                                        { action: "reject", notes: "Rejected — reopen" },
+                                      );
+                                      queryClient.invalidateQueries({
+                                        queryKey: ["/api/maintenance"],
+                                      });
+                                      toast({ title: "Reopened — verification rejected" });
+                                    } catch (e: any) {
+                                      toast({
+                                        title: "Could not reject",
+                                        description: e.message,
+                                        variant: "destructive",
+                                      });
+                                    }
+                                  }}
+                                >
+                                  Reject — reopen
+                                </Button>
+                              </>
+                            )}
+                        </div>
                     </div>
                   </CardContent>
                 </Card>
@@ -2426,18 +2426,18 @@ export default function Maintenance() {
                               </div>
                             )}
 
-                            <div className="flex items-center gap-2 text-sm">
-                              <UserIcon className="h-4 w-4 text-muted-foreground shrink-0" />
-                              <div className="min-w-0">
+                              <div className="flex items-center gap-2 text-sm">
+                                <UserIcon className="h-4 w-4 text-muted-foreground shrink-0" />
+                                <div className="min-w-0">
                                 <p className="font-medium">Assigned to</p>
                                 <p
                                   className="text-muted-foreground truncate"
                                   data-testid={`text-wo-assignee-${workOrder.id}`}
                                 >
                                   {workOrderAssigneeLabel(workOrder) || "Unassigned"}
-                                </p>
+                                  </p>
+                                </div>
                               </div>
-                            </div>
 
                             {workOrder.slaDue && (
                               <div className="flex items-center gap-2 text-sm">
@@ -2564,15 +2564,15 @@ export default function Maintenance() {
                                     View details
                                   </Button>
                                   {canUpdateStatus && (
-                                    <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-2">
                                       <label className="text-sm font-medium">Status</label>
-                                      <Select
-                                        value={workOrder.status}
-                                        onValueChange={(status) => {
-                                          if (status === "completed") {
-                                            setCompleteWorkOrderId(workOrder.id);
-                                            return;
-                                          }
+                                <Select
+                                  value={workOrder.status}
+                                  onValueChange={(status) => {
+                                    if (status === "completed") {
+                                      setCompleteWorkOrderId(workOrder.id);
+                                      return;
+                                    }
                                           updateWorkOrderStatusMutation.mutate({
                                             id: workOrder.id,
                                             status,
@@ -2586,33 +2586,33 @@ export default function Maintenance() {
                                           )}
                                           data-testid={`select-work-order-status-${workOrder.id}`}
                                         >
-                                          <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                          <SelectItem value="assigned">Assigned</SelectItem>
-                                          <SelectItem value="in_progress">In Progress</SelectItem>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="assigned">Assigned</SelectItem>
+                                    <SelectItem value="in_progress">In Progress</SelectItem>
                                           <SelectItem value="waiting_parts">
                                             Waiting Parts
                                           </SelectItem>
                                           {!quoteRequired && (
-                                            <SelectItem value="completed">Completed</SelectItem>
+                                    <SelectItem value="completed">Completed</SelectItem>
                                           )}
-                                        </SelectContent>
-                                      </Select>
-                                    </div>
-                                  )}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            )}
                                   {canFieldVisit && (
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      className="h-8"
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-8"
                                       onClick={() => openScheduleDialog(workOrder)}
                                       data-testid={`button-schedule-work-order-${workOrder.id}`}
-                                    >
+                              >
                                       <Calendar className="w-3.5 h-3.5 mr-1.5" />
                                       {workOrder.scheduledAt ? "Reschedule" : "Schedule Job"}
-                                    </Button>
-                                  )}
+                              </Button>
+                            )}
                                   {canFieldVisit && !workOrder.arrivedAt && (
                                     <Button
                                       variant="outline"
@@ -2639,7 +2639,7 @@ export default function Maintenance() {
                                       Mark Job As Complete
                                     </Button>
                                   )}
-                                </div>
+                          </div>
                                 {quoteRequired && !isClosedWo && (
                                   <p className="text-xs text-muted-foreground">
                                     Quotation must be accepted before scheduling or completing.
@@ -2682,16 +2682,16 @@ export default function Maintenance() {
         }}
       >
         <DialogContent className={cn(dialogContentBase, "max-w-md")} data-testid="dialog-schedule-work-order">
-          <DialogHeader>
+              <DialogHeader>
             <DialogTitle>
               {scheduleWorkOrder?.scheduledAt ? "Reschedule Job" : "Schedule Job"}
             </DialogTitle>
-            <DialogDescription>
+                <DialogDescription>
               {scheduleWorkOrder?.maintenanceRequest?.title || "Set a visit time. Active tenants will be notified."}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                  <div className="space-y-2">
               <Label htmlFor="schedule-at">Visit date and time</Label>
               <Input
                 id="schedule-at"
@@ -2730,8 +2730,8 @@ export default function Maintenance() {
               >
                 {scheduleWorkOrderMutation.isPending ? "Saving…" : "Confirm schedule"}
               </Button>
-            </div>
-          </div>
+                  </div>
+                    </div>
         </DialogContent>
       </Dialog>
 
@@ -2925,32 +2925,32 @@ function WorkOrderForm({
     }
 
     if (assignmentMethod === "manual") {
-      if (!assignedToId || assignedToId === "none") {
-        toast({
-          title: "Select a team member",
-          description: "Choose an inspector or maintenance contractor from the selected team.",
-          variant: "destructive",
-        });
-        return;
-      }
+    if (!assignedToId || assignedToId === "none") {
+      toast({
+        title: "Select a team member",
+        description: "Choose an inspector or maintenance contractor from the selected team.",
+        variant: "destructive",
+      });
+      return;
+    }
 
-      const member = teamMembers.find(
-        (m: any) => m.userId === assignedToId || m.contactId === assignedToId,
-      );
-      // Prefer linked user account when a contact is selected so clerk portals match
-      const resolvedAssignedToId =
-        member?.userId || member?.contact?.linkedUserId || assignedToId;
-      const contractorId = member?.contactId || undefined;
+    const member = teamMembers.find(
+      (m: any) => m.userId === assignedToId || m.contactId === assignedToId,
+    );
+    // Prefer linked user account when a contact is selected so clerk portals match
+    const resolvedAssignedToId =
+      member?.userId || member?.contact?.linkedUserId || assignedToId;
+    const contractorId = member?.contactId || undefined;
 
-      onSubmit({
-        maintenanceRequestId: maintenanceRequest.id,
-        teamId: selectedTeamId,
-        contractorId,
-        assignedToId: resolvedAssignedToId,
+    onSubmit({
+      maintenanceRequestId: maintenanceRequest.id,
+      teamId: selectedTeamId,
+      contractorId,
+      assignedToId: resolvedAssignedToId,
         assignmentMethod: "manual",
-        slaDue: slaDue ? new Date(`${slaDue}T12:00:00`).toISOString() : undefined,
-        costEstimate: costEstimate ? Math.round(parseFloat(costEstimate) * 100) : undefined,
-        status: "assigned",
+      slaDue: slaDue ? new Date(`${slaDue}T12:00:00`).toISOString() : undefined,
+      costEstimate: costEstimate ? Math.round(parseFloat(costEstimate) * 100) : undefined,
+      status: "assigned",
         completionChecklistId:
           completionChecklistId === "__none__" ? null : completionChecklistId,
       });
@@ -3046,50 +3046,50 @@ function WorkOrderForm({
                   </AlertDescription>
                 </Alert>
               ) : (
-                <div className="space-y-2">
-                  <label className="text-sm font-medium" htmlFor="assigned-to">
-                    Assign to Team Member <span className="text-destructive">*</span>
-                  </label>
-                  <Select
-                    value={assignedToId}
-                    onValueChange={setAssignedToId}
-                    disabled={isLoadingMembers || teamMembers.length === 0}
-                  >
-                    <SelectTrigger id="assigned-to" data-testid="select-assigned-to">
-                      <SelectValue
-                        placeholder={
-                          isLoadingMembers
-                            ? "Loading members..."
-                            : teamMembers.length === 0
-                              ? "No members on this team"
-                              : "Select inspector or contractor"
-                        }
-                      />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {teamMembers.map((member: any) => {
-                        const person = member.user || member.contact;
-                        if (!person) return null;
-                        const value = member.userId || member.contactId;
+            <div className="space-y-2">
+              <label className="text-sm font-medium" htmlFor="assigned-to">
+                Assign to Team Member <span className="text-destructive">*</span>
+              </label>
+              <Select
+                value={assignedToId}
+                onValueChange={setAssignedToId}
+                disabled={isLoadingMembers || teamMembers.length === 0}
+              >
+                <SelectTrigger id="assigned-to" data-testid="select-assigned-to">
+                  <SelectValue
+                    placeholder={
+                      isLoadingMembers
+                        ? "Loading members..."
+                        : teamMembers.length === 0
+                          ? "No members on this team"
+                          : "Select inspector or contractor"
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {teamMembers.map((member: any) => {
+                    const person = member.user || member.contact;
+                    if (!person) return null;
+                    const value = member.userId || member.contactId;
                         const kind = member.userId
                           ? "Inspector / Staff"
                           : "Maintenance Contractor";
-                        return (
-                          <SelectItem
-                            key={member.id}
-                            value={value}
-                            data-testid={`option-member-${member.id}`}
-                          >
-                            {person.firstName} {person.lastName}
-                            {person.email ? ` (${person.email})` : ""} — {kind}
-                          </SelectItem>
-                        );
-                      })}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">
-                    Only people added to this Maintenance Team can be assigned.
-                  </p>
+                    return (
+                      <SelectItem
+                        key={member.id}
+                        value={value}
+                        data-testid={`option-member-${member.id}`}
+                      >
+                        {person.firstName} {person.lastName}
+                        {person.email ? ` (${person.email})` : ""} — {kind}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Only people added to this Maintenance Team can be assigned.
+              </p>
                 </div>
               )}
             </div>

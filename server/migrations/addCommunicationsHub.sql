@@ -2,7 +2,7 @@
 -- Contabo: run as creativecloud against inspect360_dev / inspect360, then GRANT to inspect360.
 
 ALTER TABLE organizations
-  ADD COLUMN IF NOT EXISTS communications_enabled BOOLEAN NOT NULL DEFAULT false;
+  ADD COLUMN IF NOT EXISTS communications_enabled BOOLEAN NOT NULL DEFAULT true;
 
 ALTER TABLE organizations
   ADD COLUMN IF NOT EXISTS communications_emergency_guidance TEXT;

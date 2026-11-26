@@ -2,6 +2,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PdfActionButton } from "@/components/PdfActionButton";
 import {
   Table,
   TableBody,
@@ -430,25 +431,17 @@ export default function PropertyHistoryReport() {
             </p>
           </div>
         </div>
-        <Button
+        <PdfActionButton
           onClick={handleExportPdf}
+          pending={isExportingPdf}
           disabled={!propertyId || isExportingPdf || isLoading}
           className="self-start sm:self-auto"
           variant="brand"
           data-testid="button-export-property-history-pdf"
         >
-          {isExportingPdf ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Generating PDF...
-            </>
-          ) : (
-            <>
-              <FileDown className="mr-2 h-4 w-4" />
-              Export PDF
-            </>
-          )}
-        </Button>
+          <FileDown className="mr-2 h-4 w-4" />
+          Export PDF
+        </PdfActionButton>
       </div>
 
       <Card className="glass-card shadow-sm">

@@ -37,7 +37,7 @@ export default function FeedbackPage() {
   });
 
   return (
-    <div className={cn(pagePad, "pb-10")}>
+    <div className={cn("container mx-auto min-w-0 space-y-6 md:space-y-8", pagePad)}>
       <PageHeader
         icon={MessageSquarePlus}
         title="Feedback"

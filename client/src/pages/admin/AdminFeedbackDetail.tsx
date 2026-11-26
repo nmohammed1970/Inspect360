@@ -121,7 +121,7 @@ export default function AdminFeedbackDetail() {
 
   if (isLoading) {
     return (
-      <div className={pagePad}>
+      <div className={cn("container mx-auto min-w-0", pagePad)}>
         <Skeleton className="h-8 w-64 mb-4" />
         <Skeleton className="h-48 w-full" />
       </div>
@@ -130,7 +130,7 @@ export default function AdminFeedbackDetail() {
 
   if (!data?.feedback) {
     return (
-      <div className={pagePad}>
+      <div className={cn("container mx-auto min-w-0", pagePad)}>
         <p className="text-destructive">Feedback case not found.</p>
         <Button asChild variant="outline" className="mt-4">
           <Link href="/admin/feedback">Back to Inbox</Link>
@@ -144,7 +144,7 @@ export default function AdminFeedbackDetail() {
   const client = (feedback.clientContext || {}) as Record<string, unknown>;
 
   return (
-    <div className={pagePad}>
+    <div className={cn("container mx-auto min-w-0 space-y-6 md:space-y-8", pagePad)}>
       <Button asChild variant="ghost" className="mb-4 -ml-2">
         <Link href="/admin/feedback">
           <ArrowLeft className="h-4 w-4 mr-2" />

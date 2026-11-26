@@ -7,6 +7,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { PdfActionButton } from "@/components/PdfActionButton";
 import { Progress } from "@/components/ui/progress";
 import { 
   Building2, 
@@ -34,7 +35,6 @@ import {
   RefreshCw,
   Filter,
   Download,
-  Loader2,
   Banknote,
   LayoutDashboard,
   MessageSquare,
@@ -213,7 +213,7 @@ export default function Dashboard() {
   const { user, isLoading, isAuthenticated } = useAuth();
   const { data: entitlement } = useEntitlement();
   const { rentalsEnabled, tenanciesEnabled, complianceEnabled, maintenanceEnabled, communicationsEnabled } = useCompanyModules();
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
   const featuresLocked = !!entitlement?.locked;
 
   const { data: landingOrg } = useQuery<Organization>({
@@ -221,7 +221,10 @@ export default function Dashboard() {
     enabled: !!user?.organizationId && !!communicationsEnabled,
   });
 
+  // Optional org preference: home "/" can open Communications.
+  // Never steal an explicit Dashboard click (/dashboard).
   useEffect(() => {
+    if (location !== "/") return;
     if (
       communicationsEnabled &&
       landingOrg?.communicationsDefaultLanding &&
@@ -230,6 +233,7 @@ export default function Dashboard() {
       setLocation("/communications");
     }
   }, [
+    location,
     communicationsEnabled,
     landingOrg?.communicationsDefaultLanding,
     featuresLocked,
@@ -729,24 +733,15 @@ export default function Dashboard() {
           )}
           <UiTooltip>
             <TooltipTrigger asChild>
-              <Button
+              <PdfActionButton
                 onClick={handleExportDashboardPDF}
-                disabled={isExportingPDF}
+                pending={isExportingPDF}
                 className="ml-auto"
                 data-testid="button-export-dashboard-pdf"
               >
-                {isExportingPDF ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Generating...
-                  </>
-                ) : (
-                  <>
-                    <Download className="h-4 w-4 mr-2" />
-                    Export PDF Report
-                  </>
-                )}
-              </Button>
+                <Download className="h-4 w-4 mr-2" />
+                Export PDF Report
+              </PdfActionButton>
             </TooltipTrigger>
             <TooltipContent>
               <p>Download a PDF summary of current dashboard metrics</p>
@@ -844,24 +839,15 @@ export default function Dashboard() {
           </UiTooltip>
           <UiTooltip>
             <TooltipTrigger asChild>
-              <Button
+              <PdfActionButton
                 onClick={handleExportDashboardPDF}
-                disabled={isExportingPDF}
+                pending={isExportingPDF}
                 className="flex-1"
                 data-testid="button-export-dashboard-pdf-mobile"
               >
-                {isExportingPDF ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Generating...
-                  </>
-                ) : (
-                  <>
-                    <Download className="h-4 w-4 mr-2" />
-                    Export PDF
-                  </>
-                )}
-              </Button>
+                <Download className="h-4 w-4 mr-2" />
+                Export PDF
+              </PdfActionButton>
             </TooltipTrigger>
             <TooltipContent>
               <p>Download a PDF summary of current dashboard metrics</p>
@@ -1093,7 +1079,8 @@ export default function Dashboard() {
               </Badge>
             </div>
             <CardDescription>
-              New tenant and inspector requests, actionable quotes, and tenant discussion messages
+              Unassigned tenant and inspector requests, quotes, and tenant discussion messages.
+              Items leave this list once a request or work order is assigned.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -1103,7 +1090,10 @@ export default function Dashboard() {
                 <p>No new maintenance items</p>
               </div>
             ) : (
-              <div className="space-y-2">
+              <div
+                className="max-h-[calc((4.75rem*5)+(0.5rem*4))] overflow-y-auto overscroll-contain space-y-2 pr-1"
+                data-testid="panel-new-requests-scroll"
+              >
                 {(maintenanceInbox?.items ?? []).map((item) => {
                   const kindMeta =
                     item.kind === "tenant_request"
@@ -1132,7 +1122,7 @@ export default function Dashboard() {
                   return (
                     <Link key={item.id} href={item.href}>
                       <div
-                        className="flex items-center justify-between gap-3 p-3 rounded-lg border bg-background hover-elevate cursor-pointer"
+                        className="flex items-center justify-between gap-3 p-3 rounded-lg border bg-background hover-elevate cursor-pointer min-h-[4.75rem]"
                         data-testid={`inbox-item-${item.id}`}
                       >
                         <div className="flex items-center gap-3 min-w-0">
@@ -1235,29 +1225,34 @@ export default function Dashboard() {
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      {(stats?.alerts?.overdueInspectionsList ?? []).map((item) => (
-                        <ContextualLink key={item.id} href={`/inspections/${item.id}/capture`} fromLabel="Dashboard">
-                          <div className="flex items-center justify-between p-3 rounded-lg border hover-elevate cursor-pointer" data-testid={`alert-inspection-${item.id}`}>
-                            <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 rounded-full bg-red-100 dark:bg-red-900/20 flex items-center justify-center">
-                                <ClipboardCheck className="h-4 w-4 text-red-600 dark:text-red-400" />
+                      <div
+                        className="max-h-[calc((4.75rem*5)+(0.5rem*4))] overflow-y-auto overscroll-contain space-y-2 pr-1"
+                        data-testid="alerts-inspections-scroll"
+                      >
+                        {(stats?.alerts?.overdueInspectionsList ?? []).map((item) => (
+                          <ContextualLink key={item.id} href={`/inspections/${item.id}/capture`} fromLabel="Dashboard">
+                            <div className="flex items-center justify-between p-3 rounded-lg border hover-elevate cursor-pointer min-h-[4.75rem]" data-testid={`alert-inspection-${item.id}`}>
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-full bg-red-100 dark:bg-red-900/20 flex items-center justify-center">
+                                  <ClipboardCheck className="h-4 w-4 text-red-600 dark:text-red-400" />
+                                </div>
+                                <div>
+                                  <p className="font-medium text-sm">
+                                    {item.propertyId ? propertyMap.get(item.propertyId) || 'Property' : 
+                                     item.blockId ? blockMap.get(item.blockId) || 'Block' : 'Unknown'}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">{item.type}</p>
+                                </div>
                               </div>
-                              <div>
-                                <p className="font-medium text-sm">
-                                  {item.propertyId ? propertyMap.get(item.propertyId) || 'Property' : 
-                                   item.blockId ? blockMap.get(item.blockId) || 'Block' : 'Unknown'}
-                                </p>
-                                <p className="text-xs text-muted-foreground">{item.type}</p>
+                              <div className="text-right">
+                                <Badge variant="destructive" className="text-xs">
+                                  {item.daysOverdue}d overdue
+                                </Badge>
                               </div>
                             </div>
-                            <div className="text-right">
-                              <Badge variant="destructive" className="text-xs">
-                                {item.daysOverdue}d overdue
-                              </Badge>
-                            </div>
-                          </div>
-                        </ContextualLink>
-                      ))}
+                          </ContextualLink>
+                        ))}
+                      </div>
                       {(stats?.alerts?.overdueInspections ?? 0) > 10 && (
                         <Link href="/inspections?status=overdue">
                           <Button variant="ghost" className="w-full text-sm" data-testid="link-view-all-inspections">
@@ -1278,29 +1273,34 @@ export default function Dashboard() {
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      {(stats?.alerts?.overdueComplianceList ?? []).map((item) => (
-                        <Link key={item.id} href={item.propertyId ? `/properties/${item.propertyId}?tab=compliance` : item.blockId ? `/blocks/${item.blockId}?tab=compliance` : `/compliance`}>
-                          <div className="flex items-center justify-between p-3 rounded-lg border hover-elevate cursor-pointer" data-testid={`alert-compliance-${item.id}`}>
-                            <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 rounded-full bg-red-100 dark:bg-red-900/20 flex items-center justify-center">
-                                <FileText className="h-4 w-4 text-red-600 dark:text-red-400" />
+                      <div
+                        className="max-h-[calc((4.75rem*5)+(0.5rem*4))] overflow-y-auto overscroll-contain space-y-2 pr-1"
+                        data-testid="alerts-compliance-scroll"
+                      >
+                        {(stats?.alerts?.overdueComplianceList ?? []).map((item) => (
+                          <Link key={item.id} href={item.propertyId ? `/properties/${item.propertyId}?tab=compliance` : item.blockId ? `/blocks/${item.blockId}?tab=compliance` : `/compliance`}>
+                            <div className="flex items-center justify-between p-3 rounded-lg border hover-elevate cursor-pointer min-h-[4.75rem]" data-testid={`alert-compliance-${item.id}`}>
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-full bg-red-100 dark:bg-red-900/20 flex items-center justify-center">
+                                  <FileText className="h-4 w-4 text-red-600 dark:text-red-400" />
+                                </div>
+                                <div>
+                                  <p className="font-medium text-sm">
+                                    {item.propertyId ? propertyMap.get(item.propertyId) || 'Property' : 
+                                     item.blockId ? blockMap.get(item.blockId) || 'Block' : 'Unknown'}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">{item.documentType}</p>
+                                </div>
                               </div>
-                              <div>
-                                <p className="font-medium text-sm">
-                                  {item.propertyId ? propertyMap.get(item.propertyId) || 'Property' : 
-                                   item.blockId ? blockMap.get(item.blockId) || 'Block' : 'Unknown'}
-                                </p>
-                                <p className="text-xs text-muted-foreground">{item.documentType}</p>
+                              <div className="text-right">
+                                <Badge variant="destructive" className="text-xs">
+                                  {item.daysOverdue}d expired
+                                </Badge>
                               </div>
                             </div>
-                            <div className="text-right">
-                              <Badge variant="destructive" className="text-xs">
-                                {item.daysOverdue}d expired
-                              </Badge>
-                            </div>
-                          </div>
-                        </Link>
-                      ))}
+                          </Link>
+                        ))}
+                      </div>
                       {(stats?.alerts?.overdueCompliance ?? 0) > 10 && (
                         <Link href="/compliance?status=expired">
                           <Button variant="ghost" className="w-full text-sm" data-testid="link-view-all-compliance">
@@ -1322,36 +1322,41 @@ export default function Dashboard() {
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      {(stats?.alerts?.urgentMaintenanceList ?? []).map((item) => (
-                        <ContextualLink key={item.id} href={`/maintenance/${item.id}`} fromLabel="Dashboard">
-                          <div className="flex items-center justify-between p-3 rounded-lg border hover-elevate cursor-pointer" data-testid={`alert-maintenance-${item.id}`}>
-                            <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 rounded-full bg-orange-100 dark:bg-orange-900/20 flex items-center justify-center">
-                                <Wrench className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+                      <div
+                        className="max-h-[calc((4.75rem*5)+(0.5rem*4))] overflow-y-auto overscroll-contain space-y-2 pr-1"
+                        data-testid="alerts-maintenance-scroll"
+                      >
+                        {(stats?.alerts?.urgentMaintenanceList ?? []).map((item) => (
+                          <ContextualLink key={item.id} href={`/maintenance/${item.id}`} fromLabel="Dashboard">
+                            <div className="flex items-center justify-between p-3 rounded-lg border hover-elevate cursor-pointer min-h-[4.75rem]" data-testid={`alert-maintenance-${item.id}`}>
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-full bg-orange-100 dark:bg-orange-900/20 flex items-center justify-center">
+                                  <Wrench className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+                                </div>
+                                <div>
+                                  <p className="font-medium text-sm truncate min-w-0">{item.title}</p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {item.propertyId ? propertyMap.get(item.propertyId) || 'Property' : 'Unknown'}
+                                  </p>
+                                </div>
                               </div>
-                              <div>
-                                <p className="font-medium text-sm truncate min-w-0">{item.title}</p>
-                                <p className="text-xs text-muted-foreground">
-                                  {item.propertyId ? propertyMap.get(item.propertyId) || 'Property' : 'Unknown'}
-                                </p>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2 shrink-0">
-                              <Badge
-                                variant="outline"
-                                className="text-xs border-orange-500 text-orange-600 min-w-[4.5rem] shrink-0 justify-center capitalize"
-                              >
-                                {item.priority}
-                              </Badge>
-                              {item.daysOverdue && item.daysOverdue > 0 && (
-                                <Badge variant="destructive" className="text-xs">
-                                  {item.daysOverdue}d overdue
+                              <div className="flex items-center gap-2 shrink-0">
+                                <Badge
+                                  variant="outline"
+                                  className="text-xs border-orange-500 text-orange-600 min-w-[4.5rem] shrink-0 justify-center capitalize"
+                                >
+                                  {item.priority}
                                 </Badge>
-                              )}
+                                {item.daysOverdue && item.daysOverdue > 0 && (
+                                  <Badge variant="destructive" className="text-xs">
+                                    {item.daysOverdue}d overdue
+                                  </Badge>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                        </ContextualLink>
-                      ))}
+                          </ContextualLink>
+                        ))}
+                      </div>
                       {(stats?.alerts?.urgentMaintenance ?? 0) > 10 && (
                         <Link href="/maintenance?priority=urgent">
                           <Button variant="ghost" className="w-full text-sm" data-testid="link-view-all-maintenance">
@@ -1373,30 +1378,35 @@ export default function Dashboard() {
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      {(stats?.alerts?.overdueRentList ?? []).map((item) => (
-                        <ContextualLink key={item.id} href={`/properties/${item.propertyId}?tab=rent-collection`} fromLabel="Dashboard">
-                          <div className="flex items-center justify-between p-3 rounded-lg border hover-elevate cursor-pointer" data-testid={`alert-rent-${item.id}`}>
-                            <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 rounded-full bg-red-100 dark:bg-red-900/20 flex items-center justify-center">
-                                <Banknote className="h-4 w-4 text-red-600 dark:text-red-400" />
+                      <div
+                        className="max-h-[calc((4.75rem*5)+(0.5rem*4))] overflow-y-auto overscroll-contain space-y-2 pr-1"
+                        data-testid="alerts-rent-scroll"
+                      >
+                        {(stats?.alerts?.overdueRentList ?? []).map((item) => (
+                          <ContextualLink key={item.id} href={`/properties/${item.propertyId}?tab=rent-collection`} fromLabel="Dashboard">
+                            <div className="flex items-center justify-between p-3 rounded-lg border hover-elevate cursor-pointer min-h-[4.75rem]" data-testid={`alert-rent-${item.id}`}>
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-full bg-red-100 dark:bg-red-900/20 flex items-center justify-center">
+                                  <Banknote className="h-4 w-4 text-red-600 dark:text-red-400" />
+                                </div>
+                                <div>
+                                  <p className="font-medium text-sm">
+                                    {propertyMap.get(item.propertyId) || "Property"}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {item.tenantName} · {item.periodLabel}
+                                  </p>
+                                </div>
                               </div>
-                              <div>
-                                <p className="font-medium text-sm">
-                                  {propertyMap.get(item.propertyId) || "Property"}
-                                </p>
-                                <p className="text-xs text-muted-foreground">
-                                  {item.tenantName} · {item.periodLabel}
-                                </p>
+                              <div className="text-right">
+                                <Badge variant="destructive" className="text-xs">
+                                  {item.daysOverdue}d overdue
+                                </Badge>
                               </div>
                             </div>
-                            <div className="text-right">
-                              <Badge variant="destructive" className="text-xs">
-                                {item.daysOverdue}d overdue
-                              </Badge>
-                            </div>
-                          </div>
-                        </ContextualLink>
-                      ))}
+                          </ContextualLink>
+                        ))}
+                      </div>
                       {(stats?.alerts?.overdueRent ?? 0) > 10 && (
                         <p className="text-center text-xs text-muted-foreground pt-2">
                           Showing 10 of {stats?.alerts?.overdueRent} overdue rent periods
