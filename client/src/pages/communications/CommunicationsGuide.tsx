@@ -3,6 +3,7 @@ import { Link } from "wouter";
 import { BookOpen, Download, ExternalLink, FileText } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
+import { PdfActionButton } from "@/components/PdfActionButton";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
@@ -56,15 +57,15 @@ export default function CommunicationsGuide() {
             <Button variant="outline" asChild>
               <Link href="/communications">Inbox</Link>
             </Button>
-            <Button
+            <PdfActionButton
               variant="brand"
               onClick={downloadPdf}
-              disabled={downloading}
+              pending={downloading}
               data-testid="button-download-comms-guide-pdf"
             >
               <Download className="w-4 h-4 mr-1.5" />
-              {downloading ? "Preparing PDF…" : "Download PDF"}
-            </Button>
+              Download PDF
+            </PdfActionButton>
           </div>
         }
       />
@@ -101,15 +102,15 @@ export default function CommunicationsGuide() {
             <p className="text-xs text-muted-foreground">
               Branded PDF of this guide — same content as the preview.
             </p>
-            <Button
+            <PdfActionButton
               className="w-full"
               variant="brand"
               onClick={downloadPdf}
-              disabled={downloading}
+              pending={downloading}
             >
               <Download className="w-4 h-4 mr-1.5" />
               Download PDF
-            </Button>
+            </PdfActionButton>
             <Button className="w-full" variant="outline" asChild>
               <a href="/api/communications/guide" target="_blank" rel="noreferrer">
                 <ExternalLink className="w-4 h-4 mr-1.5" />

@@ -53,15 +53,23 @@ function locationLabel(m: any): string {
   );
 }
 
+function isWorkOrderAssigned(wo: {
+  assignedToId?: string | null;
+  contractorId?: string | null;
+}): boolean {
+  return Boolean(wo.assignedToId || wo.contractorId);
+}
+
 /**
  * Unified New Requests feed for owner / maintenance_admin dashboards.
+ * Assigned requests / work orders drop out of this queue.
  */
 export async function buildMaintenanceInbox(input: {
   organizationId: string;
   filterBlockId?: string;
   filterPropertyId?: string;
 }): Promise<{ items: MaintenanceInboxItem[]; count: number }> {
-  const [allMaintenance, allProperties, quoteRows] = await Promise.all([
+  const [allMaintenance, allProperties, quoteRows, workOrderRows] = await Promise.all([
     storage.getMaintenanceByOrganization(input.organizationId),
     storage.getPropertiesByOrganization(input.organizationId),
     db
@@ -75,6 +83,8 @@ export async function buildMaintenanceInbox(input: {
         createdAt: maintenanceQuotes.createdAt,
         mrPropertyId: maintenanceRequests.propertyId,
         mrBlockId: maintenanceRequests.blockId,
+        woAssignedToId: workOrders.assignedToId,
+        woContractorId: workOrders.contractorId,
       })
       .from(maintenanceQuotes)
       .innerJoin(workOrders, eq(maintenanceQuotes.workOrderId, workOrders.id))
@@ -93,6 +103,15 @@ export async function buildMaintenanceInbox(input: {
         ),
       )
       .orderBy(desc(maintenanceQuotes.updatedAt)),
+    db
+      .select({
+        id: workOrders.id,
+        maintenanceRequestId: workOrders.maintenanceRequestId,
+        assignedToId: workOrders.assignedToId,
+        contractorId: workOrders.contractorId,
+      })
+      .from(workOrders)
+      .where(eq(workOrders.organizationId, input.organizationId)),
   ]);
 
   let maintenance = allMaintenance as any[];
@@ -119,9 +138,23 @@ export async function buildMaintenanceInbox(input: {
     );
   }
 
-  const openMaintenance = maintenance.filter((m) => m.status === "open");
+  const mrsWithAssignedWorkOrder = new Set<string>();
+  for (const wo of workOrderRows) {
+    if (!wo.maintenanceRequestId || !isWorkOrderAssigned(wo)) continue;
+    mrsWithAssignedWorkOrder.add(wo.maintenanceRequestId);
+  }
+
+  const isRequestAssigned = (m: any) =>
+    Boolean(m.assignedTo) || mrsWithAssignedWorkOrder.has(m.id);
+
+  // Only unassigned open requests belong in New Requests.
+  const openMaintenance = maintenance.filter(
+    (m) => m.status === "open" && !isRequestAssigned(m),
+  );
+  // Tenant discussion noise for already-assigned jobs should leave the dashboard too.
   const activeForMessages = maintenance.filter(
-    (m) => m.status === "open" || m.status === "in_progress",
+    (m) =>
+      (m.status === "open" || m.status === "in_progress") && !isRequestAssigned(m),
   );
   const activeIds = activeForMessages.map((m) => m.id);
 
@@ -160,6 +193,10 @@ export async function buildMaintenanceInbox(input: {
   }
 
   for (const q of quotes) {
+    // Quote rows on an already-assigned work order leave New Requests.
+    if (isWorkOrderAssigned({ assignedToId: q.woAssignedToId, contractorId: q.woContractorId })) {
+      continue;
+    }
     const statusLabel =
       q.status === "accepted"
         ? "Accepted — ready to convert"
@@ -180,7 +217,7 @@ export async function buildMaintenanceInbox(input: {
     });
   }
 
-  // Latest message per active MR; keep those authored by tenant
+  // Latest message per unassigned active MR; keep those authored by tenant
   if (activeIds.length > 0) {
     const messageRows = await db
       .select({

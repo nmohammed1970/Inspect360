@@ -48,15 +48,24 @@ export function StatusBadge({
     );
   }
 
+  // Soft pills: avoid Badge `outline` — its `[border-color:var(--badge-outline)]`
+  // fights tone border colors and makes every status look grey.
+  const { onClick, title, id, style } = rest;
   return (
-    <Badge
-      variant="outline"
-      className={cn("font-medium shadow-none", toneClass(tone), className)}
+    <span
+      id={id}
+      title={title}
+      style={style}
+      onClick={onClick}
       data-testid={testId}
-      {...rest}
+      className={cn(
+        "whitespace-nowrap inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium leading-none capitalize shadow-none",
+        toneClass(tone),
+        className,
+      )}
     >
       {children}
-    </Badge>
+    </span>
   );
 }
 

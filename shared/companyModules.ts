@@ -3,6 +3,7 @@
  *
  * Dependency strategy (no cascade-disable of Properties/Blocks/Inspections):
  * - Tenancies OFF → Rentals is also treated as OFF (rent is tied to tenant assignments).
+ * - Tenancies OFF → Communications is also treated as OFF (cases are tenant/tenancy-linked).
  * - Tenancies OFF → Community (operator moderation + tenant portal community) is also OFF.
  *   Community has no separate Internal Module toggle; it follows Tenancies.
  * - Rentals OFF → hide finance tabs/actions/settings/jobs; tenancy assignments still work.
@@ -101,7 +102,7 @@ export type CompanyModuleFlags = {
   maintenanceEnabled?: boolean | null;
   /** Opt-in HMO Compliance Intelligence (default OFF). */
   hmoComplianceEnabled?: boolean | null;
-  /** Opt-in Communications Hub (default OFF). */
+  /** Communications Hub (default ON). */
   communicationsEnabled?: boolean | null;
 };
 
@@ -122,7 +123,7 @@ function flagOn(value: boolean | null | undefined): boolean {
  * Whether a company module is enabled for an organization.
  * Missing/null flags default to enabled (backward compatible) except
  * `hmo_compliance`, which is opt-in (must be explicitly true).
- * Rentals requires Tenancies — if Tenancies is OFF, Rentals is OFF.
+ * Rentals and Communications require Tenancies — if Tenancies is OFF, both are OFF.
  * When `plan` is an active AI Inspections subscription, all company modules are OFF.
  */
 export function isCompanyModuleEnabled(
@@ -137,11 +138,11 @@ export function isCompanyModuleEnabled(
   if (key === "rentals") {
     return flagOn(org.rentalsEnabled) && flagOn(org.tenanciesEnabled);
   }
+  if (key === "communications") {
+    return flagOn(org.communicationsEnabled) && flagOn(org.tenanciesEnabled);
+  }
   if (key === "hmo_compliance") {
     return org.hmoComplianceEnabled === true;
-  }
-  if (key === "communications") {
-    return org.communicationsEnabled === true;
   }
   return flagOn(org[FLAG_BY_KEY[key]]);
 }
@@ -158,7 +159,7 @@ export function isCommunityEnabled(
 }
 
 /**
- * Coerce flags for persistence: Tenancies OFF forces Rentals OFF.
+ * Coerce flags for persistence: Tenancies OFF forces Rentals and Communications OFF.
  */
 export function normalizeCompanyModuleFlags(input: {
   rentalsEnabled?: boolean;
@@ -196,15 +197,23 @@ export function normalizeCompanyModuleFlags(input: {
   if (typeof input.hmoComplianceEnabled === "boolean") {
     out.hmoComplianceEnabled = input.hmoComplianceEnabled;
   }
-  if (typeof input.communicationsEnabled === "boolean") {
-    out.communicationsEnabled = input.communicationsEnabled;
-  }
+
+  const tenanciesOn =
+    typeof input.tenanciesEnabled === "boolean" ? input.tenanciesEnabled : true;
+
   if (typeof input.rentalsEnabled === "boolean" || typeof input.tenanciesEnabled === "boolean") {
-    const tenanciesOn =
-      typeof input.tenanciesEnabled === "boolean" ? input.tenanciesEnabled : true;
     const rentalsRequested =
       typeof input.rentalsEnabled === "boolean" ? input.rentalsEnabled : true;
     out.rentalsEnabled = tenanciesOn ? rentalsRequested : false;
+  }
+
+  if (
+    typeof input.communicationsEnabled === "boolean" ||
+    typeof input.tenanciesEnabled === "boolean"
+  ) {
+    const communicationsRequested =
+      typeof input.communicationsEnabled === "boolean" ? input.communicationsEnabled : true;
+    out.communicationsEnabled = tenanciesOn ? communicationsRequested : false;
   }
 
   return out;
@@ -299,7 +308,7 @@ export const COMPANY_MODULE_META: Record<
   tenancies: {
     label: "Tenancies",
     description:
-      "Manage tenancy assignments, tenant records, and tenant-related workflows. Turning this off also disables Rentals and Community.",
+      "Manage tenancy assignments, tenant records, and tenant-related workflows. Turning this off also disables Rentals, Communications, and Community.",
   },
   compliance: {
     label: "Compliance",
@@ -319,6 +328,6 @@ export const COMPANY_MODULE_META: Record<
   communications: {
     label: "Communications",
     description:
-      "Operational inbox for tenant requests across categories, with assignment, approvals, and linked maintenance. Opt-in; turning off hides Communications without deleting cases.",
+      "Operational inbox for tenant requests across categories, with assignment, approvals, and linked maintenance. Requires Tenancies. Enabled by default; turning off hides Communications without deleting cases.",
   },
 };

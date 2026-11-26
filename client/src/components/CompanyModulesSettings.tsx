@@ -87,7 +87,7 @@ export function CompanyModulesSettings({ className }: CompanyModulesSettingsProp
   const [complianceEnabled, setComplianceEnabled] = useState(true);
   const [maintenanceEnabled, setMaintenanceEnabled] = useState(true);
   const [hmoComplianceEnabled, setHmoComplianceEnabled] = useState(false);
-  const [communicationsEnabled, setCommunicationsEnabled] = useState(false);
+  const [communicationsEnabled, setCommunicationsEnabled] = useState(true);
 
   const { data: user } = useQuery<User>({
     queryKey: ["/api/auth/user"],
@@ -140,7 +140,7 @@ export function CompanyModulesSettings({ className }: CompanyModulesSettingsProp
           complianceEnabled,
           maintenanceEnabled,
           hmoComplianceEnabled,
-          communicationsEnabled,
+          communicationsEnabled: tenanciesEnabled ? communicationsEnabled : false,
         },
       );
       return response.json();
@@ -206,7 +206,10 @@ export function CompanyModulesSettings({ className }: CompanyModulesSettingsProp
               disabled={modulesLoading}
               onCheckedChange={(on) => {
                 setTenanciesEnabled(on);
-                if (!on) setRentalsEnabled(false);
+                if (!on) {
+                  setRentalsEnabled(false);
+                  setCommunicationsEnabled(false);
+                }
               }}
               testId="toggle-module-tenancies"
             />
@@ -305,12 +308,17 @@ export function CompanyModulesSettings({ className }: CompanyModulesSettingsProp
               {communicationsLock.message && !lockedByAiPlan && (
                 <p className="text-xs text-muted-foreground mt-1">{communicationsLock.message}</p>
               )}
+              {!communicationsLock.locked && !tenanciesEnabled && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Enable Tenancies first to turn Communications on.
+                </p>
+              )}
             </div>
             <LockedSwitch
-              checked={communicationsEnabled}
+              checked={tenanciesEnabled && communicationsEnabled}
               locked={communicationsLock.locked}
               lockMessage={communicationsLock.message}
-              disabled={modulesLoading}
+              disabled={modulesLoading || !tenanciesEnabled}
               onCheckedChange={setCommunicationsEnabled}
               testId="toggle-module-communications"
             />

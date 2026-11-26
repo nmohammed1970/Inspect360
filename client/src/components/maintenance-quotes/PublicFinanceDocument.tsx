@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
-import { Download, Loader2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Download } from "lucide-react";
+import { PdfActionButton } from "@/components/PdfActionButton";
 import { formatMoneyMinor } from "@/components/maintenance-quotes/quoteMoney";
 import { MAINTENANCE_PRICE_BOOK_VAT_LABELS } from "@shared/maintenancePriceBookConstants";
 import { cn } from "@/lib/utils";
@@ -148,20 +148,16 @@ export const PublicFinanceDocument = ({
                   ) : null}
                 </div>
               </div>
-              <Button
+              <PdfActionButton
                 variant="outline"
                 size="sm"
-                disabled={pdfDownloading}
+                pending={!!pdfDownloading}
                 onClick={onDownloadPdf}
                 className="shrink-0"
               >
-                {pdfDownloading ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <Download className="h-4 w-4 mr-2" />
-                )}
+                <Download className="h-4 w-4 mr-2" />
                 Download PDF
-              </Button>
+              </PdfActionButton>
             </div>
 
             <div className="mt-6 flex flex-wrap items-end justify-between gap-4">

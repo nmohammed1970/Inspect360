@@ -4,6 +4,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useParams, Link } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PdfActionButton } from "@/components/PdfActionButton";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
@@ -543,19 +544,15 @@ export default function ComparisonReportDetail() {
           </p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
-          <Button
+          <PdfActionButton
             variant="brand"
             onClick={handleDownloadPdf}
-            disabled={isDownloadingPdf}
+            pending={isDownloadingPdf}
             data-testid="button-download-pdf"
           >
-            {isDownloadingPdf ? (
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-            ) : (
-              <Download className="w-4 h-4 mr-2" />
-            )}
-            {isDownloadingPdf ? "Generating..." : "Download PDF"}
-          </Button>
+            <Download className="w-4 h-4 mr-2" />
+            Download PDF
+          </PdfActionButton>
           {isOperator && (
             <>
               <Button

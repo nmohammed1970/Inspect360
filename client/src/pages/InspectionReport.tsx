@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PdfActionButton } from "@/components/PdfActionButton";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
@@ -1658,34 +1659,28 @@ export default function InspectionReport() {
                 </Button>
               </>
             )}
-            <Button
+            <PdfActionButton
               variant="outline"
               size="sm"
               onClick={() => handlePrint("full")}
+              pending={pdfGeneratingAudience === "full"}
               disabled={!!pdfGeneratingAudience}
               data-testid="button-print-report"
             >
-              {pdfGeneratingAudience === "full" ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              ) : (
-                <FileText className="w-4 h-4 mr-2" />
-              )}
-              {pdfGeneratingAudience === "full" ? "Generating..." : "View Report"}
-            </Button>
-            <Button
+              <FileText className="w-4 h-4 mr-2" />
+              View Report
+            </PdfActionButton>
+            <PdfActionButton
               variant="outline"
               size="sm"
               onClick={() => handlePrint("landlord")}
+              pending={pdfGeneratingAudience === "landlord"}
               disabled={!!pdfGeneratingAudience}
               data-testid="button-print-landlord-report"
             >
-              {pdfGeneratingAudience === "landlord" ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              ) : (
-                <FileText className="w-4 h-4 mr-2" />
-              )}
-              {pdfGeneratingAudience === "landlord" ? "Generating..." : "View Landlord Report"}
-            </Button>
+              <FileText className="w-4 h-4 mr-2" />
+              View Landlord Report
+            </PdfActionButton>
           </div>
         </div>
       </div>

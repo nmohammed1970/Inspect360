@@ -27,6 +27,7 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { pagePad } from "@/lib/responsive";
+import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/PageHeader";
 
 type Member = {

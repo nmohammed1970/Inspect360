@@ -106,13 +106,28 @@ assert.equal(
 
 assert.equal(
   isCompanyModuleEnabled({}, "communications"),
+  true,
+  "communications missing flag defaults ON",
+);
+assert.equal(
+  isCompanyModuleEnabled({ communicationsEnabled: false }, "communications"),
   false,
-  "communications missing flag defaults OFF (opt-in)",
+  "communications false is OFF",
 );
 assert.equal(
   isCompanyModuleEnabled({ communicationsEnabled: true }, "communications"),
   true,
   "communications true is ON",
+);
+assert.equal(
+  isCompanyModuleEnabled({ tenanciesEnabled: false, communicationsEnabled: true }, "communications"),
+  false,
+  "Tenancies OFF forces Communications OFF",
+);
+assert.equal(
+  isCompanyModuleEnabled({ tenanciesEnabled: true, communicationsEnabled: true }, "communications"),
+  true,
+  "both ON allows Communications",
 );
 assert.deepEqual(
   normalizeCompanyModuleFlags({ communicationsEnabled: true }),
@@ -121,12 +136,22 @@ assert.deepEqual(
 
 assert.deepEqual(
   normalizeCompanyModuleFlags({ tenanciesEnabled: false, rentalsEnabled: true }),
-  { tenanciesEnabled: false, rentalsEnabled: false },
-  "normalize coerces Rentals OFF when Tenancies OFF",
+  { tenanciesEnabled: false, rentalsEnabled: false, communicationsEnabled: false },
+  "normalize coerces Rentals and Communications OFF when Tenancies OFF",
+);
+assert.deepEqual(
+  normalizeCompanyModuleFlags({
+    tenanciesEnabled: false,
+    rentalsEnabled: true,
+    communicationsEnabled: true,
+  }),
+  { tenanciesEnabled: false, rentalsEnabled: false, communicationsEnabled: false },
+  "normalize coerces Communications OFF when Tenancies OFF",
 );
 assert.deepEqual(
   normalizeCompanyModuleFlags({ tenanciesEnabled: true, rentalsEnabled: true }),
-  { tenanciesEnabled: true, rentalsEnabled: true },
+  { tenanciesEnabled: true, rentalsEnabled: true, communicationsEnabled: true },
+  "normalize keeps Communications ON with Tenancies when not explicitly set",
 );
 assert.deepEqual(
   normalizeCompanyModuleFlags({ maintenanceEnabled: false }),

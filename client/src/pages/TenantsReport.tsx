@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PdfActionButton } from "@/components/PdfActionButton";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -195,27 +196,18 @@ export default function TenantsReport() {
             </p>
           </div>
         </div>
-        <Button 
-          onClick={handleExportPDF} 
+        <PdfActionButton
+          onClick={handleExportPDF}
+          pending={isExporting}
           disabled={isExporting || filteredTenants.length === 0}
           className="self-start sm:self-auto"
           variant="brand"
           data-testid="button-export-pdf"
         >
-          {isExporting ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              <span className="hidden sm:inline">Generating...</span>
-              <span className="sm:hidden">Exporting</span>
-            </>
-          ) : (
-            <>
-              <FileDown className="mr-2 h-4 w-4" />
-              <span className="hidden sm:inline">Export PDF</span>
-              <span className="sm:hidden">Export</span>
-            </>
-          )}
-        </Button>
+          <FileDown className="mr-2 h-4 w-4" />
+          <span className="hidden sm:inline">Export PDF</span>
+          <span className="sm:hidden">Export</span>
+        </PdfActionButton>
       </div>
 
       {/* Summary Statistics */}

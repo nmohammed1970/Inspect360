@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PdfActionButton } from "@/components/PdfActionButton";
 import {
   Table,
   TableBody,
@@ -769,25 +770,17 @@ export default function PortfolioReport() {
               </>
             )}
           </Button>
-          <Button
+          <PdfActionButton
             onClick={handleExportPdf}
+            pending={isExportingPdf}
             disabled={exporting || isLoading}
             variant="brand"
             className="self-start sm:self-auto"
             data-testid="button-export-portfolio-pdf"
           >
-            {isExportingPdf ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Generating PDF...
-              </>
-            ) : (
-              <>
-                <FileDown className="mr-2 h-4 w-4" />
-                Export PDF
-              </>
-            )}
-          </Button>
+            <FileDown className="mr-2 h-4 w-4" />
+            Export PDF
+          </PdfActionButton>
         </div>
       </div>
 

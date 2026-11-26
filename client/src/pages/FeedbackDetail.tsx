@@ -89,7 +89,7 @@ export default function FeedbackDetailPage() {
 
   if (isLoading) {
     return (
-      <div className={pagePad}>
+      <div className={cn("container mx-auto min-w-0", pagePad)}>
         <Skeleton className="h-8 w-48 mb-4" />
         <Skeleton className="h-40 w-full" />
       </div>
@@ -98,7 +98,7 @@ export default function FeedbackDetailPage() {
 
   if (error || !data?.feedback) {
     return (
-      <div className={pagePad}>
+      <div className={cn("container mx-auto min-w-0", pagePad)}>
         <p className="text-destructive">Could not load this feedback case.</p>
         <Button asChild variant="outline" className="mt-4">
           <Link href="/feedback">Back to Feedback</Link>
@@ -112,7 +112,7 @@ export default function FeedbackDetailPage() {
   const publicMessages = messages.filter((m) => m.visibility === "public");
 
   return (
-    <div className={pagePad}>
+    <div className={cn("container mx-auto min-w-0 space-y-6 md:space-y-8", pagePad)}>
       <Button asChild variant="ghost" className="mb-4 -ml-2">
         <Link href="/feedback">
           <ArrowLeft className="h-4 w-4 mr-2" />

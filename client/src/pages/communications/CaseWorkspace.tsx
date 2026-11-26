@@ -3,7 +3,10 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "wouter";
 import { format } from "date-fns";
 import {
+  AlertTriangle,
+  Building2,
   CheckSquare,
+  Clock,
   Link2,
   MessageSquare,
   NotebookPen,
@@ -81,6 +84,36 @@ function stamp(iso?: string | null) {
     return format(new Date(iso), "dd MMM yyyy HH:mm");
   } catch {
     return "";
+  }
+}
+
+function prettyLabel(value: string) {
+  return value.replace(/_/g, " ");
+}
+
+function isPast(iso?: string | null) {
+  if (!iso) return false;
+  try {
+    return new Date(iso).getTime() < Date.now();
+  } catch {
+    return false;
+  }
+}
+
+function channelLabel(channel: string) {
+  switch (channel) {
+    case "tenant_portal":
+      return "Portal";
+    case "whatsapp":
+      return "WhatsApp";
+    case "phone":
+      return "Phone";
+    case "email":
+      return "Email";
+    case "app":
+      return "App";
+    default:
+      return prettyLabel(channel);
   }
 }
 
@@ -394,8 +427,11 @@ export default function CaseWorkspace() {
   const c = detail.case;
   const suggestion = c.aiSuggestionJson;
 
+  const firstResponseOverdue = isPast(c.firstResponseDueAt) && !["resolved", "closed", "cancelled", "duplicate"].includes(c.status);
+  const resolutionOverdue = isPast(c.resolutionDueAt) && !["resolved", "closed", "cancelled", "duplicate"].includes(c.status);
+
   return (
-    <div className={cn("container mx-auto min-w-0 space-y-4 md:space-y-6", pagePad)}>
+    <div className={cn("container mx-auto min-w-0 space-y-5 md:space-y-6", pagePad)}>
       <PageHeader
         icon={MessageSquare}
         title={c.subject}
@@ -436,121 +472,223 @@ export default function CaseWorkspace() {
         }
       />
 
-      <div className="flex flex-wrap gap-2">
-        <StatusBadge tone={communicationCaseStatusTone(c.status)}>
-          {c.status.replace(/_/g, " ")}
-        </StatusBadge>
-        <StatusBadge tone={priorityTone(c.priority)}>{c.priority}</StatusBadge>
-        {c.firstResponseDueAt ? (
-          <span className="text-xs text-muted-foreground self-center">
-            First response due {stamp(c.firstResponseDueAt)}
-          </span>
-        ) : null}
+      <div className="rounded-xl border border-border/70 bg-card shadow-sm px-4 py-3.5 space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusBadge tone={communicationCaseStatusTone(c.status)}>
+            {prettyLabel(c.status)}
+          </StatusBadge>
+          <StatusBadge tone={priorityTone(c.priority)}>
+            {c.priority} priority
+          </StatusBadge>
+          {firstResponseOverdue || resolutionOverdue ? (
+            <StatusBadge tone="critical">
+              <span className="inline-flex items-center gap-1">
+                <AlertTriangle className="h-3 w-3" />
+                SLA overdue
+              </span>
+            </StatusBadge>
+          ) : null}
+          {detail.category?.label ? (
+            <StatusBadge tone="muted">{detail.category.label}</StatusBadge>
+          ) : null}
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+          {c.firstResponseDueAt ? (
+            <div
+              className={cn(
+                "rounded-lg border px-3 py-2",
+                firstResponseOverdue
+                  ? "border-red-200 bg-red-50"
+                  : "border-border/60 bg-muted/30",
+              )}
+            >
+              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground flex items-center gap-1">
+                <Clock className="h-3 w-3" />
+                First response
+              </p>
+              <p
+                className={cn(
+                  "text-sm font-medium mt-0.5",
+                  firstResponseOverdue ? "text-red-700" : "text-foreground",
+                )}
+              >
+                {stamp(c.firstResponseDueAt)}
+                {firstResponseOverdue ? " · overdue" : ""}
+              </p>
+            </div>
+          ) : null}
+          {c.resolutionDueAt ? (
+            <div
+              className={cn(
+                "rounded-lg border px-3 py-2",
+                resolutionOverdue
+                  ? "border-red-200 bg-red-50"
+                  : "border-border/60 bg-muted/30",
+              )}
+            >
+              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground flex items-center gap-1">
+                <Clock className="h-3 w-3" />
+                Resolution due
+              </p>
+              <p
+                className={cn(
+                  "text-sm font-medium mt-0.5",
+                  resolutionOverdue ? "text-red-700" : "text-foreground",
+                )}
+              >
+                {stamp(c.resolutionDueAt)}
+                {resolutionOverdue ? " · overdue" : ""}
+              </p>
+            </div>
+          ) : null}
+          {c.summary ? (
+            <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2 sm:col-span-2 lg:col-span-1">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground flex items-center gap-1">
+                <Building2 className="h-3 w-3" />
+                Summary
+              </p>
+              <p className="text-sm mt-0.5 line-clamp-2">{c.summary}</p>
+            </div>
+          ) : null}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.4fr)_minmax(18rem,0.8fr)] gap-4">
         <div className="space-y-4 min-w-0">
           <Tabs defaultValue="conversation">
-            <TabsList className={cn(tabsListScroll, "w-full justify-start")}>
+            <TabsList className={cn(tabsListScroll, "w-full justify-start rounded-lg")}>
               <TabsTrigger value="conversation">Conversation</TabsTrigger>
               <TabsTrigger value="notes">Internal notes</TabsTrigger>
               <TabsTrigger value="audit">Audit</TabsTrigger>
             </TabsList>
-            <TabsContent value="conversation" className="space-y-3">
-              <div className="rounded-lg border border-border/80 bg-card p-3 space-y-3 max-h-[28rem] overflow-y-auto">
+            <TabsContent value="conversation" className="space-y-3 mt-3">
+              <div className="rounded-xl border border-border/70 bg-card shadow-sm p-3.5 space-y-3 max-h-[28rem] overflow-y-auto">
                 {tenantMessages.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No tenant-visible messages yet.</p>
+                  <p className="text-sm text-muted-foreground py-6 text-center">
+                    No tenant-visible messages yet.
+                  </p>
                 ) : (
-                  tenantMessages.map((m) => (
-                    <div
-                      key={m.id}
-                      className={cn(
-                        "rounded-md border px-3 py-2 text-sm",
-                        m.direction === "inbound" ? "bg-muted/40" : "bg-primary/5",
-                      )}
-                    >
-                      <div className="flex justify-between gap-2 text-xs text-muted-foreground mb-1">
-                        <span>
-                          {m.authorNameSnapshot || m.direction} · {m.channel}
-                        </span>
-                        <span>{stamp(m.createdAt)}</span>
+                  tenantMessages.map((m) => {
+                    const inbound = m.direction === "inbound";
+                    return (
+                      <div
+                        key={m.id}
+                        className={cn(
+                          "rounded-lg border px-3.5 py-2.5 text-sm",
+                          inbound
+                            ? "border-slate-200 bg-slate-50"
+                            : "border-teal-200 bg-teal-50/70",
+                        )}
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="font-medium text-foreground">
+                              {m.authorNameSnapshot || (inbound ? "Tenant" : "Staff")}
+                            </span>
+                            <StatusBadge tone={inbound ? "muted" : "primary"}>
+                              {inbound ? "Tenant" : "Staff"}
+                            </StatusBadge>
+                            <StatusBadge tone="info">{channelLabel(m.channel)}</StatusBadge>
+                          </div>
+                          <span className="text-[11px] text-muted-foreground tabular-nums">
+                            {stamp(m.createdAt)}
+                          </span>
+                        </div>
+                        <p className="whitespace-pre-wrap leading-relaxed text-foreground/90">
+                          {m.body}
+                        </p>
                       </div>
-                      <p className="whitespace-pre-wrap">{m.body}</p>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
-              <Textarea
-                placeholder="Reply to tenant (visible to them)"
-                value={reply}
-                onChange={(e) => setReply(e.target.value)}
-                rows={3}
-              />
-              <Button
-                variant="brand"
-                disabled={!reply.trim() || replyMutation.isPending}
-                onClick={() => replyMutation.mutate()}
-              >
-                Send reply
-              </Button>
+              <div className="rounded-xl border border-border/70 bg-card shadow-sm p-3.5 space-y-3">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Reply to tenant
+                </p>
+                <Textarea
+                  placeholder="Visible to the tenant on this case…"
+                  value={reply}
+                  onChange={(e) => setReply(e.target.value)}
+                  rows={3}
+                />
+                <Button
+                  variant="brand"
+                  disabled={!reply.trim() || replyMutation.isPending}
+                  onClick={() => replyMutation.mutate()}
+                >
+                  Send reply
+                </Button>
+              </div>
             </TabsContent>
-            <TabsContent value="notes" className="space-y-3">
-              <div className="rounded-lg border border-amber-200/60 bg-amber-50/40 p-3 space-y-3 max-h-[28rem] overflow-y-auto">
-                <p className="text-xs text-amber-900/80 flex items-center gap-1">
+            <TabsContent value="notes" className="space-y-3 mt-3">
+              <div className="rounded-xl border border-amber-200 bg-amber-50/50 shadow-sm p-3.5 space-y-3 max-h-[28rem] overflow-y-auto">
+                <p className="text-xs text-amber-900 flex items-center gap-1.5 font-medium">
                   <NotebookPen className="w-3.5 h-3.5" />
                   Internal only — never shown to tenants
                 </p>
                 {internalNotes.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No internal notes.</p>
+                  <p className="text-sm text-muted-foreground py-4 text-center">No internal notes.</p>
                 ) : (
                   internalNotes.map((m) => (
-                    <div key={m.id} className="rounded-md border bg-card px-3 py-2 text-sm">
-                      <div className="text-xs text-muted-foreground mb-1">
-                        {m.authorNameSnapshot} · {stamp(m.createdAt)}
+                    <div
+                      key={m.id}
+                      className="rounded-lg border border-amber-200/80 bg-card px-3.5 py-2.5 text-sm"
+                    >
+                      <div className="flex justify-between gap-2 text-[11px] text-muted-foreground mb-1.5">
+                        <span className="font-medium text-foreground/80">
+                          {m.authorNameSnapshot || "Staff"}
+                        </span>
+                        <span className="tabular-nums">{stamp(m.createdAt)}</span>
                       </div>
-                      <p className="whitespace-pre-wrap">{m.body}</p>
+                      <p className="whitespace-pre-wrap leading-relaxed">{m.body}</p>
                     </div>
                   ))
                 )}
               </div>
-              <Textarea
-                placeholder="Add internal note"
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                rows={3}
-              />
-              <Button
-                variant="outline"
-                disabled={!note.trim() || noteMutation.isPending}
-                onClick={() => noteMutation.mutate()}
-              >
-                Save note
-              </Button>
+              <div className="rounded-xl border border-border/70 bg-card shadow-sm p-3.5 space-y-3">
+                <Textarea
+                  placeholder="Add internal note"
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  rows={3}
+                />
+                <Button
+                  variant="outline"
+                  disabled={!note.trim() || noteMutation.isPending}
+                  onClick={() => noteMutation.mutate()}
+                >
+                  Save note
+                </Button>
+              </div>
             </TabsContent>
-            <TabsContent value="audit">
-              <div className="rounded-lg border border-border/80 bg-card p-3 space-y-2 max-h-[28rem] overflow-y-auto text-sm">
+            <TabsContent value="audit" className="mt-3">
+              <div className="rounded-xl border border-border/70 bg-card shadow-sm p-3.5 space-y-2 max-h-[28rem] overflow-y-auto text-sm">
                 {(auditQuery.data || []).map((e) => (
-                  <div key={e.id} className="border-b border-border/40 pb-2">
-                    <div className="font-medium">{e.eventType}</div>
-                    <div className="text-xs text-muted-foreground">
+                  <div
+                    key={e.id}
+                    className="rounded-lg border border-border/50 bg-muted/20 px-3 py-2"
+                  >
+                    <div className="font-medium capitalize">{prettyLabel(e.eventType)}</div>
+                    <div className="text-[11px] text-muted-foreground mt-0.5">
                       {stamp(e.createdAt)}
                       {e.reason ? ` · ${e.reason}` : ""}
                     </div>
                   </div>
                 ))}
                 {!auditQuery.data?.length ? (
-                  <p className="text-muted-foreground">No audit events yet.</p>
+                  <p className="text-muted-foreground py-6 text-center">No audit events yet.</p>
                 ) : null}
               </div>
             </TabsContent>
           </Tabs>
         </div>
 
-        <aside className="space-y-4 min-w-0">
+        <aside className="space-y-3.5 min-w-0">
           {suggestion ? (
-            <div className="rounded-lg border border-border/80 bg-card p-3 space-y-2">
-              <div className="flex items-center gap-2 text-sm font-medium">
-                <Sparkles className="w-4 h-4 text-primary" />
+            <div className="rounded-xl border border-teal-200 bg-teal-50/40 shadow-sm p-3.5 space-y-2">
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                <Sparkles className="w-4 h-4 text-teal-700" />
                 AI suggested triage
               </div>
               <p className="text-xs text-muted-foreground">
@@ -559,12 +697,12 @@ export default function CaseWorkspace() {
               </p>
               <p className="text-sm">{suggestion.summary}</p>
               {suggestion.draftReply ? (
-                <p className="text-xs whitespace-pre-wrap rounded bg-muted/50 p-2">
+                <p className="text-xs whitespace-pre-wrap rounded-lg border border-teal-100 bg-white/80 p-2.5">
                   {suggestion.draftReply}
                 </p>
               ) : null}
               {suggestion.riskFlags?.length ? (
-                <p className="text-xs text-[color:var(--brand-critical)]">
+                <p className="text-xs text-red-700 font-medium">
                   Flags: {suggestion.riskFlags.join(", ")}
                 </p>
               ) : null}
@@ -573,40 +711,55 @@ export default function CaseWorkspace() {
                   Multi-intent detected — consider opening a second linked case.
                 </p>
               ) : null}
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  variant="brand"
-                  onClick={() => aiAcceptMutation.mutate(false)}
-                  disabled={aiAcceptMutation.isPending}
-                >
-                  Accept suggestion
-                </Button>
-              </div>
+              <Button
+                size="sm"
+                variant="brand"
+                onClick={() => aiAcceptMutation.mutate(false)}
+                disabled={aiAcceptMutation.isPending}
+              >
+                Accept suggestion
+              </Button>
             </div>
           ) : null}
 
-          <div className="rounded-lg border border-border/80 bg-card p-3 space-y-2">
-            <div className="flex items-center gap-2 text-sm font-medium">
-              <CheckSquare className="w-4 h-4" /> Actions
+          <div className="rounded-xl border border-border/70 bg-card shadow-sm p-3.5 space-y-2.5">
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <CheckSquare className="w-4 h-4 text-teal-700" /> Actions
             </div>
-            {(detail.actions || []).map((a) => (
-              <div key={a.id} className="flex items-center justify-between gap-2 text-sm">
-                <span className={a.status === "completed" ? "line-through text-muted-foreground" : ""}>
-                  {a.title}
-                </span>
-                {a.status !== "completed" ? (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => completeActionMutation.mutate(a.id)}
-                  >
-                    Done
-                  </Button>
-                ) : null}
-              </div>
-            ))}
-            <div className="flex gap-2">
+            {(detail.actions || []).length === 0 ? (
+              <p className="text-xs text-muted-foreground">No actions yet.</p>
+            ) : (
+              (detail.actions || []).map((a) => (
+                <div
+                  key={a.id}
+                  className="flex items-center justify-between gap-2 rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2 text-sm"
+                >
+                  <div className="min-w-0 flex items-center gap-2">
+                    <StatusBadge tone={a.status === "completed" ? "success" : "warning"}>
+                      {a.status === "completed" ? "Done" : "Open"}
+                    </StatusBadge>
+                    <span
+                      className={cn(
+                        "truncate",
+                        a.status === "completed" && "line-through text-muted-foreground",
+                      )}
+                    >
+                      {a.title}
+                    </span>
+                  </div>
+                  {a.status !== "completed" ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => completeActionMutation.mutate(a.id)}
+                    >
+                      Done
+                    </Button>
+                  ) : null}
+                </div>
+              ))
+            )}
+            <div className="flex gap-2 pt-0.5">
               <Input
                 placeholder="New action"
                 value={actionTitle}
@@ -622,14 +775,28 @@ export default function CaseWorkspace() {
             </div>
           </div>
 
-          <div className="rounded-lg border border-border/80 bg-card p-3 space-y-2">
-            <div className="flex items-center gap-2 text-sm font-medium">
-              <ShieldCheck className="w-4 h-4" /> Approvals
+          <div className="rounded-xl border border-border/70 bg-card shadow-sm p-3.5 space-y-2.5">
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <ShieldCheck className="w-4 h-4 text-amber-700" /> Approvals
             </div>
             {(detail.approvals || []).map((a) => (
-              <div key={a.id} className="text-sm space-y-1 border-b border-border/40 pb-2">
-                <div>
-                  {a.type} · {a.decision || "pending"}
+              <div
+                key={a.id}
+                className="rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2 text-sm space-y-2"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="capitalize">{prettyLabel(a.type)}</span>
+                  <StatusBadge
+                    tone={
+                      a.decision === "approved"
+                        ? "success"
+                        : a.decision === "rejected"
+                          ? "critical"
+                          : "warning"
+                    }
+                  >
+                    {a.decision || "pending"}
+                  </StatusBadge>
                 </div>
                 {!a.decision ? (
                   <div className="flex gap-2">
@@ -661,21 +828,24 @@ export default function CaseWorkspace() {
             </Button>
           </div>
 
-          <div className="rounded-lg border border-border/80 bg-card p-3 space-y-2">
-            <div className="flex items-center gap-2 text-sm font-medium">
-              <Link2 className="w-4 h-4" /> Linked records
+          <div className="rounded-xl border border-border/70 bg-card shadow-sm p-3.5 space-y-2.5">
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <Link2 className="w-4 h-4 text-sky-700" /> Linked records
             </div>
             {(detail.links || []).length === 0 ? (
-              <p className="text-sm text-muted-foreground">No links yet.</p>
+              <p className="text-xs text-muted-foreground">No links yet.</p>
             ) : (
               detail.links.map((l) => (
-                <div key={l.id} className="text-sm">
+                <div
+                  key={l.id}
+                  className="rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2 text-sm"
+                >
                   {l.entityType === "maintenance_request" ? (
                     <Link
                       href={`/maintenance/${l.entityId}`}
                       className="text-primary underline-offset-2 hover:underline"
                     >
-                      Maintenance request (discussion)
+                      Maintenance request
                     </Link>
                   ) : l.entityType === "work_order" ? (
                     <Link
@@ -693,7 +863,7 @@ export default function CaseWorkspace() {
                     </Link>
                   ) : (
                     <span>
-                      {l.entityType} · {l.relationship}
+                      {prettyLabel(l.entityType)} · {prettyLabel(l.relationship)}
                     </span>
                   )}
                 </div>
@@ -715,7 +885,7 @@ export default function CaseWorkspace() {
                 Create a work order from the linked maintenance request (one WO per case).
               </p>
             ) : null}
-            <div className="flex flex-wrap gap-2 pt-1">
+            <div className="flex flex-wrap gap-2 pt-1 border-t border-border/50">
               <Button
                 size="sm"
                 variant="outline"
@@ -735,16 +905,20 @@ export default function CaseWorkspace() {
             </div>
           </div>
 
-          <div className="rounded-lg border border-border/80 bg-card p-3 space-y-2">
-            <div className="flex items-center gap-2 text-sm font-medium">
-              <Phone className="w-4 h-4" /> Log phone / email / WhatsApp
+          <div className="rounded-xl border border-border/70 bg-card shadow-sm p-3.5 space-y-2.5">
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <Phone className="w-4 h-4 text-sky-700" /> Log phone / email / WhatsApp
             </div>
+            <p className="text-[11px] text-muted-foreground">
+              Manual log only — does not send a message.
+            </p>
             <div className="flex gap-2">
               {(["phone", "email", "whatsapp"] as const).map((ch) => (
                 <Button
                   key={ch}
                   size="sm"
                   variant={channel === ch ? "brand" : "outline"}
+                  className="capitalize"
                   onClick={() => setChannel(ch)}
                 >
                   {ch}
@@ -767,13 +941,24 @@ export default function CaseWorkspace() {
           </div>
 
           {!["resolved", "closed"].includes(c.status) ? (
-            <div className="rounded-lg border border-border/80 bg-card p-3 space-y-2">
-              <label className="text-sm font-medium">Resolution summary</label>
+            <div className="rounded-xl border border-border/70 bg-card shadow-sm p-3.5 space-y-2.5">
+              <label className="text-sm font-semibold">Resolution summary</label>
+              <p className="text-[11px] text-muted-foreground">
+                Required before Resolve. Shown on the closed case record.
+              </p>
               <Textarea
                 value={resolveSummary}
                 onChange={(e) => setResolveSummary(e.target.value)}
+                placeholder="What was done / outcome…"
                 rows={2}
               />
+            </div>
+          ) : c.resolutionSummary ? (
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 shadow-sm p-3.5 space-y-1.5">
+              <p className="text-sm font-semibold text-emerald-900">Resolution</p>
+              <p className="text-sm text-emerald-950/90 whitespace-pre-wrap">
+                {c.resolutionSummary}
+              </p>
             </div>
           ) : null}
         </aside>

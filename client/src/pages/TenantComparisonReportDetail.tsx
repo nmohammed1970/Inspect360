@@ -4,6 +4,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useParams, useLocation, Link } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PdfActionButton } from "@/components/PdfActionButton";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
@@ -150,6 +151,7 @@ export default function TenantComparisonReportDetail() {
   const [disputeDialogOpen, setDisputeDialogOpen] = useState(false);
   const [selectedItemForDispute, setSelectedItemForDispute] = useState<ComparisonReportItem | null>(null);
   const [disputeReason, setDisputeReason] = useState("");
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
 
   const { data: report, isLoading } = useQuery<ComparisonReport>({
     queryKey: ["/api/tenant/comparison-reports", id],
@@ -262,8 +264,9 @@ export default function TenantComparisonReportDetail() {
   };
 
   const handleDownloadPdf = async () => {
-    if (!id) return;
+    if (!id || isDownloadingPdf) return;
 
+    setIsDownloadingPdf(true);
     try {
       const response = await fetch(`/api/comparison-reports/${id}/pdf`, {
         credentials: 'include',
@@ -293,6 +296,8 @@ export default function TenantComparisonReportDetail() {
         title: "Download Failed",
         description: error.message || "Failed to download the comparison report PDF. Please try again.",
       });
+    } finally {
+      setIsDownloadingPdf(false);
     }
   };
 
@@ -368,15 +373,16 @@ export default function TenantComparisonReportDetail() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3 shrink-0">
-          <Button
+          <PdfActionButton
             variant="outline"
             onClick={handleDownloadPdf}
+            pending={isDownloadingPdf}
             data-testid="button-download-pdf"
             className="w-full sm:w-auto"
           >
             <Download className="w-4 h-4 mr-2" />
             Download PDF
-          </Button>
+          </PdfActionButton>
           <StatusBadge
             tone={comparisonReportStatusTone(report.status)}
             appearance="solid"

@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { FiltersSection } from "@/components/FiltersSection";
 import { Button } from "@/components/ui/button";
+import { PdfActionButton } from "@/components/PdfActionButton";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -158,27 +159,18 @@ export default function BlocksReport() {
             </div>
           </div>
         </div>
-        <Button
+        <PdfActionButton
           onClick={handleExportPDF}
+          pending={isExporting}
           disabled={isExporting || filteredBlocks.length === 0}
           className="self-start sm:self-auto"
           variant="brand"
           data-testid="button-export-pdf"
         >
-          {isExporting ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 sm:h-5 sm:w-5 animate-spin" />
-              <span className="hidden sm:inline">Exporting...</span>
-              <span className="sm:hidden">Exporting</span>
-            </>
-          ) : (
-            <>
-              <FileDown className="mr-2 h-4 w-4 sm:h-5 sm:w-5" />
-              <span className="hidden sm:inline">Export PDF</span>
-              <span className="sm:hidden">Export</span>
-            </>
-          )}
-        </Button>
+          <FileDown className="mr-2 h-4 w-4 sm:h-5 sm:w-5" />
+          <span className="hidden sm:inline">Export PDF</span>
+          <span className="sm:hidden">Export</span>
+        </PdfActionButton>
       </div>
 
       <FiltersSection headingId="blocks-report-filters-heading">
