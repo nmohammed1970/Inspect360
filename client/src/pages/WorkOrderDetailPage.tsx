@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import SignatureCanvas from "react-signature-canvas";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "wouter";
@@ -15,7 +15,13 @@ import {
   ArrowLeft,
   Calendar,
   CheckCircle2,
+  FileText,
   Loader2,
+  Building2,
+  Globe,
+  Mail,
+  MapPin,
+  Phone,
 } from "lucide-react";
 import { createSignatureValue, parseSignatureValue } from "@shared/signature";
 import { PageHeader } from "@/components/PageHeader";
@@ -48,7 +54,17 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { dialogContentBase } from "@/lib/responsive";
+import { dialogContentBase, pagePad } from "@/lib/responsive";
+import { getTeamRoleDisplayLabel } from "@shared/roleLabels";
+import { isExpiryDateInPast, parseCertificateExpiryDate } from "@shared/workOrderCertificates";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 
 interface WorkOrderDetail {
   id: string;
@@ -88,18 +104,161 @@ interface WorkOrderDetail {
   team?: { id?: string; name?: string; email?: string } | null;
 }
 
+type MemberAddress = {
+  street?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+  country?: string;
+  formatted?: string;
+};
+
+type AssignedMember = {
+  id: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  role?: string | null;
+  profileImageUrl?: string | null;
+  address?: MemberAddress | string | null;
+  skills?: string[] | null;
+  qualifications?: string[] | null;
+  education?: string | null;
+  certificateUrls?: string[] | null;
+  companyName?: string | null;
+  jobTitle?: string | null;
+  website?: string | null;
+  notes?: string | null;
+  source?: "user" | "contact";
+};
+
+type ContactProfile = {
+  id: string;
+  type?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  countryCode?: string | null;
+  companyName?: string | null;
+  jobTitle?: string | null;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postalCode?: string | null;
+  country?: string | null;
+  website?: string | null;
+  notes?: string | null;
+  profileImageUrl?: string | null;
+  linkedUserId?: string | null;
+};
+
+const contactTypeLabels: Record<string, string> = {
+  internal: "Internal",
+  contractor: "Maintenance Contractor",
+  lead: "Lead",
+  company: "Company",
+  partner: "Partner",
+  vendor: "Vendor",
+  tenant: "Tenant",
+  landlord: "Landlord",
+  other: "Other",
+};
+
+type MemberDocument = {
+  id: string;
+  documentName: string;
+  fileUrl: string;
+  expiryDate?: string | null;
+};
+
+function memberDisplayName(member: {
+  firstName?: string | null;
+  lastName?: string | null;
+  email?: string | null;
+}): string {
+  const name = [member.firstName, member.lastName].filter(Boolean).join(" ").trim();
+  return name || member.email || "Team member";
+}
+
+function memberInitials(member: AssignedMember): string {
+  const parts = [member.firstName, member.lastName].filter(Boolean) as string[];
+  if (parts.length === 0) return (member.email || "?").slice(0, 1).toUpperCase();
+  return parts.map((part) => part.slice(0, 1).toUpperCase()).join("").slice(0, 2);
+}
+
+function formatMemberAddress(address: AssignedMember["address"]): string | null {
+  if (!address) return null;
+  if (typeof address === "string") return address.trim() || null;
+  if (address.formatted?.trim()) return address.formatted.trim();
+  const line = [address.street, address.city, address.state, address.postalCode, address.country]
+    .map((part) => part?.trim())
+    .filter(Boolean)
+    .join(", ");
+  return line || null;
+}
+
+function formatExpiryLabel(value: string | null | undefined): string | null {
+  const ymd = parseCertificateExpiryDate(value);
+  if (!ymd) return null;
+  const [y, m, d] = ymd.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function assigneeTarget(workOrder: WorkOrderDetail): { contactId: string | null; userId: string | null } | null {
+  const label = detailAssigneeLabel(workOrder);
+  if (!label || label === "Awaiting team acceptance") return null;
+  const contactId = workOrder.contractor?.id || workOrder.contractorId || null;
+  if (contactId) return { contactId, userId: null };
+  const userId = workOrder.assignedToUser?.id || workOrder.assignedToId || null;
+  if (!userId) return null;
+  return { contactId: null, userId };
+}
+
+function contactToMember(contact: ContactProfile): AssignedMember {
+  const phone = [contact.countryCode, contact.phone].filter(Boolean).join(" ").trim();
+  return {
+    id: contact.id,
+    firstName: contact.firstName,
+    lastName: contact.lastName,
+    email: contact.email,
+    phone: phone || null,
+    role: contact.jobTitle || contactTypeLabels[contact.type || ""] || "Contractor",
+    profileImageUrl: contact.profileImageUrl,
+    address: {
+      street: contact.address || undefined,
+      city: contact.city || undefined,
+      state: contact.state || undefined,
+      postalCode: contact.postalCode || undefined,
+      country: contact.country || undefined,
+    },
+    companyName: contact.companyName,
+    jobTitle: contact.jobTitle,
+    website: contact.website,
+    notes: contact.notes,
+    source: "contact",
+  };
+}
+
 const detailAssigneeLabel = (workOrder: WorkOrderDetail): string | null => {
+  const contractorName = [workOrder.contractor?.firstName, workOrder.contractor?.lastName]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  if (workOrder.contractor?.id || workOrder.contractorId) {
+    if (contractorName) return contractorName;
+    if (workOrder.contractor?.companyName) return workOrder.contractor.companyName;
+  }
   const userName = [workOrder.assignedToUser?.firstName, workOrder.assignedToUser?.lastName]
     .filter(Boolean)
     .join(" ")
     .trim();
   if (userName) return userName;
-  const contractorName = [workOrder.contractor?.firstName, workOrder.contractor?.lastName]
-    .filter(Boolean)
-    .join(" ")
-    .trim();
-  if (contractorName) return contractorName;
-  if (workOrder.contractor?.companyName) return workOrder.contractor.companyName;
   if (workOrder.status === "pending_acceptance") return "Awaiting team acceptance";
   return null;
 };
@@ -119,6 +278,7 @@ const WorkOrderDetailPage = () => {
   const [savedImage, setSavedImage] = useState<string | null>(null);
   const [editingPad, setEditingPad] = useState(true);
   const [padKey, setPadKey] = useState(0);
+  const [assigneeOpen, setAssigneeOpen] = useState(false);
   const padRef = useRef<SignatureCanvas>(null);
 
   const canUpdateStatus =
@@ -146,6 +306,71 @@ const WorkOrderDetailPage = () => {
     },
     enabled: !!workOrderId,
   });
+
+  const target = workOrder && assigneeOpen ? assigneeTarget(workOrder) : null;
+  const { data: contactProfile, isLoading: contactLoading } = useQuery<ContactProfile>({
+    queryKey: ["/api/contacts", target?.contactId],
+    queryFn: async () => {
+      const res = await fetch(`/api/contacts/${target?.contactId}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load contact");
+      return res.json();
+    },
+    enabled: !!target?.contactId,
+    retry: false,
+  });
+  const linkedUserId = contactProfile?.linkedUserId || null;
+  const profileUserId = target?.userId || linkedUserId;
+  const { data: userProfile, isLoading: userLoading, isError: userError } = useQuery<AssignedMember>({
+    queryKey: ["/api/users", profileUserId],
+    queryFn: async () => {
+      const res = await fetch(`/api/users/${profileUserId}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load team member");
+      return res.json();
+    },
+    enabled: !!profileUserId && (!target?.contactId || !!contactProfile),
+    retry: false,
+  });
+  const fallbackContactId =
+    !target?.contactId && userError && target?.userId ? target.userId : null;
+  const { data: fallbackContact, isLoading: fallbackLoading } = useQuery<ContactProfile>({
+    queryKey: ["/api/contacts", fallbackContactId, "fallback"],
+    queryFn: async () => {
+      const res = await fetch(`/api/contacts/${fallbackContactId}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load contact");
+      return res.json();
+    },
+    enabled: !!fallbackContactId,
+    retry: false,
+  });
+  const activeContact = contactProfile || fallbackContact || null;
+  const contactMember = activeContact ? contactToMember(activeContact) : null;
+  const assignedMember: AssignedMember | null = contactMember
+    ? {
+        ...contactMember,
+        skills: userProfile?.skills,
+        qualifications: userProfile?.qualifications,
+        education: userProfile?.education,
+        certificateUrls: userProfile?.certificateUrls,
+        phone: contactMember.phone || userProfile?.phone,
+        profileImageUrl: contactMember.profileImageUrl || userProfile?.profileImageUrl,
+      }
+    : userProfile
+      ? { ...userProfile, source: "user" }
+      : null;
+  const documentUserId = activeContact ? linkedUserId : profileUserId;
+  const { data: memberDocuments = [], isLoading: documentsLoading } = useQuery<MemberDocument[]>({
+    queryKey: ["/api/users", documentUserId, "documents"],
+    queryFn: async () => {
+      const res = await fetch(`/api/users/${documentUserId}/documents`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!documentUserId,
+  });
+  const memberLoading =
+    (!!target?.contactId && contactLoading) ||
+    (!!profileUserId && userLoading && !userError) ||
+    (!!fallbackContactId && fallbackLoading);
 
   const { data: completionChecklists = [] } = useQuery<any[]>({
     queryKey: ["/api/completion-checklists"],
@@ -310,7 +535,7 @@ const WorkOrderDetailPage = () => {
 
   if (isLoading) {
     return (
-      <div className="space-y-4 p-4 sm:p-6">
+      <div className={cn("container mx-auto min-w-0 space-y-4", pagePad)}>
         <Skeleton className="h-10 w-48" />
         <Skeleton className="h-40 w-full" />
         <Skeleton className="h-64 w-full" />
@@ -320,7 +545,7 @@ const WorkOrderDetailPage = () => {
 
   if (error || !workOrder) {
     return (
-      <div className="space-y-4 p-4 sm:p-6">
+      <div className={cn("container mx-auto min-w-0 space-y-4", pagePad)}>
         <Button variant="ghost" asChild>
           <Link href={backHref}>
             <ArrowLeft className="mr-2 h-4 w-4" />
@@ -335,7 +560,7 @@ const WorkOrderDetailPage = () => {
   }
 
   return (
-    <div className="space-y-6 p-4 sm:p-6 max-w-3xl mx-auto" data-testid="page-work-order-detail">
+    <div className={cn("container mx-auto min-w-0 space-y-6", pagePad)} data-testid="page-work-order-detail">
       <PageHeader
         leading={
           <Button variant="ghost" size="sm" className="-ml-2" asChild>
@@ -397,18 +622,29 @@ const WorkOrderDetailPage = () => {
           </StatusBadge>
         </div>
 
-        <div className="rounded-md border p-3 text-sm space-y-1">
+        <div className="rounded-md border bg-muted/40 p-3 text-sm space-y-1.5">
           {workOrder.team?.name && (
             <p>
-              <span className="font-medium">Team:</span>{" "}
-              <span className="text-muted-foreground">{workOrder.team.name}</span>
+              <span className="text-muted-foreground">Team:</span>{" "}
+              <span className="font-semibold text-foreground">{workOrder.team.name}</span>
             </p>
           )}
           <p data-testid="text-wo-detail-assignee">
-            <span className="font-medium">Assigned to:</span>{" "}
-            <span className="text-muted-foreground">
-              {detailAssigneeLabel(workOrder) || "Unassigned"}
-            </span>
+            <span className="text-muted-foreground">Assigned to:</span>{" "}
+            {assigneeTarget(workOrder) ? (
+              <button
+                type="button"
+                className="font-semibold text-foreground underline decoration-primary/50 underline-offset-4 hover:decoration-primary"
+                onClick={() => setAssigneeOpen(true)}
+                data-testid="button-open-assignee"
+              >
+                {detailAssigneeLabel(workOrder)}
+              </button>
+            ) : (
+              <span className="font-semibold text-foreground">
+                {detailAssigneeLabel(workOrder) || "Unassigned"}
+              </span>
+            )}
           </p>
         </div>
 
@@ -745,8 +981,219 @@ const WorkOrderDetailPage = () => {
           </div>
         </DialogContent>
       </Dialog>
+
+      <Sheet open={assigneeOpen} onOpenChange={setAssigneeOpen}>
+        <SheetContent className="w-[min(92vw,36rem)] sm:max-w-xl overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>
+              {assignedMember?.source === "contact" ? "Contractor" : "Team member"}
+            </SheetTitle>
+            <SheetDescription>
+              {assignedMember
+                ? memberDisplayName(assignedMember)
+                : detailAssigneeLabel(workOrder) || "Assigned person"}
+            </SheetDescription>
+          </SheetHeader>
+          {memberLoading || (documentsLoading && !!documentUserId) ? (
+            <Loader2 className="mt-8 h-6 w-6 animate-spin text-muted-foreground" />
+          ) : assignedMember ? (
+            <AssigneeProfile
+              member={assignedMember}
+              documents={memberDocuments}
+              teamName={workOrder.team?.name}
+            />
+          ) : (
+            <p className="mt-6 text-sm text-muted-foreground">
+              This person’s profile could not be loaded.
+            </p>
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 };
+
+function AssigneeProfile({
+  member,
+  documents,
+  teamName,
+}: {
+  member: AssignedMember;
+  documents: MemberDocument[];
+  teamName?: string | null;
+}) {
+  const address = formatMemberAddress(member.address);
+  const skills = (member.skills || []).filter(Boolean);
+  const qualifications = (member.qualifications || []).filter(Boolean);
+  const knownFiles = new Set(documents.map((doc) => doc.fileUrl));
+  const extraFiles = (member.certificateUrls || []).filter(
+    (url) => url && !knownFiles.has(url),
+  );
+
+  return (
+    <div className="mt-5 space-y-5 text-sm">
+      <div className="flex items-center gap-3">
+        <Avatar className="h-12 w-12">
+          {member.profileImageUrl ? (
+            <AvatarImage src={member.profileImageUrl} alt="" />
+          ) : null}
+          <AvatarFallback className="bg-primary/10 text-sm font-semibold text-primary">
+            {memberInitials(member)}
+          </AvatarFallback>
+        </Avatar>
+        <div className="min-w-0">
+          <p className="truncate text-base font-semibold text-foreground">
+            {memberDisplayName(member)}
+          </p>
+          <p className="truncate text-muted-foreground">
+            {[
+              member.source === "contact"
+                ? member.role
+                : member.role
+                  ? getTeamRoleDisplayLabel(member.role)
+                  : null,
+              member.companyName,
+              teamName,
+            ]
+              .filter(Boolean)
+              .join(" · ") || "Team member"}
+          </p>
+        </div>
+      </div>
+
+      <ProfileSection title="Contact">
+        {member.email ? (
+          <ProfileRow icon={<Mail className="h-4 w-4" />} label="Email" value={member.email} />
+        ) : null}
+        {member.phone ? (
+          <ProfileRow icon={<Phone className="h-4 w-4" />} label="Phone" value={member.phone} />
+        ) : null}
+        {member.companyName ? (
+          <ProfileRow icon={<Building2 className="h-4 w-4" />} label="Company" value={member.companyName} />
+        ) : null}
+        {member.website ? (
+          <ProfileRow icon={<Globe className="h-4 w-4" />} label="Website" value={member.website} />
+        ) : null}
+        {!member.email && !member.phone && !member.companyName ? (
+          <p className="text-muted-foreground">No contact details on file.</p>
+        ) : null}
+      </ProfileSection>
+
+      {address ? (
+        <ProfileSection title="Address">
+          <ProfileRow icon={<MapPin className="h-4 w-4" />} label="Address" value={address} />
+        </ProfileSection>
+      ) : null}
+
+      {skills.length > 0 ? (
+        <ProfileSection title="Skills">
+          <div className="flex flex-wrap gap-1.5">
+            {skills.map((skill) => (
+              <Badge key={skill} variant="secondary" className="font-normal">
+                {skill}
+              </Badge>
+            ))}
+          </div>
+        </ProfileSection>
+      ) : null}
+
+      {member.notes?.trim() ? (
+        <ProfileSection title="Notes">
+          <p className="whitespace-pre-wrap text-foreground">{member.notes.trim()}</p>
+        </ProfileSection>
+      ) : null}
+
+      {member.education?.trim() ? (
+        <ProfileSection title="Experience">
+          <p className="whitespace-pre-wrap text-foreground">{member.education.trim()}</p>
+        </ProfileSection>
+      ) : null}
+
+      {qualifications.length > 0 ? (
+        <ProfileSection title="Qualifications">
+          <ul className="list-disc space-y-1 pl-4 text-foreground">
+            {qualifications.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </ProfileSection>
+      ) : null}
+
+      <ProfileSection title="Certificates">
+        {documents.length === 0 && extraFiles.length === 0 ? (
+          <p className="text-muted-foreground">No certificates on file.</p>
+        ) : (
+          <div className="space-y-2">
+            {documents.map((doc) => {
+              const expiry = formatExpiryLabel(doc.expiryDate);
+              const expired = !!doc.expiryDate && isExpiryDateInPast(doc.expiryDate);
+              return (
+                <div key={doc.id} className="rounded-md border px-3 py-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="font-medium text-foreground">{doc.documentName}</p>
+                    {expired ? <Badge variant="destructive">Expired</Badge> : null}
+                  </div>
+                  {expiry ? (
+                    <p className="mt-0.5 text-xs text-muted-foreground">Expires {expiry}</p>
+                  ) : null}
+                  <a
+                    href={doc.fileUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                  >
+                    <FileText className="h-3.5 w-3.5" />
+                    View document
+                  </a>
+                </div>
+              );
+            })}
+            {extraFiles.map((url) => (
+              <a
+                key={url}
+                href={url}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-2 rounded-md border px-3 py-2 font-medium text-foreground hover:bg-muted/50"
+              >
+                <FileText className="h-4 w-4 text-muted-foreground" />
+                View certificate
+              </a>
+            ))}
+          </div>
+        )}
+      </ProfileSection>
+    </div>
+  );
+}
+
+function ProfileSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="space-y-2">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</h3>
+      <div className="rounded-lg border bg-muted/30 p-3 space-y-2">{children}</div>
+    </section>
+  );
+}
+
+function ProfileRow({
+  icon,
+  label,
+  value,
+}: {
+  icon: ReactNode;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="flex items-start gap-2">
+      <span className="mt-0.5 text-muted-foreground">{icon}</span>
+      <div className="min-w-0">
+        <p className="text-xs text-muted-foreground">{label}</p>
+        <p className="break-words font-medium text-foreground">{value}</p>
+      </div>
+    </div>
+  );
+}
 
 export default WorkOrderDetailPage;

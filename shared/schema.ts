@@ -374,6 +374,8 @@ export const userDocuments = pgTable("user_documents", {
   documentType: varchar("document_type"), // e.g., "certification", "license", "id", "training", "other"
   fileUrl: varchar("file_url").notNull(),
   expiryDate: timestamp("expiry_date"),
+  /** Set after the member has been emailed that this document expired. Cleared when a future expiry is saved. */
+  expiryNotifiedAt: timestamp("expiry_notified_at"),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
