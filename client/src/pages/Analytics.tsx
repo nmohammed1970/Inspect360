@@ -1,4 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { useLocation } from "wouter";
+import { navigateWithContext } from "@/navigation";
 import { useModules } from "@/hooks/use-modules";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
@@ -257,8 +259,12 @@ export default function Analytics() {
       setSelectedWorkOrder(null);
       toast({ title: "Work order updated successfully" });
     },
-    onError: () => {
-      toast({ title: "Failed to update work order", variant: "destructive" });
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to update work order",
+        description: error.message,
+        variant: "destructive",
+      });
     },
   });
 
@@ -1113,26 +1119,59 @@ function WorkOrderCard({
   onDragEndCard,
 }: WorkOrderCardProps) {
   const [financeOpen, setFinanceOpen] = useState(false);
+  const [location, navigate] = useLocation();
+  const dragged = useRef(false);
   const isOverdue = workOrder.slaDue && new Date(workOrder.slaDue) < new Date() && workOrder.status !== "completed";
-  
+
+  const openWorkOrder = () => {
+    navigateWithContext(navigate, {
+      href: `/maintenance/work-orders/${workOrder.id}`,
+      fromPath: location,
+      fromLabel: "Work Orders",
+    });
+  };
+
   return (
     <>
     <Card 
       draggable
+      onClick={(e) => {
+        if (dragged.current) {
+          dragged.current = false;
+          return;
+        }
+        const target = e.target as HTMLElement;
+        if (target.closest("button, [role='combobox'], input, select, textarea, a")) return;
+        openWorkOrder();
+      }}
+      onKeyDown={(e) => {
+        if (e.key !== "Enter") return;
+        const target = e.target as HTMLElement;
+        if (target.closest("button, [role='combobox'], input, select, textarea, a")) return;
+        e.preventDefault();
+        openWorkOrder();
+      }}
+      tabIndex={0}
       onDragStart={(e) => {
         const target = e.target as HTMLElement;
         if (target.closest("button, [role='combobox'], input, select, textarea, a")) {
           e.preventDefault();
           return;
         }
+        dragged.current = true;
         e.dataTransfer.setData("application/x-work-order-id", workOrder.id);
         e.dataTransfer.setData("text/plain", workOrder.id);
         e.dataTransfer.effectAllowed = "move";
         onDragStartCard?.();
       }}
-      onDragEnd={() => onDragEndCard?.()}
+      onDragEnd={() => {
+        onDragEndCard?.();
+        window.setTimeout(() => {
+          dragged.current = false;
+        }, 0);
+      }}
       className={cn(
-        "bg-background shadow-sm border cursor-grab active:cursor-grabbing select-none",
+        "bg-background shadow-sm border cursor-pointer select-none hover:shadow-md transition-shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         isOverdue && "border-red-400 ring-1 ring-red-200 dark:ring-red-900",
         isDragging && "opacity-40 scale-[0.98]",
       )}

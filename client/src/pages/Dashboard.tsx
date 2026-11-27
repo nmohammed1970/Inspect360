@@ -312,7 +312,7 @@ export default function Dashboard() {
 
   type MaintenanceInboxItem = {
     id: string;
-    kind: "tenant_request" | "inspector_request" | "quote" | "tenant_message";
+    kind: "tenant_request" | "inspector_request" | "quote" | "tenant_message" | "expired_document";
     title: string;
     subtitle: string;
     createdAt: string;
@@ -1079,8 +1079,9 @@ export default function Dashboard() {
               </Badge>
             </div>
             <CardDescription>
-              Unassigned tenant and inspector requests, quotes, and tenant discussion messages.
-              Items leave this list once a request or work order is assigned.
+              Unassigned tenant and inspector requests, quotes, tenant discussion messages,
+              and expired team certificates. Assigned work leaves this list. An expired
+              certificate stays until a new expiry date is saved.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -1114,6 +1115,12 @@ export default function Dashboard() {
                               icon: <FileText className="h-4 w-4 text-amber-600" />,
                               chip: "bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200",
                             }
+                          : item.kind === "expired_document"
+                            ? {
+                                label: "Expired",
+                                icon: <AlertTriangle className="h-4 w-4 text-red-600" />,
+                                chip: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200",
+                              }
                           : {
                               label: "Message",
                               icon: <MessageSquare className="h-4 w-4 text-emerald-600" />,

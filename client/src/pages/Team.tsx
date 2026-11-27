@@ -25,9 +25,10 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Users, Mail, Phone, MapPin, Plus, Upload, X, GraduationCap, Briefcase, Tag, FileText, Search, Filter, Eye, EyeOff, Trash2 } from "lucide-react";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import type { User } from "@shared/schema";
+import type { User, UserDocument } from "@shared/schema";
+import { isExpiryDateInPast, parseCertificateExpiryDate } from "@shared/workOrderCertificates";
 import { getTeamRoleDisplayLabel } from "@shared/roleLabels";
-import { ObjectUploader } from "@/components/ObjectUploader";
+import { COMPLIANCE_DOCUMENT_ACCEPT, ObjectUploader } from "@/components/ObjectUploader";
 import { AddressInput } from "@/components/AddressInput";
 import { PhoneInput } from "@/components/PhoneInput";
 import { useLocale } from "@/contexts/LocaleContext";
@@ -39,6 +40,120 @@ import { PageHeader } from "@/components/PageHeader";
 import { useAuth } from "@/hooks/useAuth";
 
 /** Username input removed from UI; API still requires username — derive a safe value from email. */
+type CertificateDraft = {
+  key: string;
+  id?: string;
+  fileUrl: string;
+  description: string;
+  expiryDate: string;
+  originalDescription?: string;
+  originalExpiryDate?: string;
+};
+
+function expiryInputValue(value: string | Date | null | undefined): string {
+  return parseCertificateExpiryDate(value) || "";
+}
+
+function certificateFileLabel(fileUrl: string): string {
+  const name = fileUrl.split("/").pop() || "Certificate";
+  try {
+    return decodeURIComponent(name);
+  } catch {
+    return name;
+  }
+}
+
+function validateCertificates(certs: CertificateDraft[]): string | null {
+  for (const cert of certs) {
+    if (!cert.description.trim()) return "Each certificate needs a description.";
+    if (!cert.expiryDate) return "Each certificate needs an expiry date.";
+    const changedExpiry = !cert.id || cert.expiryDate !== cert.originalExpiryDate;
+    if (changedExpiry && isExpiryDateInPast(cert.expiryDate)) {
+      return "Expiry date cannot be in the past.";
+    }
+  }
+  return null;
+}
+
+class CertificateSaveError extends Error {
+  drafts: CertificateDraft[];
+  removedIds: string[];
+  constructor(message: string, drafts: CertificateDraft[], removedIds: string[]) {
+    super(message);
+    this.drafts = drafts;
+    this.removedIds = removedIds;
+  }
+}
+
+async function persistCertificates(
+  userId: string,
+  drafts: CertificateDraft[],
+  removedIds: string[],
+): Promise<CertificateDraft[]> {
+  const remainingRemoved = [...removedIds];
+  const next = drafts.map((draft) => ({ ...draft }));
+  try {
+    while (remainingRemoved.length > 0) {
+      const id = remainingRemoved[0];
+      await apiRequest("DELETE", `/api/user-documents/${id}`);
+      remainingRemoved.shift();
+    }
+    for (const draft of next) {
+      const description = draft.description.trim();
+      if (!draft.id) {
+        const res = await apiRequest("POST", `/api/users/${userId}/documents`, {
+          documentName: description,
+          documentType: "certification",
+          fileUrl: draft.fileUrl,
+          expiryDate: draft.expiryDate,
+        });
+        const saved = (await res.json()) as UserDocument;
+        draft.id = saved.id;
+        draft.key = saved.id;
+        draft.description = description;
+        draft.originalDescription = description;
+        draft.originalExpiryDate = draft.expiryDate;
+        continue;
+      }
+      const changed =
+        description !== (draft.originalDescription || "") ||
+        draft.expiryDate !== (draft.originalExpiryDate || "");
+      if (!changed) continue;
+      await apiRequest("PATCH", `/api/user-documents/${draft.id}`, {
+        documentName: description,
+        expiryDate: draft.expiryDate,
+      });
+      draft.description = description;
+      draft.originalDescription = description;
+      draft.originalExpiryDate = draft.expiryDate;
+    }
+    return next;
+  } catch (error: any) {
+    throw new CertificateSaveError(
+      error?.message || "Failed to save certificates",
+      next,
+      remainingRemoved,
+    );
+  }
+}
+
+async function saveCertificates(
+  userId: string,
+  drafts: CertificateDraft[],
+  removedIds: string[],
+  apply: (drafts: CertificateDraft[], removedIds: string[]) => void,
+): Promise<void> {
+  try {
+    const saved = await persistCertificates(userId, drafts, removedIds);
+    apply(saved, []);
+  } catch (error) {
+    if (error instanceof CertificateSaveError) {
+      apply(error.drafts, error.removedIds);
+    }
+    throw error;
+  }
+}
+
 function defaultUsernameFromEmail(email: string): string {
   const localPart = email.trim().split("@")[0] || "user";
   let u = localPart.replace(/[^a-zA-Z0-9._-]/g, "").slice(0, 100);
@@ -93,7 +208,10 @@ export default function Team() {
   const [skillInput, setSkillInput] = useState("");
   const [education, setEducation] = useState("");
   const [profileImageUrl, setProfileImageUrl] = useState("");
-  const [certificateUrls, setCertificateUrls] = useState<string[]>([]);
+  const [certificates, setCertificates] = useState<CertificateDraft[]>([]);
+  const [removedDocumentIds, setRemovedDocumentIds] = useState<string[]>([]);
+  const [certDescription, setCertDescription] = useState("");
+  const [certExpiry, setCertExpiry] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [memberPendingDelete, setMemberPendingDelete] = useState<User | null>(null);
   const { user: currentUser } = useAuth();
@@ -103,13 +221,18 @@ export default function Team() {
   });
 
   const createMutation = useMutation({
-    mutationFn: async (data: any) => {
-      const res = await apiRequest("POST", "/api/team", data);
+    mutationFn: async (payload: { data: any; certificates: CertificateDraft[] }) => {
+      const res = await apiRequest("POST", "/api/team", payload.data);
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({ message: "Unknown error" }));
         throw new Error(errorData.message || errorData.errors?.[0]?.message || `Server error: ${res.status}`);
       }
-      return await res.json();
+      const created = await res.json();
+      await saveCertificates(created.id, payload.certificates, [], (drafts, removed) => {
+        setCertificates(drafts);
+        setRemovedDocumentIds(removed);
+      });
+      return created;
     },
     onSuccess: async (created: { welcomeEmailSent?: boolean; welcomeEmailError?: string }) => {
       await queryClient.invalidateQueries({ queryKey: ["/api/team"] });
@@ -140,9 +263,24 @@ export default function Team() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: async ({ userId, data }: { userId: string; data: any }) => {
+    mutationFn: async ({
+      userId,
+      data,
+      certificates: drafts,
+      removedDocumentIds: removedIds,
+    }: {
+      userId: string;
+      data: any;
+      certificates: CertificateDraft[];
+      removedDocumentIds: string[];
+    }) => {
       const res = await apiRequest("PATCH", `/api/team/${userId}`, data);
-      return await res.json();
+      const updated = await res.json();
+      await saveCertificates(userId, drafts, removedIds, (nextDrafts, removed) => {
+        setCertificates(nextDrafts);
+        setRemovedDocumentIds(removed);
+      });
+      return updated;
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["/api/team"] });
@@ -238,9 +376,48 @@ export default function Team() {
     setSkills(user.skills || []);
     setEducation(user.education || "");
     setProfileImageUrl(user.profileImageUrl || "");
-    setCertificateUrls(user.certificateUrls || []);
+    setCertificates([]);
+    setRemovedDocumentIds([]);
+    setCertDescription("");
+    setCertExpiry("");
     // Address fields are now uncontrolled and will use defaultValue from editingUser
     setIsDialogOpen(true);
+    void loadMemberCertificates(user);
+  };
+
+  const loadMemberCertificates = async (user: User) => {
+    const legacy = (user.certificateUrls || [])
+      .filter((url) => url && url.trim())
+      .map((fileUrl, index) => ({
+        key: `legacy-${index}-${fileUrl}`,
+        fileUrl,
+        description: "",
+        expiryDate: "",
+      }));
+    try {
+      const res = await fetch(`/api/users/${user.id}/documents`, { credentials: "include" });
+      if (!res.ok) {
+        setCertificates(legacy);
+        return;
+      }
+      const docs = (await res.json()) as UserDocument[];
+      const mapped: CertificateDraft[] = docs.map((doc) => {
+        const expiryDate = expiryInputValue(doc.expiryDate);
+        return {
+          key: doc.id,
+          id: doc.id,
+          fileUrl: doc.fileUrl,
+          description: doc.documentName || "",
+          expiryDate,
+          originalDescription: doc.documentName || "",
+          originalExpiryDate: expiryDate,
+        };
+      });
+      const known = new Set(mapped.map((doc) => doc.fileUrl));
+      setCertificates([...mapped, ...legacy.filter((item) => !known.has(item.fileUrl))]);
+    } catch {
+      setCertificates(legacy);
+    }
   };
 
   const handleCloseDialog = () => {
@@ -261,7 +438,10 @@ export default function Team() {
     setSkillInput("");
     setEducation("");
     setProfileImageUrl("");
-    setCertificateUrls([]);
+    setCertificates([]);
+    setRemovedDocumentIds([]);
+    setCertDescription("");
+    setCertExpiry("");
     // Address fields are now uncontrolled - they will reset when dialog closes/reopens
   };
 
@@ -335,6 +515,31 @@ export default function Team() {
         .join(", ")
     } : undefined;
 
+    const pendingDescription = certDescription.trim();
+    const pendingExpiry = certExpiry.trim();
+    if (pendingDescription || pendingExpiry) {
+      toast({
+        variant: "destructive",
+        title: "Certificate not uploaded",
+        description: "Upload the certificate file, or clear the description and expiry date.",
+      });
+      return;
+    }
+
+    const certificateError = validateCertificates(certificates);
+    if (certificateError) {
+      toast({
+        variant: "destructive",
+        title: "Certificate details required",
+        description: certificateError,
+      });
+      return;
+    }
+
+    const certificateUrls = certificates
+      .map((cert) => cert.fileUrl.trim())
+      .filter((url) => url.startsWith("/objects/") || url.startsWith("http://") || url.startsWith("https://"));
+
     if (editingUser) {
       // For updates: exclude email, username, password (not allowed in updateTeamMemberSchema)
       const updateData = {
@@ -352,7 +557,12 @@ export default function Team() {
         }),
         address: formattedAddress,
       };
-      updateMutation.mutate({ userId: editingUser.id, data: updateData });
+      updateMutation.mutate({
+        userId: editingUser.id,
+        data: updateData,
+        certificates,
+        removedDocumentIds,
+      });
     } else {
       // For creates: include all fields
       // Validate profileImageUrl format
@@ -396,7 +606,7 @@ export default function Team() {
       };
       
       console.log('[Team] Creating team member with data:', { ...createData, password: '***' });
-      createMutation.mutate(createData);
+      createMutation.mutate({ data: createData, certificates });
     }
   };
 
@@ -1159,118 +1369,201 @@ export default function Team() {
                   Certificates & Documents
                 </Label>
                 <p className="text-sm text-muted-foreground">
-                  Upload professional certificates, licenses, or other relevant documents (PDF, images, etc.)
+                  Each certificate needs a description and an expiry date. When it expires, the member is emailed and an alert appears in New Requests.
                 </p>
               </div>
 
-              {/* Upload Certificates */}
-              <div className="space-y-2">
-                <Label>Upload Certificates</Label>
-                <ObjectUploader
-                  maxNumberOfFiles={10}
-                  onGetUploadParameters={async () => {
-                    const response = await fetch('/api/objects/upload', {
-                      method: 'POST',
-                      credentials: 'include',
-                    });
-                    const { uploadURL } = await response.json();
-                    return {
-                      method: 'PUT',
-                      url: uploadURL,
-                    };
-                  }}
-                  onComplete={async (result) => {
-                    try {
-                      if (result.successful && result.successful.length > 0) {
-                        const newPaths: string[] = [];
-                        for (const file of result.successful) {
-                          let fileUrl = file.uploadURL;
-                          
-                          // Ensure it's a valid file path (should start with /objects/)
-                          if (!fileUrl || !fileUrl.startsWith('/objects/')) {
-                            // If it's an absolute URL, extract the path
-                            if (fileUrl && (fileUrl.startsWith('http://') || fileUrl.startsWith('https://'))) {
-                              try {
-                                const urlObj = new URL(fileUrl);
-                                fileUrl = urlObj.pathname;
-                              } catch (e) {
-                                console.error('[Team] Invalid certificate URL:', fileUrl);
-                                continue; // Skip this file
-                              }
-                            } else {
-                              console.error('[Team] Invalid certificate URL format:', fileUrl);
-                              continue; // Skip this file
-                            }
-                          }
-                          
-                          // Convert to absolute URL for ACL call
-                          const absoluteUrl = fileUrl.startsWith('/') 
-                            ? `${window.location.origin}${fileUrl}`
-                            : fileUrl;
-                          
-                          const response = await fetch('/api/objects/set-acl', {
-                            method: 'PUT',
-                            headers: { 'Content-Type': 'application/json' },
-                            credentials: 'include',
-                            body: JSON.stringify({ photoUrl: absoluteUrl }),
-                          });
-                          
-                          if (!response.ok) {
-                            const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-                            console.error('[Team] Failed to set ACL for certificate:', errorData);
-                            continue; // Skip this file but continue with others
-                          }
-                          
-                          const { objectPath } = await response.json();
-                          newPaths.push(objectPath || fileUrl);
-                        }
-                        
-                        if (newPaths.length > 0) {
-                          setCertificateUrls([...certificateUrls, ...newPaths]);
-                          toast({
-                            title: "Success",
-                            description: `${newPaths.length} certificate(s) uploaded successfully`,
-                          });
-                        } else {
-                          throw new Error('No certificates were uploaded successfully');
-                        }
-                      }
-                    } catch (error: any) {
-                      console.error('[Team] Certificate upload error:', error);
-                      toast({
-                        title: "Upload Error",
-                        description: error.message || "Failed to upload one or more certificates. Please try again.",
-                        variant: "destructive",
+              <div className="space-y-3 rounded-lg border border-border/80 p-3">
+                <div className="space-y-2">
+                  <Label htmlFor="certificate-description">
+                    Description <span className="text-destructive">*</span>
+                  </Label>
+                  <Input
+                    id="certificate-description"
+                    value={certDescription}
+                    onChange={(event) => setCertDescription(event.target.value)}
+                    placeholder="Gas Safe certificate"
+                    data-testid="input-certificate-description"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="certificate-expiry">
+                    Expiry date <span className="text-destructive">*</span>
+                  </Label>
+                  <Input
+                    id="certificate-expiry"
+                    type="date"
+                    value={certExpiry}
+                    onChange={(event) => setCertExpiry(event.target.value)}
+                    data-testid="input-certificate-expiry"
+                  />
+                </div>
+                {certDescription.trim() && certExpiry && !isExpiryDateInPast(certExpiry) ? (
+                  <ObjectUploader
+                    maxNumberOfFiles={1}
+                    accept={COMPLIANCE_DOCUMENT_ACCEPT}
+                    onGetUploadParameters={async () => {
+                      const response = await fetch('/api/objects/upload', {
+                        method: 'POST',
+                        credentials: 'include',
                       });
-                    }
-                  }}
-                  buttonClassName="w-full"
-                >
-                  <Upload className="w-4 h-4 mr-2" />
-                  Upload Certificates
-                </ObjectUploader>
-                {certificateUrls.length > 0 && (
-                  <div className="space-y-2 mt-2">
-                    <p className="text-sm text-muted-foreground">{certificateUrls.length} certificate(s) uploaded</p>
-                    {certificateUrls.map((url, idx) => (
-                      <div key={idx} className="flex items-center gap-2 p-2 border rounded">
-                        <FileText className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                        <span className="text-sm flex-1 truncate">{url.split('/').pop()}</span>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6"
-                          onClick={() => setCertificateUrls(certificateUrls.filter((_, i) => i !== idx))}
-                          data-testid={`button-remove-certificate-${idx}`}
-                        >
-                          <X className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
+                      const { uploadURL } = await response.json();
+                      return { method: 'PUT', url: uploadURL };
+                    }}
+                    onComplete={async (result) => {
+                      try {
+                        const file = result.successful?.[0];
+                        if (!file?.uploadURL) {
+                          throw new Error("No certificate was uploaded");
+                        }
+                        let fileUrl = file.uploadURL;
+                        if (fileUrl.startsWith("http://") || fileUrl.startsWith("https://")) {
+                          fileUrl = new URL(fileUrl).pathname;
+                        }
+                        if (!fileUrl.startsWith("/objects/")) {
+                          throw new Error("Invalid certificate file");
+                        }
+                        const absoluteUrl = `${window.location.origin}${fileUrl}`;
+                        const response = await fetch("/api/objects/set-acl", {
+                          method: "PUT",
+                          headers: { "Content-Type": "application/json" },
+                          credentials: "include",
+                          body: JSON.stringify({ photoUrl: absoluteUrl }),
+                        });
+                        if (!response.ok) {
+                          const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
+                          throw new Error(errorData.error || "Failed to save the certificate file");
+                        }
+                        const { objectPath } = await response.json();
+                        const description = certDescription.trim();
+                        const expiryDate = certExpiry;
+                        setCertificates((current) => [
+                          ...current,
+                          {
+                            key: `new-${Date.now()}`,
+                            fileUrl: objectPath || fileUrl,
+                            description,
+                            expiryDate,
+                          },
+                        ]);
+                        setCertDescription("");
+                        setCertExpiry("");
+                        toast({
+                          title: "Certificate added",
+                          description: "Save the profile to keep this certificate.",
+                        });
+                      } catch (error: any) {
+                        toast({
+                          title: "Upload error",
+                          description: error.message || "Failed to upload the certificate.",
+                          variant: "destructive",
+                        });
+                      }
+                    }}
+                    buttonClassName="w-full"
+                  >
+                    <Upload className="w-4 h-4 mr-2" />
+                    Upload certificate
+                  </ObjectUploader>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => {
+                      if (!certDescription.trim() || !certExpiry) {
+                        toast({
+                          variant: "destructive",
+                          title: "Certificate details required",
+                          description: "Enter a description and expiry date before uploading.",
+                        });
+                        return;
+                      }
+                      toast({
+                        variant: "destructive",
+                        title: "Expiry date invalid",
+                        description: "Expiry date cannot be in the past.",
+                      });
+                    }}
+                  >
+                    <Upload className="w-4 h-4 mr-2" />
+                    Upload certificate
+                  </Button>
                 )}
               </div>
+
+              {certificates.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-sm text-muted-foreground">{certificates.length} certificate(s)</p>
+                  {certificates.map((cert, idx) => {
+                    const expired = !!cert.expiryDate && isExpiryDateInPast(cert.expiryDate);
+                    return (
+                      <div key={cert.key} className="space-y-2 rounded-lg border p-3">
+                        <div className="flex items-start gap-2">
+                          <FileText className="mt-2 h-4 w-4 shrink-0 text-muted-foreground" />
+                          <div className="min-w-0 flex-1 space-y-2">
+                            <Input
+                              value={cert.description}
+                              onChange={(event) => {
+                                const description = event.target.value;
+                                setCertificates((current) =>
+                                  current.map((item) =>
+                                    item.key === cert.key ? { ...item, description } : item,
+                                  ),
+                                );
+                              }}
+                              placeholder="Description"
+                              aria-label="Certificate description"
+                              data-testid={`input-certificate-description-${idx}`}
+                            />
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Input
+                                type="date"
+                                value={cert.expiryDate}
+                                onChange={(event) => {
+                                  const expiryDate = event.target.value;
+                                  setCertificates((current) =>
+                                    current.map((item) =>
+                                      item.key === cert.key ? { ...item, expiryDate } : item,
+                                    ),
+                                  );
+                                }}
+                                aria-label="Certificate expiry date"
+                                className="w-auto"
+                                data-testid={`input-certificate-expiry-${idx}`}
+                              />
+                              {expired ? (
+                                <Badge variant="destructive">Expired</Badge>
+                              ) : null}
+                              <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                                {certificateFileLabel(cert.fileUrl)}
+                              </span>
+                            </div>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => {
+                              setCertificates((current) => current.filter((item) => item.key !== cert.key));
+                              if (cert.id) {
+                                setRemovedDocumentIds((current) =>
+                                  current.includes(cert.id!) ? current : [...current, cert.id!],
+                                );
+                              }
+                            }}
+                            data-testid={`button-remove-certificate-${idx}`}
+                            aria-label="Remove certificate"
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </TabsContent>
           </Tabs>
 

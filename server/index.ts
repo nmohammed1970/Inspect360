@@ -401,6 +401,20 @@ app.use((req, res, next) => {
       console.error("❌ Failed to initialize HMO schedulers:", error);
     }
 
+    try {
+      const documentExpiryMs = 24 * 60 * 60 * 1000;
+      const { processExpiredTeamDocumentEmails } = await import("./teamDocumentExpiry");
+      const runDocumentExpiryEmails = () =>
+        processExpiredTeamDocumentEmails().catch((error) => {
+          console.error("[team-documents] Expiry email scan failed:", error);
+        });
+      setImmediate(runDocumentExpiryEmails);
+      setInterval(runDocumentExpiryEmails, documentExpiryMs);
+      console.log("✅ Team document expiry emails scheduled (daily)");
+    } catch (error) {
+      console.error("❌ Failed to schedule team document expiry emails:", error);
+    }
+
     // Use traditional listen format for better Windows compatibility
     // Windows doesn't support reusePort option
     const totalStartupTime = Date.now() - startTime;

@@ -545,7 +545,7 @@ import {
 import { pricingService } from "./pricingService";
 import { planChangeStripeUpdateParams } from "@shared/stripeProrationPolicy";
 import { computeDocumentComplianceRate } from "@shared/complianceDocTypes";
-import { isExpiryDateInPast } from "@shared/workOrderCertificates";
+import { isExpiryDateInPast, parseCertificateExpiryDate } from "@shared/workOrderCertificates";
 import {
   BILLING_FALLBACK_RATES_FROM_GBP,
   isSupportedBillingCurrency,
@@ -4703,7 +4703,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get documents for a specific user (admin/owner access)
-  app.get("/api/users/:userId/documents", isAuthenticated, requireRole("owner"), async (req: any, res) => {
+  app.get("/api/users/:userId/documents", isAuthenticated, requireRole("owner", "clerk", "compliance", "contractor", "maintenance_admin"), async (req: any, res) => {
     try {
       const requesterId = req.user.id;
       const requester = await storage.getUser(requesterId);
@@ -4727,6 +4727,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Owner adds a certificate to a team member in the same organisation.
+  app.post("/api/users/:userId/documents", isAuthenticated, requireRole("owner"), async (req: any, res) => {
+    try {
+      const requester = await storage.getUser(req.user.id);
+      const targetUser = await storage.getUser(req.params.userId);
+      if (!requester?.organizationId) {
+        return res.status(400).json({ message: "User must belong to an organization" });
+      }
+      if (!targetUser || targetUser.organizationId !== requester.organizationId) {
+        return res.status(403).json({ message: "User not found in your organization" });
+      }
+
+      const { documentName, documentType, fileUrl, expiryDate, notes } = req.body;
+      const name = String(documentName || "").trim();
+      const expiryYmd = parseCertificateExpiryDate(expiryDate);
+      if (!name || !fileUrl) {
+        return res.status(400).json({ message: "Description and file are required" });
+      }
+      if (!expiryYmd) {
+        return res.status(400).json({ message: "Expiry date is required" });
+      }
+      if (isExpiryDateInPast(expiryYmd)) {
+        return res.status(400).json({ message: "Expiry date cannot be in the past" });
+      }
+
+      const document = await storage.createUserDocument({
+        userId: targetUser.id,
+        organizationId: requester.organizationId,
+        documentName: name,
+        documentType: documentType || "certification",
+        fileUrl,
+        expiryDate: new Date(`${expiryYmd}T12:00:00.000Z`),
+        notes: notes || null,
+      });
+      res.status(201).json(document);
+    } catch (error) {
+      console.error("Error creating team member document:", error);
+      res.status(500).json({ message: "Failed to create document" });
+    }
+  });
+
   // Create a new user document
   app.post("/api/user-documents", isAuthenticated, async (req: any, res) => {
     try {
@@ -4743,17 +4784,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Document name and file URL are required" });
       }
 
-      if (expiryDate && isExpiryDateInPast(expiryDate)) {
+      const expiryYmd = expiryDate ? parseCertificateExpiryDate(expiryDate) : null;
+      if (expiryDate && !expiryYmd) {
+        return res.status(400).json({ message: "Enter a valid expiry date" });
+      }
+      if (expiryYmd && isExpiryDateInPast(expiryYmd)) {
         return res.status(400).json({ message: "Expiry date cannot be in the past" });
       }
 
       const document = await storage.createUserDocument({
         userId,
         organizationId: user.organizationId,
-        documentName,
+        documentName: String(documentName).trim(),
         documentType: documentType || null,
         fileUrl,
-        expiryDate: expiryDate ? new Date(expiryDate) : null,
+        expiryDate: expiryYmd ? new Date(`${expiryYmd}T12:00:00.000Z`) : null,
         notes: notes || null,
       });
 
@@ -4775,19 +4820,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Document not found" });
       }
 
-      // Only allow user to update their own documents
-      if (document.userId !== userId) {
+      const requester = await storage.getUser(userId);
+      const sameOrgOwner =
+        requester?.role === "owner" &&
+        !!requester.organizationId &&
+        requester.organizationId === document.organizationId;
+      if (document.userId !== userId && !sameOrgOwner) {
         return res.status(403).json({ message: "Access denied" });
       }
 
       const { documentName, documentType, expiryDate, notes } = req.body;
+      const updates: Record<string, unknown> = {};
+      if (documentName !== undefined) {
+        const name = String(documentName).trim();
+        if (!name) {
+          return res.status(400).json({ message: "Description is required" });
+        }
+        updates.documentName = name;
+      }
+      if (documentType !== undefined) updates.documentType = documentType;
+      if (notes !== undefined) updates.notes = notes;
+      if (expiryDate !== undefined) {
+        if (!expiryDate) {
+          return res.status(400).json({ message: "Expiry date is required" });
+        }
+        const nextYmd = parseCertificateExpiryDate(expiryDate);
+        if (!nextYmd) {
+          return res.status(400).json({ message: "Enter a valid expiry date" });
+        }
+        const currentYmd = parseCertificateExpiryDate(document.expiryDate);
+        if (isExpiryDateInPast(nextYmd) && nextYmd !== currentYmd) {
+          return res.status(400).json({ message: "Expiry date cannot be in the past" });
+        }
+        updates.expiryDate = new Date(`${nextYmd}T12:00:00.000Z`);
+        if (!isExpiryDateInPast(nextYmd)) updates.expiryNotifiedAt = null;
+      }
 
-      const updated = await storage.updateUserDocument(documentId, {
-        ...(documentName && { documentName }),
-        ...(documentType !== undefined && { documentType }),
-        ...(expiryDate !== undefined && { expiryDate: expiryDate ? new Date(expiryDate) : null }),
-        ...(notes !== undefined && { notes }),
-      });
+      const updated = await storage.updateUserDocument(documentId, updates as any);
 
       res.json(updated);
     } catch (error) {
@@ -4807,8 +4876,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Document not found" });
       }
 
-      // Only allow user to delete their own documents
-      if (document.userId !== userId) {
+      const requester = await storage.getUser(userId);
+      const sameOrgOwner =
+        requester?.role === "owner" &&
+        !!requester.organizationId &&
+        requester.organizationId === document.organizationId;
+      if (document.userId !== userId && !sameOrgOwner) {
         return res.status(403).json({ message: "Access denied" });
       }
 
@@ -18614,7 +18687,12 @@ ${optionalNotes || "No details provided."}`;
         }
       }
 
-      if (req.body.status === "completed" || req.body.status === "in_progress") {
+      const statusChanging =
+        req.body.status !== undefined && req.body.status !== wo.status;
+      if (
+        statusChanging &&
+        (req.body.status === "completed" || req.body.status === "in_progress")
+      ) {
         const freshAuth = await storage.getWorkOrder(req.params.id);
         if (freshAuth && (freshAuth as any).authorisationStatus === "quote_required") {
           return res.status(409).json({
@@ -18638,10 +18716,15 @@ ${optionalNotes || "No details provided."}`;
         }
       }
 
-      if (
-        req.body.costEstimate !== undefined &&
-        (wo as any).approvedQuoteId
-      ) {
+      const incomingCost =
+        req.body.costEstimate !== undefined && req.body.costEstimate !== null && req.body.costEstimate !== ""
+          ? Math.round(Number(req.body.costEstimate))
+          : req.body.costEstimate === null
+            ? null
+            : undefined;
+      const storedCost = (wo as any).costEstimate ?? null;
+      const costChanging = incomingCost !== undefined && incomingCost !== storedCost;
+      if (costChanging && (wo as any).approvedQuoteId) {
         return res.status(409).json({
           error: "Cost estimate is locked to the authorised quotation total",
           code: "COST_ESTIMATE_LOCKED",
@@ -18657,14 +18740,9 @@ ${optionalNotes || "No details provided."}`;
         teamId: req.body.teamId,
         assignedToId: req.body.assignedToId,
         contractorId: req.body.contractorId,
-        status: req.body.status,
+        status: statusChanging ? req.body.status : undefined,
         slaDue: req.body.slaDue,
-        costEstimate:
-          req.body.costEstimate !== undefined && req.body.costEstimate !== null && req.body.costEstimate !== ""
-            ? Math.round(Number(req.body.costEstimate))
-            : req.body.costEstimate === null
-              ? null
-              : undefined,
+        costEstimate: costChanging ? incomingCost : undefined,
       });
       res.json(updated);
     } catch (error: any) {

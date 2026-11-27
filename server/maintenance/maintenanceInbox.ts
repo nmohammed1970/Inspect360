@@ -1,6 +1,8 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "../db";
 import { storage } from "../storage";
+import { listOrganizationExpiredDocuments } from "../teamDocumentExpiry";
+import { formatExpiryLongDate } from "../teamDocumentExpiryLogic";
 import {
   maintenanceQuotes,
   maintenanceRequestMessages,
@@ -13,7 +15,8 @@ export type MaintenanceInboxKind =
   | "tenant_request"
   | "inspector_request"
   | "quote"
-  | "tenant_message";
+  | "tenant_message"
+  | "expired_document";
 
 export type MaintenanceInboxItem = {
   id: string;
@@ -268,5 +271,25 @@ export async function buildMaintenanceInbox(input: {
   );
   const capped = items.slice(0, FEED_CAP);
 
-  return { items: capped, count: capped.length };
+  let expiredDocuments: MaintenanceInboxItem[] = [];
+  try {
+    const expired = await listOrganizationExpiredDocuments(input.organizationId);
+    expiredDocuments = expired.map((doc) => {
+      const member = [doc.firstName, doc.lastName].filter(Boolean).join(" ") || doc.email;
+      return {
+        id: `expired_document:${doc.id}`,
+        kind: "expired_document" as const,
+        title: doc.documentName,
+        subtitle: `${member} · expired ${formatExpiryLongDate(doc.expiryYmd)}`,
+        createdAt: new Date(`${doc.expiryYmd}T12:00:00.000Z`).toISOString(),
+        href: "/team",
+        meta: { status: "expired" },
+      };
+    });
+  } catch (error) {
+    console.error("[maintenance-inbox] expired documents skipped:", error);
+  }
+
+  const merged = [...expiredDocuments, ...capped];
+  return { items: merged, count: merged.length };
 }

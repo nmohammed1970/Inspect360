@@ -939,7 +939,7 @@ export default function PropertyDetail() {
           ) : (
             <div className="space-y-4">
               {inspections.map((inspection) => (
-                <Link key={inspection.id} href={`/inspections/${inspection.id}`}>
+                <Link key={inspection.id} href={`/inspections/${inspection.id}/capture`}>
                   <Card className="rounded-lg border-border/80 shadow-sm cursor-pointer" data-testid={`card-inspection-${inspection.id}`}>
                     <CardHeader>
                       <div className="flex items-start justify-between gap-4">
