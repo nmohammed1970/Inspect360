@@ -1,0 +1,12 @@
+---
+description: Delete temporary test files after they have been run
+alwaysApply: true
+---
+
+# Temporary test files
+
+When a test file is created only to check a change, delete it after the test has passed.
+
+- Do not leave `*.test.ts`, `*.spec.ts`, or one-off test scripts in the repo once testing is finished.
+- Do not commit those files.
+- Existing project tests that were already part of the codebase stay unless the user asks to remove them.
