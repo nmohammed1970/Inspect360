@@ -29,6 +29,7 @@ import { cn } from "@/lib/utils";
 import { pagePad, dialogContentBase, cardGridComfortable } from "@/lib/responsive";
 import { PageHeader } from "@/components/PageHeader";
 import { useCompanyModules } from "@/hooks/useCompanyModules";
+import { LIST_PAGE_SIZE, ListPagination, useDebouncedValue } from "@/components/ListPagination";
 
 function getBlockDeleteReason(block: Block): string | null {
   const stats = block.stats;
@@ -87,14 +88,40 @@ export default function Blocks() {
   const [selectedTags, setSelectedTags] = useState<Tag[]>([]);
   const [filterTags, setFilterTags] = useState<Tag[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [page, setPage] = useState(1);
   const [maintenanceBlockId, setMaintenanceBlockId] = useState<string | null>(null);
   const [blockToDelete, setBlockToDelete] = useState<Block | null>(null);
   const { toast } = useToast();
   const { complianceEnabled, maintenanceEnabled } = useCompanyModules();
+  const debouncedSearch = useDebouncedValue(searchQuery);
+  const tagIds = filterTags.map((tag) => tag.id).join(",");
 
-  const { data: blocks = [], isLoading } = useQuery<Block[]>({
-    queryKey: ["/api/blocks"],
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch, tagIds]);
+
+  const { data: blockPage, isLoading, isFetching } = useQuery<{
+    items: Block[];
+    total: number;
+    page: number;
+    pageSize: number;
+  }>({
+    queryKey: ["/api/blocks", "page", page, debouncedSearch, tagIds],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        page: String(page),
+        pageSize: String(LIST_PAGE_SIZE),
+      });
+      if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
+      if (tagIds) params.set("tagIds", tagIds);
+      const res = await fetch(`/api/blocks?${params}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load blocks");
+      return res.json();
+    },
+    placeholderData: (previous) => previous,
   });
+  const blocks = blockPage?.items ?? [];
+  const blockTotal = blockPage?.total ?? 0;
 
   // Fetch tags for all blocks
   const blockIds = useMemo(() => blocks.map(b => b.id).sort().join(','), [blocks]);
@@ -131,31 +158,8 @@ export default function Blocks() {
     }));
   }, [blocks, blockTagsMap]);
 
-  // Filter blocks by search query and tags
-  const filteredBlocks = useMemo(() => {
-    let filtered = blocksWithTags;
-
-    // Filter by search query
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(block => 
-        block.name.toLowerCase().includes(query) ||
-        block.address.toLowerCase().includes(query)
-      );
-    }
-
-    // Filter by tags (show blocks that have ALL selected tags)
-    if (filterTags.length > 0) {
-      filtered = filtered.filter(block => {
-        if (!block.tags || block.tags.length === 0) return false;
-        return filterTags.every(filterTag =>
-          block.tags!.some(blockTag => blockTag.id === filterTag.id)
-        );
-      });
-    }
-
-    return filtered;
-  }, [blocksWithTags, searchQuery, filterTags]);
+  const filteredBlocks = blocksWithTags;
+  const hasBlockFilters = Boolean(debouncedSearch.trim() || filterTags.length > 0);
 
   const createBlockMutation = useMutation({
     mutationFn: async (data: { name: string; address: string; notes?: string }) => {
@@ -414,7 +418,7 @@ export default function Blocks() {
             <p className="text-muted-foreground">Loading blocks...</p>
           </div>
         </div>
-      ) : blocks.length === 0 ? (
+      ) : blockTotal === 0 && !hasBlockFilters ? (
         <Card className="clean-card">
           <CardContent className="flex flex-col items-center justify-center py-16 md:py-24">
             <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center mb-6">
@@ -692,6 +696,15 @@ export default function Blocks() {
           ))}
         </div>
       )}
+
+      <ListPagination
+        page={page}
+        pageSize={LIST_PAGE_SIZE}
+        total={blockTotal}
+        isFetching={isFetching}
+        onPageChange={setPage}
+        noun="blocks"
+      />
 
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
         <DialogContent className={cn(dialogContentBase, "max-w-lg")}>

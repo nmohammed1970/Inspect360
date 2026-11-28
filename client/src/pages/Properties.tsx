@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -22,36 +22,14 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { cn } from "@/lib/utils";
 import { pagePad, cardGrid } from "@/lib/responsive";
 import { useCompanyModules } from "@/hooks/useCompanyModules";
+import { LIST_PAGE_SIZE, ListPagination, useDebouncedValue } from "@/components/ListPagination";
 
-function isActiveTenantAssignment(ta: any): boolean {
-  const nested = ta.assignment;
-  const raw =
-    nested?.isActive !== undefined && nested?.isActive !== null
-      ? nested.isActive
-      : ta.isActive !== undefined && ta.isActive !== null
-        ? ta.isActive
-        : ta.is_active;
-  if (raw === false || raw === 0 || raw === "false" || raw === "f") return false;
-  if (raw === true || raw === 1 || raw === "true" || raw === "t") return true;
-  if (raw === null || raw === undefined) return true;
-  return ta.status === "active" || ta.status === "current";
-}
-
-function isPendingInspection(insp: { status?: string | null }): boolean {
-  return insp.status === "scheduled" || insp.status === "in_progress";
-}
-
-function getPropertyDeleteBlockReason(
-  propertyId: string,
-  tenantAssignments: any[],
-  inspections: any[],
-): string | null {
-  const activeTenants = tenantAssignments.filter(
-    (ta) => ta.propertyId === propertyId && isActiveTenantAssignment(ta),
-  ).length;
-  const pendingInspections = inspections.filter(
-    (insp) => insp.propertyId === propertyId && isPendingInspection(insp),
-  ).length;
+function getPropertyDeleteBlockReason(property: {
+  activeTenantCount?: number;
+  pendingInspectionCount?: number;
+}): string | null {
+  const activeTenants = property.activeTenantCount ?? 0;
+  const pendingInspections = property.pendingInspectionCount ?? 0;
 
   const reasons: string[] = [];
   if (activeTenants > 0) {
@@ -75,24 +53,48 @@ export default function Properties() {
   const [searchQuery, setSearchQuery] = useState("");
   const [filterTags, setFilterTags] = useState<Tag[]>([]);
   const [propertyToDelete, setPropertyToDelete] = useState<any | null>(null);
+  const [page, setPage] = useState(1);
+  const debouncedSearch = useDebouncedValue(searchQuery);
+  const tagIds = filterTags.map((tag) => tag.id).join(",");
 
-  const { data: properties = [], isLoading } = useQuery<any[]>({
-    queryKey: ["/api/properties"],
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch, tagIds, urlBlockId]);
+
+  const { data: propertyPage, isLoading, isFetching } = useQuery<{
+    items: any[];
+    total: number;
+    page: number;
+    pageSize: number;
+  }>({
+    queryKey: ["/api/properties", "page", page, debouncedSearch, tagIds, urlBlockId],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        page: String(page),
+        pageSize: String(LIST_PAGE_SIZE),
+      });
+      if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
+      if (urlBlockId) params.set("blockId", urlBlockId);
+      if (tagIds) params.set("tagIds", tagIds);
+      const res = await fetch(`/api/properties?${params}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load properties");
+      return res.json();
+    },
+    placeholderData: (previous) => previous,
   });
+  const properties = propertyPage?.items ?? [];
+  const propertyTotal = propertyPage?.total ?? 0;
 
   const { data: blocks = [] } = useQuery<any[]>({
-    queryKey: ["/api/blocks"],
+    queryKey: ["/api/blocks", "summary"],
+    queryFn: async () => {
+      const res = await fetch("/api/blocks?summary=1", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load blocks");
+      return res.json();
+    },
   });
 
-  const { data: tenantAssignments = [] } = useQuery<any[]>({
-    queryKey: ["/api/tenant-assignments"],
-  });
-
-  const { data: inspections = [] } = useQuery<any[]>({
-    queryKey: ["/api/inspections/my"],
-  });
-
-  // Fetch tags for all properties
+  // Fetch tags for the properties on this page
   const propertyIds = useMemo(() => properties.map(p => p.id).sort().join(','), [properties]);
   const { data: propertyTagsMap = {} } = useQuery<Record<string, Tag[]>>({
     queryKey: ["/api/properties/tags", propertyIds],
@@ -133,36 +135,8 @@ export default function Properties() {
     enabled: !!urlBlockId,
   });
 
-  // Filter properties by block (from URL), search query, and tags
-  const filteredProperties = useMemo(() => {
-    let filtered = propertiesWithTags;
-    
-    // First filter by blockId from URL if present
-    if (urlBlockId) {
-      filtered = filtered.filter(property => property.blockId === urlBlockId);
-    }
-    
-    // Then apply search query filter
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(property => 
-        property.name.toLowerCase().includes(query) ||
-        property.address.toLowerCase().includes(query)
-      );
-    }
-
-    // Filter by tags (show properties that have ALL selected tags)
-    if (filterTags.length > 0) {
-      filtered = filtered.filter(property => {
-        if (!property.tags || property.tags.length === 0) return false;
-        return filterTags.every(filterTag =>
-          property.tags!.some((propertyTag: Tag) => propertyTag.id === filterTag.id)
-        );
-      });
-    }
-    
-    return filtered;
-  }, [propertiesWithTags, urlBlockId, searchQuery, filterTags]);
+  const filteredProperties = propertiesWithTags;
+  const hasPropertyFilters = Boolean(debouncedSearch.trim() || filterTags.length > 0 || urlBlockId);
 
   const deleteProperty = useMutation({
     mutationFn: async (id: string) => {
@@ -315,7 +289,7 @@ export default function Properties() {
         </FiltersSection>
       )}
 
-      {properties.length === 0 ? (
+      {propertyTotal === 0 && !hasPropertyFilters ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-16">
             <Building2 className="w-16 h-16 text-muted-foreground mb-4" />
@@ -366,11 +340,7 @@ export default function Properties() {
                           <Pencil className="h-4 w-4" />
                         </Button>
                         {(() => {
-                          const deleteBlockedReason = getPropertyDeleteBlockReason(
-                            property.id,
-                            tenantAssignments,
-                            inspections,
-                          );
+                          const deleteBlockedReason = getPropertyDeleteBlockReason(property);
                           const deleteDisabled = !!deleteBlockedReason;
                           return (
                             <TooltipProvider delayDuration={200}>
@@ -485,6 +455,15 @@ export default function Properties() {
           })}
         </div>
       )}
+
+      <ListPagination
+        page={page}
+        pageSize={LIST_PAGE_SIZE}
+        total={propertyTotal}
+        isFetching={isFetching}
+        onPageChange={setPage}
+        noun="properties"
+      />
 
       <DeleteConfirmDialog
         open={!!propertyToDelete}

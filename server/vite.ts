@@ -15,6 +15,11 @@ export async function setupVite(app: Express, server: Server) {
     hmr: { server },
     allowedHosts: true as const,
     fs: viteConfig.server?.fs,
+    watch: {
+      ...viteConfig.server?.watch,
+      // Seed downloads many photos while the dev server is running.
+      ignored: ["**/demo-seed/photos/**", "**/demo-seed/_preview/**"],
+    },
   };
 
   const vite = await createViteServer({

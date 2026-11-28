@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { LIST_PAGE_SIZE, ListPagination, useDebouncedValue } from "@/components/ListPagination";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useSearch, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -87,6 +88,7 @@ export default function Compliance() {
   const [filterProperty, setFilterProperty] = useState<string>("all");
   const [filterBlock, setFilterBlock] = useState<string>("all");
   const [searchTerm, setSearchTerm] = useState<string>("");
+  const [page, setPage] = useState(1);
   const [sortBy, setSortBy] = useState<"date" | "type" | "status" | "expiry">("expiry");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
   const [filterPopoverOpen, setFilterPopoverOpen] = useState(false);
@@ -187,14 +189,39 @@ export default function Compliance() {
     }
   };
 
-  const { data: documents = [], isLoading } = useQuery<ComplianceDocument[]>({
-    queryKey: ['/api/compliance'],
-  });
+  const debouncedSearch = useDebouncedValue(searchTerm);
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch, filterType, filterStatus, effectivePropertyFilter, effectiveBlockFilter, sortBy, sortOrder]);
 
-  const { data: expiringDocs = [] } = useQuery<ComplianceDocument[]>({
-    queryKey: ['/api/compliance/expiring'],
-    queryFn: () => fetch('/api/compliance/expiring?days=90').then(res => res.json()),
+  const { data: compliancePage, isLoading, isFetching } = useQuery<{
+    items: ComplianceDocument[];
+    total: number;
+    counts: { total: number; expired: number; dueSoon: number; valid: number; expiring: number };
+    documentTypes: string[];
+    calendar: Array<{ id: string; documentType: string; expiryDate: string | Date | null; documentUrl: string | null; createdAt: string | Date | null }>;
+  }>({
+    queryKey: ["/api/compliance", "page", page, debouncedSearch, filterType, filterStatus, effectivePropertyFilter, effectiveBlockFilter, sortBy, sortOrder],
+    placeholderData: (previous) => previous,
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        page: String(page),
+        pageSize: String(LIST_PAGE_SIZE),
+        sortBy,
+        sortOrder,
+      });
+      if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
+      if (filterType !== "all") params.set("documentType", filterType);
+      if (filterStatus !== "all") params.set("status", filterStatus);
+      if (effectivePropertyFilter !== "all") params.set("propertyId", effectivePropertyFilter);
+      if (effectiveBlockFilter !== "all") params.set("blockId", effectiveBlockFilter);
+      const res = await fetch(`/api/compliance?${params}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load compliance documents");
+      return res.json();
+    },
   });
+  const documents = compliancePage?.items ?? [];
+  const complianceCounts = compliancePage?.counts ?? { total: 0, expired: 0, dueSoon: 0, valid: 0, expiring: 0 };
 
   const { data: properties = [] } = useQuery<Property[]>({
     queryKey: ['/api/properties'],
@@ -553,89 +580,9 @@ export default function Compliance() {
   };
 
   // Get unique document types for filter
-  const documentTypes = Array.from(new Set(documents.map(doc => doc.documentType))).sort();
+  const documentTypes = compliancePage?.documentTypes ?? [];
 
-  // Filter and sort documents
-  const filteredAndSortedDocs = documents.filter(doc => {
-    // Filter by type
-    if (filterType !== "all" && doc.documentType !== filterType) return false;
-    
-    // Filter by status
-    if (filterStatus !== "all") {
-      const isExpired = doc.expiryDate && isPast(new Date(doc.expiryDate.toString()));
-      if (filterStatus === "expired" && !isExpired) return false;
-      if (filterStatus === "current" && isExpired) return false;
-      if (filterStatus === "expiring" && (!doc.expiryDate || !expiringDocs.find(ed => ed.id === doc.id))) return false;
-    }
-    
-    // Filter by property — only docs that belong to this property
-    if (effectivePropertyFilter !== "all" && doc.propertyId !== effectivePropertyFilter) return false;
-    
-    // Filter by block — only docs that belong to this block
-    if (effectiveBlockFilter !== "all" && doc.blockId !== effectiveBlockFilter) return false;
-    
-    // Filter by search term
-    if (searchTerm) {
-      const searchLower = searchTerm.toLowerCase();
-      const matchesType = doc.documentType.toLowerCase().includes(searchLower);
-      const matchesProperty = getPropertyName(doc.propertyId)?.toLowerCase().includes(searchLower);
-      const matchesBlock = getBlockName(doc.blockId)?.toLowerCase().includes(searchLower);
-      if (!matchesType && !matchesProperty && !matchesBlock) return false;
-    }
-    
-    return true;
-  }).sort((a, b) => {
-    let comparison = 0;
-    
-    switch (sortBy) {
-      case "date":
-        comparison = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-        break;
-      case "type":
-        comparison = a.documentType.localeCompare(b.documentType);
-        break;
-      case "status":
-        const aExpired = a.expiryDate && isPast(new Date(a.expiryDate.toString()));
-        const bExpired = b.expiryDate && isPast(new Date(b.expiryDate.toString()));
-        comparison = aExpired === bExpired ? 0 : (aExpired ? 1 : -1);
-        break;
-      case "expiry":
-        if (!a.expiryDate && !b.expiryDate) comparison = 0;
-        else if (!a.expiryDate) comparison = 1;
-        else if (!b.expiryDate) comparison = -1;
-        else comparison = new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime();
-        break;
-    }
-    
-    return sortOrder === "asc" ? comparison : -comparison;
-  });
-
-  const expiredDocs = filteredAndSortedDocs.filter(doc => 
-    doc.expiryDate && isPast(new Date(doc.expiryDate.toString()))
-  );
-
-  const currentDocs = filteredAndSortedDocs.filter(doc => 
-    !doc.expiryDate || !isPast(new Date(doc.expiryDate.toString()))
-  );
-
-  const dueSoonDocs = currentDocs.filter(doc => {
-    if (!doc.expiryDate) return false;
-    const daysUntil = differenceInDays(new Date(doc.expiryDate.toString()), new Date());
-    return daysUntil >= 0 && daysUntil <= 30;
-  });
-
-  const validDocs = currentDocs.filter(doc => {
-    if (!doc.expiryDate) return true;
-    const daysUntil = differenceInDays(new Date(doc.expiryDate.toString()), new Date());
-    return daysUntil > 30;
-  });
-
-  // Expiring banner must respect active property/block filters (not org-wide)
-  const filteredExpiringDocs = expiringDocs.filter((doc) => {
-    if (effectivePropertyFilter !== "all" && doc.propertyId !== effectivePropertyFilter) return false;
-    if (effectiveBlockFilter !== "all" && doc.blockId !== effectiveBlockFilter) return false;
-    return true;
-  });
+  const filteredAndSortedDocs = documents;
 
   if (authLoading) {
     return (
@@ -1496,7 +1443,7 @@ export default function Compliance() {
       {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
         <MetricSummaryCard
-          value={expiredDocs.length}
+          value={complianceCounts.expired}
           valueTestId="stat-overdue"
           label="Overdue"
           subLabel="Expired documents"
@@ -1504,7 +1451,7 @@ export default function Compliance() {
           icon={AlertTriangle}
         />
         <MetricSummaryCard
-          value={dueSoonDocs.length}
+          value={complianceCounts.dueSoon}
           valueTestId="stat-due-soon"
           label="Due Soon"
           subLabel="Within 30 days"
@@ -1512,7 +1459,7 @@ export default function Compliance() {
           icon={Calendar}
         />
         <MetricSummaryCard
-          value={validDocs.length}
+          value={complianceCounts.valid}
           valueTestId="stat-valid"
           label="Valid"
           subLabel="Currently compliant"
@@ -1520,7 +1467,7 @@ export default function Compliance() {
           icon={Check}
         />
         <MetricSummaryCard
-          value={filteredAndSortedDocs.length}
+          value={complianceCounts.total}
           valueTestId="stat-total"
           label="Total Documents"
           subLabel="In current view"
@@ -1529,11 +1476,11 @@ export default function Compliance() {
         />
       </div>
 
-      {filteredExpiringDocs.length > 0 && (
+      {complianceCounts.expiring > 0 && (
         <Alert className="border-[color:var(--brand-warning)]/40 bg-[color:var(--brand-warning)]/10">
           <AlertTriangle className="h-4 w-4 text-[color:var(--brand-warning)]" />
           <AlertDescription className="text-[color:var(--brand-slate)]">
-            <span className="font-semibold">{filteredExpiringDocs.length} document(s)</span> expiring within 90 days. Please renew them soon.
+            <span className="font-semibold">{complianceCounts.expiring} document(s)</span> expiring within 90 days. Please renew them soon.
           </AlertDescription>
         </Alert>
       )}
@@ -1541,7 +1488,7 @@ export default function Compliance() {
       {/* Annual Compliance Summary - Hidden on mobile */}
       <div className="hidden md:block">
         <ComplianceDocumentCalendar
-          documents={filteredAndSortedDocs.map(doc => ({
+          documents={(compliancePage?.calendar ?? []).map(doc => ({
             id: String(doc.id),
             documentType: doc.documentType,
             expiryDate: doc.expiryDate,
@@ -1552,67 +1499,27 @@ export default function Compliance() {
         />
       </div>
 
-      {expiredDocs.length > 0 && (
-        <div className="space-y-4">
-          <div className="flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 md:w-5 md:h-5 text-destructive" />
-            <h2 className="text-lg md:text-xl font-semibold text-destructive" data-testid="heading-expired">
-              Expired Documents ({expiredDocs.length})
-            </h2>
-          </div>
-          <div className="grid gap-4">
-            {expiredDocs.map((doc) => (
-              <DocumentCard
-                key={doc.id}
-                doc={doc}
-                getStatusBadge={getStatusBadge}
-                getPropertyName={getPropertyName}
-                getBlockName={getBlockName}
-                allTags={allTags}
-                docTags={selectedDoc === doc.id ? docTags : []}
-                selectedDoc={selectedDoc}
-                setSelectedDoc={setSelectedDoc}
-                setTagDialogOpen={setTagDialogOpen}
-                addTagMutation={addTagMutation}
-                removeTagMutation={removeTagMutation}
-                onEdit={openEditSheet}
-              />
-            ))}
-          </div>
-          <Separator className="my-6" />
-        </div>
-      )}
-
       <div className="space-y-4">
         <h2 className="text-lg md:text-xl font-semibold" data-testid="heading-current">
-          {expiredDocs.length > 0 ? 'Current Documents' : 'All Documents'} ({currentDocs.length})
+          Documents ({complianceCounts.total})
         </h2>
-        
+
         {isLoading ? (
           <Card>
             <CardContent className="p-8 text-center text-muted-foreground">
               Loading documents...
             </CardContent>
           </Card>
-        ) : currentDocs.length === 0 && expiredDocs.length === 0 ? (
+        ) : filteredAndSortedDocs.length === 0 ? (
           <Card>
             <CardContent className="p-8 text-center">
               <FileText className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-              <p className="text-muted-foreground">No compliance documents uploaded yet.</p>
-              <p className="text-sm text-muted-foreground mt-2">
-                Upload your first document to get started.
-              </p>
-            </CardContent>
-          </Card>
-        ) : currentDocs.length === 0 ? (
-          <Card>
-            <CardContent className="p-8 text-center">
-              <p className="text-muted-foreground">All documents are expired. Please upload new documents.</p>
+              <p className="text-muted-foreground">No compliance documents match this view.</p>
             </CardContent>
           </Card>
         ) : (
           <div className="grid gap-4">
-            {currentDocs.map((doc) => (
+            {filteredAndSortedDocs.map((doc) => (
               <DocumentCard
                 key={doc.id}
                 doc={doc}
@@ -1631,6 +1538,14 @@ export default function Compliance() {
             ))}
           </div>
         )}
+        <ListPagination
+          page={page}
+          pageSize={LIST_PAGE_SIZE}
+          total={complianceCounts.total}
+          isFetching={isFetching}
+          onPageChange={setPage}
+          noun="documents"
+        />
       </div>
 
       {/* Edit Compliance Document Sheet */}

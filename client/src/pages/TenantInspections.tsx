@@ -20,14 +20,32 @@ import {
   formatInspectionType,
   inspectionStatusBadgeVariant,
 } from "@shared/inspectionLabels";
+import { useState } from "react";
+import { LIST_PAGE_SIZE, ListPagination } from "@/components/ListPagination";
 
 export default function TenantInspections() {
   const locale = useLocale();
+  const [page, setPage] = useState(1);
 
-  const { data: inspections = [], isLoading } = useQuery<any[]>({
-    queryKey: ["/api/inspections/my"],
+  const { data: inspectionPage, isLoading, isFetching } = useQuery<{
+    items: any[];
+    total: number;
+  }>({
+    queryKey: ["/api/inspections/my", "page", page],
     staleTime: 0,
+    placeholderData: (previous) => previous,
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        page: String(page),
+        pageSize: String(LIST_PAGE_SIZE),
+      });
+      const res = await fetch(`/api/inspections/my?${params}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load inspections");
+      return res.json();
+    },
   });
+  const inspections = inspectionPage?.items ?? [];
+  const inspectionTotal = inspectionPage?.total ?? 0;
 
   const active = inspections.filter(
     (i) => i.status === "scheduled" || i.status === "in_progress",
@@ -105,6 +123,14 @@ export default function TenantInspections() {
           )}
         </>
       )}
+      <ListPagination
+        page={page}
+        pageSize={LIST_PAGE_SIZE}
+        total={inspectionTotal}
+        isFetching={isFetching}
+        onPageChange={setPage}
+        noun="inspections"
+      />
     </div>
   );
 }

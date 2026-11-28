@@ -1,5 +1,6 @@
 import { PreviewableImage } from "@/components/ImagePreview";
 import { useState } from "react";
+import { LIST_PAGE_SIZE, ListPagination } from "@/components/ListPagination";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, Link } from "wouter";
 import { ContextualLink, useBackHref } from "@/navigation";
@@ -110,6 +111,7 @@ export default function BlockDetail() {
   const [, params] = useRoute("/blocks/:id");
   const blockId = params?.id;
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+  const [propertyPage, setPropertyPage] = useState(1);
   const [selectedPropertyIds, setSelectedPropertyIds] = useState<string[]>([]);
   const { toast } = useToast();
   const { complianceEnabled, maintenanceEnabled } = useCompanyModules();
@@ -529,7 +531,7 @@ export default function BlockDetail() {
             </Card>
           ) : (
             <div className="grid gap-4">
-              {properties.map((property) => (
+              {properties.slice((propertyPage - 1) * LIST_PAGE_SIZE, propertyPage * LIST_PAGE_SIZE).map((property) => (
                 <ContextualLink
                   key={property.id}
                   href={`/properties/${property.id}`}
@@ -608,6 +610,13 @@ export default function BlockDetail() {
               ))}
             </div>
           )}
+          <ListPagination
+            page={propertyPage}
+            pageSize={LIST_PAGE_SIZE}
+            total={properties.length}
+            onPageChange={setPropertyPage}
+            noun="properties"
+          />
         </TabsContent>
 
         {/* Inspection Schedule Tab */}

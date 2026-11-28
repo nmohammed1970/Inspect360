@@ -56,6 +56,7 @@ import {
   formatInspectionStatus,
   inspectionStatusBadgeVariant,
 } from "@shared/inspectionLabels";
+import { LIST_PAGE_SIZE, ListPagination } from "@/components/ListPagination";
 
 // Component to display AI Analysis progress for an inspection
 function InspectionAIAnalysisProgress({ inspectionId }: { inspectionId: string }) {
@@ -185,11 +186,39 @@ export default function Inspections() {
   const [filterOverdue, setFilterOverdue] = useState<boolean>(urlOverdue === "true");
   const [filterDueSoon, setFilterDueSoon] = useState<boolean>(urlDueSoon === "true");
   const [filterTenantId, setFilterTenantId] = useState<string>("");
+  const [page, setPage] = useState(1);
 
-  const { data: inspections = [], isLoading } = useQuery<any[]>({
-    queryKey: ["/api/inspections/my"],
+  useEffect(() => {
+    setPage(1);
+  }, [filterBlockId, filterPropertyId, filterStatus, filterOverdue, filterDueSoon, filterTenantId]);
+
+  const { data: inspectionPage, isLoading, isFetching } = useQuery<{
+    items: any[];
+    total: number;
+    page: number;
+    pageSize: number;
+  }>({
+    queryKey: ["/api/inspections/my", "page", page, filterBlockId, filterPropertyId, filterStatus, filterOverdue, filterDueSoon, filterTenantId],
     staleTime: 0,
+    placeholderData: (previous) => previous,
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        page: String(page),
+        pageSize: String(LIST_PAGE_SIZE),
+      });
+      if (filterBlockId) params.set("blockId", filterBlockId);
+      if (filterPropertyId) params.set("propertyId", filterPropertyId);
+      if (filterStatus) params.set("status", filterStatus);
+      if (filterTenantId) params.set("tenantId", filterTenantId);
+      if (filterOverdue) params.set("overdue", "true");
+      if (filterDueSoon) params.set("dueSoon", "true");
+      const res = await fetch(`/api/inspections/my?${params}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load inspections");
+      return res.json();
+    },
   });
+  const inspections = inspectionPage?.items ?? [];
+  const inspectionTotal = inspectionPage?.total ?? 0;
 
   // Resolve template names for list cards (covers cached responses / missing API field)
   const { data: allTemplates = [] } = useQuery<any[]>({
@@ -221,7 +250,12 @@ export default function Inspections() {
   });
 
   const { data: blocks = [] } = useQuery<any[]>({
-    queryKey: ["/api/blocks"],
+    queryKey: ["/api/blocks", "summary"],
+    queryFn: async () => {
+      const res = await fetch("/api/blocks?summary=1", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load blocks");
+      return res.json();
+    },
   });
 
 
@@ -397,66 +431,10 @@ export default function Inspections() {
     return [...activeTenants].sort((a, b) => a.name.localeCompare(b.name));
   }, [activeTenants]);
 
-  // Filter inspections based on all criteria
-  const filteredInspections = useMemo(() => {
-    let filtered = inspections;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const sevenDaysFromNow = new Date(today);
-    sevenDaysFromNow.setDate(sevenDaysFromNow.getDate() + 7);
-
-    // Block filter
-    if (filterBlockId) {
-      filtered = filtered.filter((inspection: any) => {
-        if (inspection.blockId === filterBlockId) return true;
-        if (inspection.property?.blockId === filterBlockId) return true;
-        return false;
-      });
-    }
-
-    // Property filter
-    if (filterPropertyId) {
-      filtered = filtered.filter((inspection: any) => 
-        inspection.propertyId === filterPropertyId
-      );
-    }
-
-    // Status filter
-    if (filterStatus) {
-      filtered = filtered.filter((inspection: any) => 
-        inspection.status === filterStatus
-      );
-    }
-
-    // Overdue filter
-    if (filterOverdue) {
-      filtered = filtered.filter((inspection: any) => {
-        if (inspection.status === "completed") return false;
-        const scheduledDate = new Date(inspection.scheduledDate);
-        scheduledDate.setHours(0, 0, 0, 0);
-        return scheduledDate < today;
-      });
-    }
-
-    // Due soon filter (next 7 days)
-    if (filterDueSoon) {
-      filtered = filtered.filter((inspection: any) => {
-        if (inspection.status === "completed") return false;
-        const scheduledDate = new Date(inspection.scheduledDate);
-        scheduledDate.setHours(0, 0, 0, 0);
-        return scheduledDate >= today && scheduledDate <= sevenDaysFromNow;
-      });
-    }
-
-    // Tenant filter
-    if (filterTenantId) {
-      filtered = filtered.filter((inspection: any) => 
-        inspection.tenantId === filterTenantId
-      );
-    }
-
-    return filtered;
-  }, [inspections, filterBlockId, filterPropertyId, filterStatus, filterOverdue, filterDueSoon, filterTenantId]);
+  const filteredInspections = inspections;
+  const inspectionFiltersActive = Boolean(
+    filterBlockId || filterPropertyId || filterStatus || filterOverdue || filterDueSoon || filterTenantId,
+  );
 
   // Clear property filter when block filter changes
   useEffect(() => {
@@ -1341,12 +1319,12 @@ export default function Inspections() {
           <CardContent className="flex flex-col items-center justify-center py-12">
             <ClipboardList className="w-12 h-12 text-muted-foreground mb-4" />
             <p className="text-lg font-medium" data-testid="text-empty-state">
-              {inspections.length === 0
+              {inspectionTotal === 0 && !inspectionFiltersActive
                 ? (canCreateInspections ? "No inspections yet" : "No inspections assigned")
                 : "No inspections match your filters"}
             </p>
             <p className="text-sm text-muted-foreground mb-4">
-              {inspections.length === 0
+              {inspectionTotal === 0 && !inspectionFiltersActive
                 ? (canCreateInspections
                     ? "Create your first inspection to get started"
                     : "Inspections assigned to you by your organization will appear here")
@@ -1511,6 +1489,15 @@ export default function Inspections() {
           ))}
         </div>
       )}
+
+      <ListPagination
+        page={page}
+        pageSize={LIST_PAGE_SIZE}
+        total={inspectionTotal}
+        isFetching={isFetching}
+        onPageChange={setPage}
+        noun="inspections"
+      />
 
       {/* Copy Inspection Dialog */}
       <Dialog open={copyDialogOpen} onOpenChange={setCopyDialogOpen}>

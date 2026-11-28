@@ -19,6 +19,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { WorkOrderFinanceLinks } from "@/components/maintenance-quotes/WorkOrderFinanceLinks";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { LIST_PAGE_SIZE, ListPagination } from "@/components/ListPagination";
 import { useToast } from "@/hooks/use-toast";
 import { formatDistanceToNow } from "date-fns";
 import { useLocale } from "@/contexts/LocaleContext";
@@ -202,6 +203,8 @@ export default function Maintenance() {
   const [selectedStatus, setSelectedStatus] = useState<string>("all");
   const [filterProperty, setFilterProperty] = useState<string>(() => urlPropertyId || "all");
   const [filterBlock, setFilterBlock] = useState<string>("all");
+  const [requestPage, setRequestPage] = useState(1);
+  const [workOrderPage, setWorkOrderPage] = useState(1);
   const [formBlockFilter, setFormBlockFilter] = useState<string>("all");
   const [uploadedImages, setUploadedImages] = useState<string[]>([]);
   const [aiSuggestions, setAiSuggestions] = useState<string>("");
@@ -276,10 +279,47 @@ export default function Maintenance() {
     }
   }, [tabFromUrl, canSeeWorkOrders]);
 
-  // Fetch maintenance requests
-  const { data: requests = [], isLoading } = useQuery<MaintenanceRequestWithDetails[]>({
-    queryKey: ["/api/maintenance"],
-    enabled: isMaintenanceEnabled !== false // Only fetch if we're not sure it's disabled, or if it is enabled. Actually better to fetch if enabled.
+  useEffect(() => {
+    setRequestPage(1);
+    setWorkOrderPage(1);
+  }, [selectedStatus, filterProperty, filterBlock]);
+
+  const { data: maintenancePage, isLoading, isFetching: requestsFetching } = useQuery<{
+    items: MaintenanceRequestWithDetails[];
+    total: number;
+    page: number;
+    pageSize: number;
+    counts: { all: number; open: number; in_progress: number; completed: number; closed: number };
+  }>({
+    queryKey: ["/api/maintenance", "page", requestPage, selectedStatus, filterProperty, filterBlock],
+    enabled: isMaintenanceEnabled !== false,
+    placeholderData: (previous) => previous,
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        page: String(requestPage),
+        pageSize: String(LIST_PAGE_SIZE),
+      });
+      if (selectedStatus !== "all") params.set("status", selectedStatus);
+      if (filterProperty !== "all") params.set("propertyId", filterProperty);
+      if (filterBlock !== "all") params.set("blockId", filterBlock);
+      const res = await fetch(`/api/maintenance?${params}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load maintenance requests");
+      return res.json();
+    },
+  });
+  const requests = maintenancePage?.items ?? [];
+  const requestTotal = maintenancePage?.total ?? 0;
+  const requestCounts = maintenancePage?.counts ?? {
+    all: 0,
+    open: 0,
+    in_progress: 0,
+    completed: 0,
+    closed: 0,
+  };
+
+  const { data: linkedRequest, isFetched: linkedRequestFetched, isError: linkedRequestMissing } = useQuery<MaintenanceRequestWithDetails>({
+    queryKey: ["/api/maintenance", maintenanceId],
+    enabled: !!maintenanceId,
   });
 
   const { data: maintenanceConversations = [] } = useQuery<
@@ -334,7 +374,12 @@ export default function Maintenance() {
 
   // Fetch blocks
   const { data: blocks = [] } = useQuery<{ id: string; name: string }[]>({
-    queryKey: ["/api/blocks"],
+    queryKey: ["/api/blocks", "summary"],
+    queryFn: async () => {
+      const res = await fetch("/api/blocks?summary=1", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load blocks");
+      return res.json();
+    },
     enabled: isMaintenanceEnabled !== false
   });
 
@@ -797,10 +842,10 @@ export default function Maintenance() {
     // Only process if we have an ID, haven't processed it yet, have requests loaded, and dialog isn't already open
     if (maintenanceId &&
       maintenanceId !== processedMaintenanceIdRef.current &&
-      requests.length > 0 &&
+      linkedRequestFetched &&
       !editingRequest &&
       !isCreateOpen) {
-      const request = requests.find(r => r.id === maintenanceId);
+      const request = linkedRequestMissing ? undefined : linkedRequest;
       if (request) {
         processedMaintenanceIdRef.current = maintenanceId;
         // Use handleEdit logic to ensure consistency
@@ -848,7 +893,7 @@ export default function Maintenance() {
     if (!maintenanceId && processedMaintenanceIdRef.current) {
       processedMaintenanceIdRef.current = null;
     }
-  }, [maintenanceId, requests, editingRequest, isCreateOpen, navigate, toast, form]);
+  }, [maintenanceId, linkedRequest, linkedRequestFetched, linkedRequestMissing, editingRequest, isCreateOpen, navigate, toast, form]);
 
   // Deep-link: filter list to a property (e.g. from property card Maintenance action)
   useEffect(() => {
@@ -1047,48 +1092,14 @@ export default function Maintenance() {
     return `${days} day${days === 1 ? "" : "s"} open`;
   };
 
-  // Location / tenant scope (used for summary + list)
-  let scopedRequests = requests;
-  if (filterProperty !== "all") {
-    scopedRequests = scopedRequests.filter((r) => r.propertyId === filterProperty);
-  }
-  if (filterBlock !== "all") {
-    const blockPropertyIds = properties.filter((p) => p.blockId === filterBlock).map((p) => p.id);
-    scopedRequests = scopedRequests.filter(
-      (r) => r.propertyId && blockPropertyIds.includes(r.propertyId),
-    );
-  }
-  if (user?.role === "tenant") {
-    scopedRequests = scopedRequests.filter((r) => r.reportedBy === user.id);
-  }
-
-  const filteredRequests =
-    selectedStatus === "all"
-      ? scopedRequests
-      : scopedRequests.filter((r) => r.status === selectedStatus);
+  const filteredRequests = requests;
 
   const requestStatusTabs = [
-    { id: "all", label: "All", count: scopedRequests.length },
-    {
-      id: "open",
-      label: "Open",
-      count: scopedRequests.filter((r) => r.status === "open").length,
-    },
-    {
-      id: "in_progress",
-      label: "In progress",
-      count: scopedRequests.filter((r) => r.status === "in_progress").length,
-    },
-    {
-      id: "completed",
-      label: "Completed",
-      count: scopedRequests.filter((r) => r.status === "completed").length,
-    },
-    {
-      id: "closed",
-      label: "Closed",
-      count: scopedRequests.filter((r) => r.status === "closed").length,
-    },
+    { id: "all", label: "All", count: requestCounts.all },
+    { id: "open", label: "Open", count: requestCounts.open },
+    { id: "in_progress", label: "In progress", count: requestCounts.in_progress },
+    { id: "completed", label: "Completed", count: requestCounts.completed },
+    { id: "closed", label: "Closed", count: requestCounts.closed },
   ];
 
   const priorityTone = sharedPriorityTone;
@@ -1108,6 +1119,10 @@ export default function Maintenance() {
         blockPropertyIds.includes(wo.maintenanceRequest.propertyId),
     );
   }
+  const pagedWorkOrders = scopedWorkOrders.slice(
+    (workOrderPage - 1) * LIST_PAGE_SIZE,
+    workOrderPage * LIST_PAGE_SIZE,
+  );
 
   // Work order helper functions
   const formatCurrency = (amount?: number | null) => {
@@ -1760,7 +1775,7 @@ export default function Maintenance() {
               </h2>
               <div className="h-px flex-1 bg-border" />
               <span className="text-xs text-muted-foreground tabular-nums">
-                {filteredRequests.length}
+                {requestTotal}
               </span>
             </div>
             {isLoading ? (
@@ -2281,6 +2296,14 @@ export default function Maintenance() {
             </div>
               </>
             )}
+            <ListPagination
+              page={requestPage}
+              pageSize={LIST_PAGE_SIZE}
+              total={requestTotal}
+              isFetching={requestsFetching}
+              onPageChange={setRequestPage}
+              noun="requests"
+            />
           </section>
         </TabsContent>
 
@@ -2333,7 +2356,7 @@ export default function Maintenance() {
                   </Card>
                 ) : (
                   <div className="grid gap-3">
-                    {scopedWorkOrders.map((workOrder) => (
+                    {pagedWorkOrders.map((workOrder) => (
                       <Card
                         key={workOrder.id}
                         data-testid={`card-work-order-${workOrder.id}`}
@@ -2658,6 +2681,13 @@ export default function Maintenance() {
                     ))}
                   </div>
                 )}
+                <ListPagination
+                  page={workOrderPage}
+                  pageSize={LIST_PAGE_SIZE}
+                  total={scopedWorkOrders.length}
+                  onPageChange={setWorkOrderPage}
+                  noun="work orders"
+                />
               </section>
             </>
           )}

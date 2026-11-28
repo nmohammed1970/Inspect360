@@ -25,6 +25,7 @@ import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 import { FiltersSection } from "@/components/FiltersSection";
 import { pagePad, dialogContentBase, formGrid2, dialogFooterSticky, cardGrid } from "@/lib/responsive";
+import { ListPagination } from "@/components/ListPagination";
 import { PageHeader } from "@/components/PageHeader";
 import {
   ASSET_CATEGORIES,
@@ -143,6 +144,8 @@ export default function AssetInventory() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingAsset, setEditingAsset] = useState<AssetInventory | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [page, setPage] = useState(1);
   const [filterCategory, setFilterCategory] = useState<string>("all");
   const [filterCondition, setFilterCondition] = useState<string>("all");
   /** Scope: single property or block (all assets assigned there) */
@@ -155,9 +158,59 @@ export default function AssetInventory() {
   // Form state
   const [formData, setFormData] = useState<Partial<AssetInventory>>({});
 
-  // Fetch assets
-  const { data: assets, isLoading } = useQuery<AssetInventory[]>({
-    queryKey: ["/api/asset-inventory"],
+  const pageSize = 24;
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchTerm.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch, filterCategory, filterCondition, filterPropertyBlock, filterSpecificLocation]);
+
+  // One page of assets. Search and filters are applied on the server.
+  const { data: assetPage, isLoading, isFetching } = useQuery<{
+    items: AssetInventory[];
+    total: number;
+    page: number;
+    pageSize: number;
+    locations: string[];
+  }>({
+    queryKey: [
+      "/api/asset-inventory",
+      "page",
+      page,
+      debouncedSearch,
+      filterCategory,
+      filterCondition,
+      filterPropertyBlock,
+      filterSpecificLocation,
+    ],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        page: String(page),
+        pageSize: String(pageSize),
+      });
+      if (debouncedSearch) params.set("search", debouncedSearch);
+      if (filterCategory !== "all") params.set("category", filterCategory);
+      if (filterCondition !== "all") params.set("condition", filterCondition);
+      if (filterPropertyBlock !== "all") params.set("scopeId", filterPropertyBlock);
+      if (filterSpecificLocation !== "all") params.set("location", filterSpecificLocation);
+      const response = await fetch(`/api/asset-inventory?${params.toString()}`, {
+        credentials: "include",
+      });
+      if (!response.ok) {
+        throw new Error("Failed to load assets");
+      }
+      return response.json();
+    },
+    placeholderData: (previous) => previous,
+  });
+
+  const { data: linkedAsset } = useQuery<AssetInventory>({
+    queryKey: ["/api/asset-inventory", assetIdFromUrl],
+    enabled: Boolean(assetIdFromUrl),
   });
 
   // Fetch properties
@@ -167,7 +220,12 @@ export default function AssetInventory() {
 
   // Fetch blocks
   const { data: blocks } = useQuery<Block[]>({
-    queryKey: ["/api/blocks"],
+    queryKey: ["/api/blocks", "summary"],
+    queryFn: async () => {
+      const res = await fetch("/api/blocks?summary=1", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load blocks");
+      return res.json();
+    },
   });
 
   // Auto-filter by block or property if in URL
@@ -182,16 +240,14 @@ export default function AssetInventory() {
   // Open asset dialog when linked with ?assetId=
   const openedAssetIdRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!assetIdFromUrl || !assets?.length) return;
+    if (!assetIdFromUrl || !linkedAsset || linkedAsset.id !== assetIdFromUrl) return;
     if (openedAssetIdRef.current === assetIdFromUrl) return;
-    const asset = assets.find((a) => a.id === assetIdFromUrl);
-    if (!asset) return;
     openedAssetIdRef.current = assetIdFromUrl;
-    setEditingAsset(asset);
-    setFormData(asset);
-    setUploadedPhotos(asset.photos || []);
+    setEditingAsset(linkedAsset);
+    setFormData(linkedAsset);
+    setUploadedPhotos(linkedAsset.photos || []);
     setIsDialogOpen(true);
-  }, [assetIdFromUrl, assets]);
+  }, [assetIdFromUrl, linkedAsset]);
 
   useEffect(() => {
     const purchasePrice = Number(formData.purchasePrice);
@@ -607,66 +663,9 @@ export default function AssetInventory() {
     );
   };
 
-  // Filter assets (search includes linked property/block name and address)
-  const filteredAssets = useMemo(() => {
-    if (!assets) return [];
-
-    const q = searchTerm.trim().toLowerCase();
-
-    return assets.filter((asset) => {
-      const matchesSearch =
-        q === "" ||
-        (() => {
-          if (asset.name?.toLowerCase().includes(q)) return true;
-          if (asset.description?.toLowerCase().includes(q)) return true;
-          if (asset.location?.toLowerCase().includes(q)) return true;
-          if (asset.propertyId && properties) {
-            const p = properties.find((x) => x.id === asset.propertyId);
-            if (p) {
-              if (p.name?.toLowerCase().includes(q)) return true;
-              if (p.address?.toLowerCase().includes(q)) return true;
-              if (formatPropertyLocationLabel(p).toLowerCase().includes(q)) return true;
-            }
-          }
-          if (asset.blockId && blocks) {
-            const b = blocks.find((x) => x.id === asset.blockId);
-            if (b) {
-              if (b.name?.toLowerCase().includes(q)) return true;
-              if (b.address?.toLowerCase().includes(q)) return true;
-              if (formatBlockLocationLabel(b).toLowerCase().includes(q)) return true;
-            }
-          }
-          return false;
-        })();
-
-      const matchesCategory = filterCategory === "all" || asset.category === filterCategory;
-      const matchesCondition = filterCondition === "all" || asset.condition === filterCondition;
-      const matchesPropertyBlock =
-        filterPropertyBlock === "all" ||
-        asset.propertyId === filterPropertyBlock ||
-        asset.blockId === filterPropertyBlock;
-      const matchesSpecificLocation =
-        filterSpecificLocation === "all" ||
-        (asset.location?.trim() ?? "") === filterSpecificLocation;
-
-      return (
-        matchesSearch &&
-        matchesCategory &&
-        matchesCondition &&
-        matchesPropertyBlock &&
-        matchesSpecificLocation
-      );
-    });
-  }, [
-    assets,
-    searchTerm,
-    filterCategory,
-    filterCondition,
-    filterPropertyBlock,
-    filterSpecificLocation,
-    properties,
-    blocks,
-  ]);
+  const pageAssets = assetPage?.items ?? [];
+  const assetTotal = assetPage?.total ?? 0;
+  const pageCount = Math.max(1, Math.ceil(assetTotal / pageSize));
 
   // Property / block scope options (for filtering assets to one building or unit)
   const propertyBlockOptions = useMemo(() => {
@@ -679,15 +678,12 @@ export default function AssetInventory() {
   }, [properties, blocks]);
 
   // Distinct "Specific location" values from assets (room/area text — not property addresses)
-  const specificLocationOptions = useMemo(() => {
-    if (!assets?.length) return [];
-    const seen = new Set<string>();
-    for (const a of assets) {
-      const t = a.location?.trim();
-      if (t) seen.add(t);
-    }
-    return Array.from(seen).sort((a, b) => a.localeCompare(b));
-  }, [assets]);
+  const specificLocationOptions = assetPage?.locations ?? [];
+
+  useEffect(() => {
+    if (!assetPage) return;
+    if (page > pageCount) setPage(pageCount);
+  }, [assetPage, page, pageCount]);
 
   if (isLoading) {
     return <div className={cn("container mx-auto min-w-0", pagePad)}>Loading...</div>;
@@ -1339,7 +1335,7 @@ export default function AssetInventory() {
       </FiltersSection>
 
       {/* Assets Grid */}
-      {!filteredAssets || filteredAssets.length === 0 ? (
+      {!isLoading && pageAssets.length === 0 ? (
         <Card>
           <CardContent className="p-12 text-center">
             <Package className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
@@ -1361,7 +1357,7 @@ export default function AssetInventory() {
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredAssets.map((asset) => (
+          {pageAssets.map((asset) => (
             <Card key={asset.id} className="rounded-lg border-border/80 shadow-sm" data-testid={`card-asset-${asset.id}`}>
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between gap-2">
@@ -1511,6 +1507,15 @@ export default function AssetInventory() {
           ))}
         </div>
       )}
+
+      <ListPagination
+        page={page}
+        pageSize={pageSize}
+        total={assetTotal}
+        isFetching={isFetching}
+        onPageChange={setPage}
+        noun="assets"
+      />
 
       <DeleteConfirmDialog
         open={!!assetToDelete}
