@@ -272,7 +272,7 @@ import {
 } from "@shared/schema";
 import { normalizePhoneForStorage } from "@shared/phoneCountryCodes";
 import { db } from "./db";
-import { eq, and, desc, asc, sql, gte, lte, ne, isNull, or, inArray } from "drizzle-orm";
+import { eq, and, desc, asc, sql, gte, lte, ne, isNull, or, inArray, ilike, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
 export interface IStorage {
@@ -302,6 +302,15 @@ export interface IStorage {
   // Contact operations
   createContact(contact: InsertContact & { organizationId: string }): Promise<Contact>;
   getContactsByOrganization(organizationId: string): Promise<Contact[]>;
+  listContactsPage(organizationId: string, options: {
+    page: number;
+    pageSize: number;
+    search?: string;
+    type?: string;
+    tagId?: string;
+    blockId?: string;
+    propertyId?: string;
+  }): Promise<{ items: any[]; total: number; page: number; pageSize: number }>;
   getContact(id: string): Promise<Contact | undefined>;
   updateContact(id: string, updates: Partial<InsertContact>): Promise<Contact>;
   deleteContact(id: string): Promise<void>;
@@ -309,6 +318,14 @@ export interface IStorage {
   // Property operations
   createProperty(property: InsertProperty): Promise<Property>;
   getPropertiesByOrganization(organizationId: string): Promise<Property[]>;
+  listPropertiesPage(organizationId: string, options: {
+    page: number;
+    pageSize: number;
+    search?: string;
+    blockId?: string;
+    tagIds?: string[];
+    onlyPropertyIds?: string[];
+  }): Promise<{ items: any[]; total: number; page: number; pageSize: number }>;
   getPropertiesByBlock(blockId: string): Promise<Property[]>;
   getProperty(id: string): Promise<Property | undefined>;
   updateProperty(id: string, updates: Partial<InsertProperty>): Promise<Property>;
@@ -321,6 +338,18 @@ export interface IStorage {
   getMostRecentCheckInInspection(propertyId: string): Promise<Inspection | undefined>;
   getInspectionsByInspector(inspectorId: string): Promise<any[]>; // Returns inspections with property/block
   getInspectionsByOrganization(organizationId: string): Promise<any[]>; // Returns inspections with property/block
+  listInspectionsPage(options: {
+    organizationId?: string;
+    inspectorId?: string;
+    page: number;
+    pageSize: number;
+    blockId?: string;
+    propertyId?: string;
+    status?: string;
+    tenantId?: string;
+    overdue?: boolean;
+    dueSoon?: boolean;
+  }): Promise<{ items: any[]; total: number; page: number; pageSize: number }>;
   getInspection(id: string): Promise<Inspection | undefined>;
   updateInspectionStatus(id: string, status: string, completedDate?: Date): Promise<Inspection>;
   updateInspection(id: string, updates: Partial<InsertInspection>): Promise<Inspection>;
@@ -341,6 +370,25 @@ export interface IStorage {
   // Compliance operations
   createComplianceDocument(doc: InsertComplianceDocument): Promise<ComplianceDocument>;
   getComplianceDocuments(organizationId: string): Promise<ComplianceDocument[]>;
+  listComplianceDocumentsPage(organizationId: string, options: {
+    page: number;
+    pageSize: number;
+    search?: string;
+    documentType?: string;
+    status?: string;
+    propertyId?: string;
+    blockId?: string;
+    sortBy?: string;
+    sortOrder?: string;
+  }): Promise<{
+    items: ComplianceDocument[];
+    total: number;
+    page: number;
+    pageSize: number;
+    counts: { total: number; expired: number; dueSoon: number; valid: number; expiring: number };
+    documentTypes: string[];
+    calendar: Array<{ id: string; documentType: string; expiryDate: Date | null; documentUrl: string | null; createdAt: Date | null }>;
+  }>;
   updateComplianceStatus(id: string, status: string): Promise<ComplianceDocument>;
   getExpiringCompliance(organizationId: string, daysAhead: number): Promise<ComplianceDocument[]>;
 
@@ -354,6 +402,21 @@ export interface IStorage {
   createMaintenanceRequest(request: InsertMaintenanceRequest): Promise<MaintenanceRequest>;
   getMaintenanceRequestsByProperty(propertyId: string): Promise<MaintenanceRequest[]>;
   getMaintenanceByOrganization(organizationId: string): Promise<any[]>;
+  getMaintenanceRequestDetail(id: string, organizationId: string): Promise<any | undefined>;
+  listMaintenancePage(organizationId: string, options: {
+    page: number;
+    pageSize: number;
+    status?: string;
+    propertyId?: string;
+    blockId?: string;
+    reportedBy?: string;
+  }): Promise<{
+    items: any[];
+    total: number;
+    page: number;
+    pageSize: number;
+    counts: { all: number; open: number; in_progress: number; completed: number; closed: number };
+  }>;
   updateMaintenanceStatus(id: string, status: string, assignedTo?: string): Promise<MaintenanceRequest>;
   updateMaintenanceRequest(id: string, updates: Partial<InsertMaintenanceRequest>): Promise<MaintenanceRequest>;
   createMaintenanceRequestMessage(
@@ -450,7 +513,13 @@ export interface IStorage {
   // Block operations
   createBlock(block: InsertBlock & { organizationId: string }): Promise<Block>;
   getBlocksByOrganization(organizationId: string): Promise<Block[]>;
-  getBlocksWithStats(organizationId: string): Promise<any[]>;
+  getBlocksWithStats(organizationId: string, restrictToIds?: string[]): Promise<any[]>;
+  listBlocksPage(organizationId: string, options: {
+    page: number;
+    pageSize: number;
+    search?: string;
+    tagIds?: string[];
+  }): Promise<{ items: any[]; total: number; page: number; pageSize: number }>;
   getBlock(id: string): Promise<Block | undefined>;
   getBlockWithStats(id: string): Promise<any | undefined>;
   updateBlock(id: string, updates: Partial<InsertBlock>): Promise<Block>;
@@ -550,6 +619,21 @@ export interface IStorage {
   // Asset Inventory operations
   createAssetInventory(asset: InsertAssetInventory): Promise<AssetInventory>;
   getAssetInventoryByOrganization(organizationId: string): Promise<AssetInventory[]>;
+  listAssetInventoryPage(organizationId: string, options: {
+    page: number;
+    pageSize: number;
+    search?: string;
+    category?: string;
+    condition?: string;
+    scopeId?: string;
+    location?: string;
+  }): Promise<{
+    items: AssetInventory[];
+    total: number;
+    page: number;
+    pageSize: number;
+    locations: string[];
+  }>;
   getAssetInventoryByProperty(propertyId: string): Promise<AssetInventory[]>;
   getAssetInventoryByBlock(blockId: string): Promise<AssetInventory[]>;
   getAssetInventory(id: string): Promise<AssetInventory | undefined>;
@@ -1129,6 +1213,82 @@ export class DatabaseStorage implements IStorage {
       .orderBy(contacts.lastName, contacts.firstName);
   }
 
+  async listContactsPage(organizationId: string, options: {
+    page: number;
+    pageSize: number;
+    search?: string;
+    type?: string;
+    tagId?: string;
+    blockId?: string;
+    propertyId?: string;
+  }): Promise<{ items: any[]; total: number; page: number; pageSize: number }> {
+    const filters: SQL[] = [eq(contacts.organizationId, organizationId)];
+    if (options.type) filters.push(eq(contacts.type, options.type));
+    if (options.tagId) {
+      filters.push(sql`exists (
+        select 1 from contact_tags ct
+        where ct.contact_id = ${contacts.id} and ct.tag_id = ${options.tagId}
+      )`);
+    }
+    const search = options.search?.trim();
+    if (search) {
+      const pattern = `%${search.replace(/[%_\\]/g, "")}%`;
+      filters.push(or(
+        ilike(contacts.firstName, pattern),
+        ilike(contacts.lastName, pattern),
+        ilike(contacts.email, pattern),
+        ilike(contacts.companyName, pattern),
+        sql`concat(${contacts.firstName}, ' ', ${contacts.lastName}) ilike ${pattern}`,
+      )!);
+    }
+    if (options.blockId || options.propertyId) {
+      filters.push(eq(contacts.type, "tenant"));
+      const propertyClause = options.propertyId ? sql`and ta.property_id = ${options.propertyId}` : sql``;
+      const blockClause = options.blockId ? sql`and p.block_id = ${options.blockId}` : sql``;
+      filters.push(sql`exists (
+        select 1 from tenant_assignments ta
+        join properties p on p.id = ta.property_id
+        where ta.tenant_id = ${contacts.linkedUserId}
+          and coalesce(ta.is_active, true) = true
+          ${propertyClause}
+          ${blockClause}
+      )`);
+    }
+    const where = and(...filters);
+    const [{ total }] = await db
+      .select({ total: sql<number>`count(*)::int` })
+      .from(contacts)
+      .where(where);
+    const rows = await db
+      .select()
+      .from(contacts)
+      .where(where)
+      .orderBy(contacts.lastName, contacts.firstName)
+      .limit(options.pageSize)
+      .offset((options.page - 1) * options.pageSize);
+    const ids = rows.map((row) => row.id);
+    let tagsByContact = new Map<string, any[]>();
+    if (ids.length > 0) {
+      const tagRows = await db
+        .select({ contactId: contactTags.contactId, tag: tags })
+        .from(contactTags)
+        .innerJoin(tags, eq(contactTags.tagId, tags.id))
+        .where(inArray(contactTags.contactId, ids));
+      tagsByContact = tagRows.reduce((map, row) => {
+        const list = map.get(row.contactId) ?? [];
+        list.push(row.tag);
+        map.set(row.contactId, list);
+        return map;
+      }, new Map<string, any[]>());
+    }
+    return {
+      items: rows.map((row) => ({ ...row, tags: tagsByContact.get(row.id) ?? [] })),
+      total: Number(total) || 0,
+      page: options.page,
+      pageSize: options.pageSize,
+    };
+  }
+
   async getContact(id: string): Promise<Contact | undefined> {
     const [contact] = await db.select().from(contacts).where(eq(contacts.id, id));
     return contact;
@@ -1163,6 +1323,89 @@ export class DatabaseStorage implements IStorage {
       .from(properties)
       .where(eq(properties.organizationId, organizationId))
       .orderBy(desc(properties.createdAt));
+  }
+
+  async listPropertiesPage(organizationId: string, options: {
+    page: number;
+    pageSize: number;
+    search?: string;
+    blockId?: string;
+    tagIds?: string[];
+    onlyPropertyIds?: string[];
+  }): Promise<{ items: any[]; total: number; page: number; pageSize: number }> {
+    const empty = { items: [], total: 0, page: options.page, pageSize: options.pageSize };
+    if (options.onlyPropertyIds && options.onlyPropertyIds.length === 0) return empty;
+    const filters: SQL[] = [eq(properties.organizationId, organizationId)];
+    if (options.onlyPropertyIds) filters.push(inArray(properties.id, options.onlyPropertyIds));
+    if (options.blockId) filters.push(eq(properties.blockId, options.blockId));
+    const search = options.search?.trim();
+    if (search) {
+      const pattern = `%${search.replace(/[%_\\]/g, "")}%`;
+      filters.push(or(ilike(properties.name, pattern), ilike(properties.address, pattern))!);
+    }
+    const tagIds = options.tagIds?.filter(Boolean) ?? [];
+    if (tagIds.length > 0) {
+      filters.push(sql`exists (
+        select 1 from property_tags pt
+        where pt.property_id = ${properties.id}
+          and pt.tag_id in (${sql.join(tagIds.map((id) => sql`${id}`), sql`, `)})
+        group by pt.property_id
+        having count(distinct pt.tag_id) = ${tagIds.length}
+      )`);
+    }
+    const where = and(...filters);
+    const [{ total }] = await db
+      .select({ total: sql<number>`count(*)::int` })
+      .from(properties)
+      .where(where);
+    const rows = await db
+      .select()
+      .from(properties)
+      .where(where)
+      .orderBy(desc(properties.createdAt))
+      .limit(options.pageSize)
+      .offset((options.page - 1) * options.pageSize);
+    const ids = rows.map((row) => row.id);
+    const tenantCounts = new Map<string, number>();
+    const inspectionCounts = new Map<string, number>();
+    if (ids.length > 0) {
+      const tenantRows = await db
+        .select({
+          propertyId: tenantAssignments.propertyId,
+          count: sql<number>`count(*)::int`,
+        })
+        .from(tenantAssignments)
+        .where(and(
+          inArray(tenantAssignments.propertyId, ids),
+          sql`coalesce(${tenantAssignments.isActive}, true) = true`,
+        ))
+        .groupBy(tenantAssignments.propertyId);
+      tenantRows.forEach((row) => tenantCounts.set(row.propertyId, Number(row.count) || 0));
+      const inspectionRows = await db
+        .select({
+          propertyId: inspections.propertyId,
+          count: sql<number>`count(*)::int`,
+        })
+        .from(inspections)
+        .where(and(
+          inArray(inspections.propertyId, ids),
+          inArray(inspections.status, ["scheduled", "in_progress"]),
+        ))
+        .groupBy(inspections.propertyId);
+      inspectionRows.forEach((row) => {
+        if (row.propertyId) inspectionCounts.set(row.propertyId, Number(row.count) || 0);
+      });
+    }
+    return {
+      items: rows.map((row) => ({
+        ...row,
+        activeTenantCount: tenantCounts.get(row.id) ?? 0,
+        pendingInspectionCount: inspectionCounts.get(row.id) ?? 0,
+      })),
+      total: Number(total) || 0,
+      page: options.page,
+      pageSize: options.pageSize,
+    };
   }
 
   async getPropertiesWithStatsByBlock(blockId: string): Promise<any[]> {
@@ -1443,6 +1686,88 @@ export class DatabaseStorage implements IStorage {
     });
   }
 
+  async listInspectionsPage(options: {
+    organizationId?: string;
+    inspectorId?: string;
+    page: number;
+    pageSize: number;
+    blockId?: string;
+    propertyId?: string;
+    status?: string;
+    tenantId?: string;
+    overdue?: boolean;
+    dueSoon?: boolean;
+  }): Promise<{ items: any[]; total: number; page: number; pageSize: number }> {
+    const empty = { items: [], total: 0, page: options.page, pageSize: options.pageSize };
+    if (!options.organizationId && !options.inspectorId) return empty;
+    const filters: SQL[] = [];
+    if (options.organizationId) {
+      filters.push(or(
+        eq(properties.organizationId, options.organizationId),
+        eq(blocks.organizationId, options.organizationId),
+      )!);
+    }
+    if (options.inspectorId) filters.push(eq(inspections.inspectorId, options.inspectorId));
+    if (options.propertyId) filters.push(eq(inspections.propertyId, options.propertyId));
+    if (options.blockId) {
+      filters.push(or(
+        eq(inspections.blockId, options.blockId),
+        eq(properties.blockId, options.blockId),
+      )!);
+    }
+    if (options.status) filters.push(eq(inspections.status, options.status as any));
+    if (options.tenantId) filters.push(eq(inspections.tenantId, options.tenantId));
+    if (options.overdue) {
+      filters.push(sql`${inspections.status} is distinct from 'completed'`);
+      filters.push(sql`${inspections.scheduledDate}::date < current_date`);
+    }
+    if (options.dueSoon) {
+      filters.push(sql`${inspections.status} is distinct from 'completed'`);
+      filters.push(sql`${inspections.scheduledDate}::date >= current_date`);
+      filters.push(sql`${inspections.scheduledDate}::date <= current_date + 7`);
+    }
+    const where = and(...filters);
+    const [{ total }] = await db
+      .select({ total: sql<number>`count(*)::int` })
+      .from(inspections)
+      .leftJoin(properties, eq(inspections.propertyId, properties.id))
+      .leftJoin(blocks, eq(inspections.blockId, blocks.id))
+      .where(where);
+    const rows = await db
+      .select({
+        inspection: inspections,
+        property: properties,
+        block: blocks,
+        clerkFirstName: users.firstName,
+        clerkLastName: users.lastName,
+        clerkEmail: users.email,
+        templateName: inspectionTemplates.name,
+      })
+      .from(inspections)
+      .leftJoin(properties, eq(inspections.propertyId, properties.id))
+      .leftJoin(blocks, eq(inspections.blockId, blocks.id))
+      .leftJoin(users, eq(inspections.inspectorId, users.id))
+      .leftJoin(inspectionTemplates, eq(inspections.templateId, inspectionTemplates.id))
+      .where(where)
+      .orderBy(desc(inspections.scheduledDate))
+      .limit(options.pageSize)
+      .offset((options.page - 1) * options.pageSize);
+    return {
+      items: rows.map((row) => ({
+        ...row.inspection,
+        property: row.property,
+        block: row.block,
+        clerk: row.clerkFirstName || row.clerkLastName || row.clerkEmail
+          ? { firstName: row.clerkFirstName, lastName: row.clerkLastName, email: row.clerkEmail }
+          : null,
+        templateName: row.templateName ?? null,
+      })),
+      total: Number(total) || 0,
+      page: options.page,
+      pageSize: options.pageSize,
+    };
+  }
+
   async getInspection(id: string): Promise<Inspection | undefined> {
     const [inspection] = await db.select().from(inspections).where(eq(inspections.id, id));
     return inspection;
@@ -1522,6 +1847,101 @@ export class DatabaseStorage implements IStorage {
       .from(complianceDocuments)
       .where(eq(complianceDocuments.organizationId, organizationId))
       .orderBy(desc(complianceDocuments.expiryDate));
+  }
+
+  async listComplianceDocumentsPage(organizationId: string, options: {
+    page: number;
+    pageSize: number;
+    search?: string;
+    documentType?: string;
+    status?: string;
+    propertyId?: string;
+    blockId?: string;
+    sortBy?: string;
+    sortOrder?: string;
+  }) {
+    const filters: SQL[] = [eq(complianceDocuments.organizationId, organizationId)];
+    if (options.propertyId) filters.push(eq(complianceDocuments.propertyId, options.propertyId));
+    if (options.blockId) filters.push(eq(complianceDocuments.blockId, options.blockId));
+    if (options.documentType) filters.push(eq(complianceDocuments.documentType, options.documentType));
+    const search = options.search?.trim();
+    if (search) {
+      const pattern = `%${search.replace(/[%_\\]/g, "")}%`;
+      filters.push(or(
+        ilike(complianceDocuments.documentType, pattern),
+        sql`exists (
+          select 1 from properties p
+          where p.id = ${complianceDocuments.propertyId} and p.name ilike ${pattern}
+        )`,
+        sql`exists (
+          select 1 from blocks b
+          where b.id = ${complianceDocuments.blockId} and b.name ilike ${pattern}
+        )`,
+      )!);
+    }
+    if (options.status === "expired") {
+      filters.push(sql`${complianceDocuments.expiryDate} is not null and ${complianceDocuments.expiryDate} < now()`);
+    } else if (options.status === "current") {
+      filters.push(sql`${complianceDocuments.expiryDate} is null or ${complianceDocuments.expiryDate} >= now()`);
+    } else if (options.status === "expiring") {
+      filters.push(sql`${complianceDocuments.expiryDate} is not null and ${complianceDocuments.expiryDate} >= now() and ${complianceDocuments.expiryDate} <= now() + interval '90 days'`);
+    }
+    const where = and(...filters);
+    const [counts] = await db
+      .select({
+        total: sql<number>`count(*)::int`,
+        expired: sql<number>`count(*) filter (where ${complianceDocuments.expiryDate} is not null and ${complianceDocuments.expiryDate} < now())::int`,
+        dueSoon: sql<number>`count(*) filter (where ${complianceDocuments.expiryDate} is not null and ${complianceDocuments.expiryDate} >= now() and ${complianceDocuments.expiryDate} <= now() + interval '30 days')::int`,
+        expiring: sql<number>`count(*) filter (where ${complianceDocuments.expiryDate} is not null and ${complianceDocuments.expiryDate} >= now() and ${complianceDocuments.expiryDate} <= now() + interval '90 days')::int`,
+        valid: sql<number>`count(*) filter (where ${complianceDocuments.expiryDate} is null or ${complianceDocuments.expiryDate} > now() + interval '30 days')::int`,
+      })
+      .from(complianceDocuments)
+      .where(where);
+    const direction = options.sortOrder === "desc" ? desc : asc;
+    const order = options.sortBy === "type"
+      ? direction(complianceDocuments.documentType)
+      : options.sortBy === "date"
+        ? direction(complianceDocuments.createdAt)
+        : options.sortBy === "status"
+          ? sql`case when ${complianceDocuments.expiryDate} is not null and ${complianceDocuments.expiryDate} < now() then 1 else 0 end ${options.sortOrder === "desc" ? sql`desc` : sql`asc`}`
+          : direction(complianceDocuments.expiryDate);
+    const items = await db
+      .select()
+      .from(complianceDocuments)
+      .where(where)
+      .orderBy(order)
+      .limit(options.pageSize)
+      .offset((options.page - 1) * options.pageSize);
+    const calendar = await db
+      .select({
+        id: complianceDocuments.id,
+        documentType: complianceDocuments.documentType,
+        expiryDate: complianceDocuments.expiryDate,
+        documentUrl: complianceDocuments.documentUrl,
+        createdAt: complianceDocuments.createdAt,
+      })
+      .from(complianceDocuments)
+      .where(where);
+    const typeRows = await db
+      .selectDistinct({ documentType: complianceDocuments.documentType })
+      .from(complianceDocuments)
+      .where(eq(complianceDocuments.organizationId, organizationId))
+      .orderBy(asc(complianceDocuments.documentType));
+    return {
+      items,
+      total: Number(counts?.total) || 0,
+      page: options.page,
+      pageSize: options.pageSize,
+      counts: {
+        total: Number(counts?.total) || 0,
+        expired: Number(counts?.expired) || 0,
+        dueSoon: Number(counts?.dueSoon) || 0,
+        valid: Number(counts?.valid) || 0,
+        expiring: Number(counts?.expiring) || 0,
+      },
+      documentTypes: typeRows.map((row) => row.documentType).filter(Boolean),
+      calendar,
+    };
   }
 
   async updateComplianceStatus(id: string, status: string): Promise<ComplianceDocument> {
@@ -1614,11 +2034,10 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(maintenanceRequests.createdAt));
   }
 
-  async getMaintenanceByOrganization(organizationId: string): Promise<any[]> {
-    const reporterAlias = alias(users, 'reporter');
-    const assigneeAlias = alias(users, 'assignee');
-
-    return await db
+  private maintenanceDetails(where: SQL, limit?: number, offset?: number) {
+    const reporterAlias = alias(users, "reporter");
+    const assigneeAlias = alias(users, "assignee");
+    const base = db
       .select({
         id: maintenanceRequests.id,
         organizationId: maintenanceRequests.organizationId,
@@ -1667,8 +2086,81 @@ export class DatabaseStorage implements IStorage {
       .leftJoin(blocks, eq(maintenanceRequests.blockId, blocks.id))
       .leftJoin(reporterAlias, eq(maintenanceRequests.reportedBy, reporterAlias.id))
       .leftJoin(assigneeAlias, eq(maintenanceRequests.assignedTo, assigneeAlias.id))
-      .where(eq(maintenanceRequests.organizationId, organizationId))
+      .where(where)
       .orderBy(desc(maintenanceRequests.createdAt));
+    if (limit === undefined) return base;
+    return base.limit(limit).offset(offset ?? 0);
+  }
+
+  async getMaintenanceByOrganization(organizationId: string): Promise<any[]> {
+    return await this.maintenanceDetails(eq(maintenanceRequests.organizationId, organizationId));
+  }
+
+  async getMaintenanceRequestDetail(id: string, organizationId: string): Promise<any | undefined> {
+    const rows = await this.maintenanceDetails(and(
+      eq(maintenanceRequests.id, id),
+      eq(maintenanceRequests.organizationId, organizationId),
+    )!);
+    return rows[0];
+  }
+
+  async listMaintenancePage(organizationId: string, options: {
+    page: number;
+    pageSize: number;
+    status?: string;
+    propertyId?: string;
+    blockId?: string;
+    reportedBy?: string;
+  }) {
+    const filters: SQL[] = [eq(maintenanceRequests.organizationId, organizationId)];
+    if (options.propertyId) filters.push(eq(maintenanceRequests.propertyId, options.propertyId));
+    if (options.reportedBy) filters.push(eq(maintenanceRequests.reportedBy, options.reportedBy));
+    if (options.blockId) {
+      filters.push(or(
+        eq(maintenanceRequests.blockId, options.blockId),
+        eq(properties.blockId, options.blockId),
+      )!);
+    }
+    const scopeWhere = and(...filters);
+    const statusWhere = options.status
+      ? and(scopeWhere, eq(maintenanceRequests.status, options.status as any))
+      : scopeWhere;
+    const [{ total }] = await db
+      .select({ total: sql<number>`count(*)::int` })
+      .from(maintenanceRequests)
+      .leftJoin(properties, eq(maintenanceRequests.propertyId, properties.id))
+      .leftJoin(blocks, eq(maintenanceRequests.blockId, blocks.id))
+      .where(statusWhere);
+    const countRows = await db
+      .select({
+        status: maintenanceRequests.status,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(maintenanceRequests)
+      .leftJoin(properties, eq(maintenanceRequests.propertyId, properties.id))
+      .leftJoin(blocks, eq(maintenanceRequests.blockId, blocks.id))
+      .where(scopeWhere)
+      .groupBy(maintenanceRequests.status);
+    const counts = { all: 0, open: 0, in_progress: 0, completed: 0, closed: 0 };
+    for (const row of countRows) {
+      const count = Number(row.count) || 0;
+      counts.all += count;
+      if (row.status === "open" || row.status === "in_progress" || row.status === "completed" || row.status === "closed") {
+        counts[row.status] += count;
+      }
+    }
+    const items = await this.maintenanceDetails(
+      statusWhere!,
+      options.pageSize,
+      (options.page - 1) * options.pageSize,
+    );
+    return {
+      items,
+      total: Number(total) || 0,
+      page: options.page,
+      pageSize: options.pageSize,
+      counts,
+    };
   }
 
   async updateMaintenanceStatus(id: string, status: string, assignedTo?: string): Promise<MaintenanceRequest> {
@@ -1967,8 +2459,58 @@ export class DatabaseStorage implements IStorage {
       .orderBy(blocks.name);
   }
 
-  async getBlocksWithStats(organizationId: string): Promise<any[]> {
-    const allBlocks = await this.getBlocksByOrganization(organizationId);
+  async listBlocksPage(organizationId: string, options: {
+    page: number;
+    pageSize: number;
+    search?: string;
+    tagIds?: string[];
+  }): Promise<{ items: any[]; total: number; page: number; pageSize: number }> {
+    const filters: SQL[] = [eq(blocks.organizationId, organizationId)];
+    const search = options.search?.trim();
+    if (search) {
+      const pattern = `%${search.replace(/[%_\\]/g, "")}%`;
+      filters.push(or(ilike(blocks.name, pattern), ilike(blocks.address, pattern))!);
+    }
+    const tagIds = options.tagIds?.filter(Boolean) ?? [];
+    if (tagIds.length > 0) {
+      filters.push(sql`exists (
+        select 1 from block_tags bt
+        where bt.block_id = ${blocks.id}
+          and bt.tag_id in (${sql.join(tagIds.map((id) => sql`${id}`), sql`, `)})
+        group by bt.block_id
+        having count(distinct bt.tag_id) = ${tagIds.length}
+      )`);
+    }
+    const where = and(...filters);
+    const [{ total }] = await db
+      .select({ total: sql<number>`count(*)::int` })
+      .from(blocks)
+      .where(where);
+    const idRows = await db
+      .select({ id: blocks.id })
+      .from(blocks)
+      .where(where)
+      .orderBy(asc(blocks.name))
+      .limit(options.pageSize)
+      .offset((options.page - 1) * options.pageSize);
+    const items = idRows.length > 0
+      ? await this.getBlocksWithStats(organizationId, idRows.map((row) => row.id))
+      : [];
+    return {
+      items,
+      total: Number(total) || 0,
+      page: options.page,
+      pageSize: options.pageSize,
+    };
+  }
+
+  async getBlocksWithStats(organizationId: string, restrictToIds?: string[]): Promise<any[]> {
+    let allBlocks = await this.getBlocksByOrganization(organizationId);
+    if (restrictToIds) {
+      const order = new Map(restrictToIds.map((id, index) => [id, index]));
+      allBlocks = allBlocks.filter((block) => order.has(block.id));
+      allBlocks.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+    }
 
     if (allBlocks.length === 0) {
       return [];
@@ -3146,6 +3688,79 @@ export class DatabaseStorage implements IStorage {
       .from(assetInventory)
       .where(eq(assetInventory.organizationId, organizationId))
       .orderBy(desc(assetInventory.createdAt));
+  }
+
+  async listAssetInventoryPage(organizationId: string, options: {
+    page: number;
+    pageSize: number;
+    search?: string;
+    category?: string;
+    condition?: string;
+    scopeId?: string;
+    location?: string;
+  }): Promise<{
+    items: AssetInventory[];
+    total: number;
+    page: number;
+    pageSize: number;
+    locations: string[];
+  }> {
+    const filters = [eq(assetInventory.organizationId, organizationId)];
+    if (options.category) filters.push(eq(assetInventory.category, options.category));
+    if (options.condition) filters.push(eq(assetInventory.condition, options.condition as AssetInventory["condition"]));
+    if (options.location) filters.push(eq(assetInventory.location, options.location));
+    if (options.scopeId) {
+      filters.push(or(
+        eq(assetInventory.propertyId, options.scopeId),
+        eq(assetInventory.blockId, options.scopeId),
+      )!);
+    }
+    const search = options.search?.trim();
+    if (search) {
+      const pattern = `%${search.replace(/[%_\\]/g, "")}%`;
+      filters.push(or(
+        ilike(assetInventory.name, pattern),
+        ilike(assetInventory.description, pattern),
+        ilike(assetInventory.location, pattern),
+        sql`exists (
+          select 1 from properties p
+          where p.id = ${assetInventory.propertyId}
+            and (p.name ilike ${pattern} or coalesce(p.address, '') ilike ${pattern})
+        )`,
+        sql`exists (
+          select 1 from blocks b
+          where b.id = ${assetInventory.blockId}
+            and (b.name ilike ${pattern} or coalesce(b.address, '') ilike ${pattern})
+        )`,
+      )!);
+    }
+    const where = and(...filters);
+    const [{ total }] = await db
+      .select({ total: sql<number>`count(*)::int` })
+      .from(assetInventory)
+      .where(where);
+    const items = await db
+      .select()
+      .from(assetInventory)
+      .where(where)
+      .orderBy(desc(assetInventory.createdAt))
+      .limit(options.pageSize)
+      .offset((options.page - 1) * options.pageSize);
+    const locationRows = await db
+      .selectDistinct({ location: assetInventory.location })
+      .from(assetInventory)
+      .where(and(
+        eq(assetInventory.organizationId, organizationId),
+        sql`nullif(btrim(${assetInventory.location}), '') is not null`,
+      ))
+      .orderBy(asc(assetInventory.location));
+    return {
+      items,
+      total: Number(total) || 0,
+      page: options.page,
+      pageSize: options.pageSize,
+      locations: locationRows.map((row) => row.location).filter((value): value is string => Boolean(value)),
+    };
   }
 
   async getAssetInventoryByProperty(propertyId: string): Promise<AssetInventory[]> {

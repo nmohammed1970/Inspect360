@@ -1,5 +1,6 @@
 import { PreviewableImage } from "@/components/ImagePreview";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { LIST_PAGE_SIZE, ListPagination } from "@/components/ListPagination";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -195,6 +196,7 @@ export default function Team() {
   const [roleFilter, setRoleFilter] = useState<string>("all");
   const [skillsFilter, setSkillsFilter] = useState("");
   const [educationFilter, setEducationFilter] = useState("");
+  const [teamPage, setTeamPage] = useState(1);
   
   // Form states
   const [firstName, setFirstName] = useState("");
@@ -641,6 +643,10 @@ export default function Team() {
     return addr.formatted || [addr.street, addr.city, addr.state, addr.postalCode, addr.country].filter(Boolean).join(", ");
   };
 
+  useEffect(() => {
+    setTeamPage(1);
+  }, [searchQuery, roleFilter, skillsFilter, educationFilter]);
+
   // Filter team members based on search and filter criteria
   const filteredTeamMembers = teamMembers?.filter((member) => {
     // Search query filter (name, email, username)
@@ -690,6 +696,10 @@ export default function Team() {
   };
 
   const hasActiveFilters = searchQuery || roleFilter !== "all" || skillsFilter || educationFilter;
+  const pagedTeamMembers = (filteredTeamMembers ?? []).slice(
+    (teamPage - 1) * LIST_PAGE_SIZE,
+    teamPage * LIST_PAGE_SIZE,
+  );
 
   if (isLoading) {
     return (
@@ -886,7 +896,7 @@ export default function Team() {
       {/* Team Members List */}
       <div className="grid gap-6">
         {filteredTeamMembers.length > 0 ? (
-          filteredTeamMembers.map((member) => (
+          pagedTeamMembers.map((member) => (
             <Card key={member.id} className="rounded-lg border-border/80 shadow-sm" data-testid={`card-team-member-${member.id}`}>
               <CardContent className="p-6">
                 <div className="flex items-start gap-6">
@@ -1033,6 +1043,13 @@ export default function Team() {
           </Card>
         )}
       </div>
+      <ListPagination
+        page={teamPage}
+        pageSize={LIST_PAGE_SIZE}
+        total={filteredTeamMembers?.length ?? 0}
+        onPageChange={setTeamPage}
+        noun="team members"
+      />
 
       {/* Create/Edit Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>

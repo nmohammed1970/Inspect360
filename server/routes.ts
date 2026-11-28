@@ -1389,6 +1389,14 @@ function findTenantSignatureFieldFromTemplate(templateSnapshotJson: any): {
   return null;
 }
 
+function readListPage(query: Record<string, unknown>) {
+  const page = Math.max(1, parseInt(String(query.page ?? "1"), 10) || 1);
+  const pageSize = Math.min(48, Math.max(1, parseInt(String(query.pageSize ?? "24"), 10) || 24));
+  const text = (value: unknown, max = 100) =>
+    typeof value === "string" && value.trim() ? value.trim().slice(0, max) : undefined;
+  return { page, pageSize, text };
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   const SELF_SERVE_DISABLED = {
     message: "Self-serve purchases are disabled. Please contact your administrator.",
@@ -5197,6 +5205,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "No organization found" });
       }
 
+      if (req.query.page !== undefined) {
+        const { page, pageSize, text } = readListPage(req.query);
+        const type = text(req.query.type, 40);
+        const result = await storage.listContactsPage(user.organizationId, {
+          page,
+          pageSize,
+          search: text(req.query.search),
+          type: type && type !== "all" ? type : undefined,
+          tagId: text(req.query.tagId, 80),
+          blockId: text(req.query.blockId, 80),
+          propertyId: text(req.query.propertyId, 80),
+        });
+        return res.json(result);
+      }
+
       const contacts = await storage.getContactsByOrganization(user.organizationId);
 
       // Fetch tags for each contact
@@ -5483,7 +5506,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await storage.getUser(userId);
 
       if (!user) {
+        if (req.query.page !== undefined) {
+          return res.json({ items: [], total: 0, page: 1, pageSize: 24 });
+        }
         return res.json([]);
+      }
+
+      if (req.query.page !== undefined) {
+        if (!user.organizationId) {
+          return res.json({ items: [], total: 0, page: 1, pageSize: 24 });
+        }
+        const { page, pageSize, text } = readListPage(req.query);
+        const blockId = text(req.query.blockId, 80);
+        const tagIds = typeof req.query.tagIds === "string"
+          ? req.query.tagIds.split(",").map((id) => id.trim()).filter(Boolean).slice(0, 20)
+          : [];
+        let onlyPropertyIds: string[] | undefined;
+        if (user.role === "tenant") {
+          const assignments = await db
+            .select({ propertyId: tenantAssignments.propertyId })
+            .from(tenantAssignments)
+            .where(and(eq(tenantAssignments.tenantId, userId), eq(tenantAssignments.isActive, true)));
+          onlyPropertyIds = assignments.map((assignment) => assignment.propertyId);
+        }
+        const result = await storage.listPropertiesPage(user.organizationId, {
+          page,
+          pageSize,
+          search: text(req.query.search),
+          blockId,
+          tagIds,
+          onlyPropertyIds,
+        });
+        return res.json(result);
       }
 
       // For tenants, return properties from their active assignments
@@ -6841,6 +6895,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Access denied" });
       }
 
+      if (req.query.page !== undefined) {
+        const { page, pageSize, text } = readListPage(req.query);
+        const result = await storage.listPropertiesPage(user.organizationId, {
+          page,
+          pageSize,
+          search: text(req.query.search),
+          blockId,
+        });
+        return res.json(result);
+      }
+
       const properties = await storage.getPropertiesByBlock(blockId);
       res.json(properties);
     } catch (error) {
@@ -7541,7 +7606,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await storage.getUser(userId);
 
       if (!user) {
+        if (req.query.page !== undefined) {
+          return res.json({ items: [], total: 0, page: 1, pageSize: 24 });
+        }
         return res.json([]);
+      }
+
+      if (req.query.page !== undefined) {
+        const { page, pageSize, text } = readListPage(req.query);
+        const orgWide = (user.role === "owner" || user.role === "compliance") && user.organizationId;
+        const status = text(req.query.status, 40);
+        const result = await storage.listInspectionsPage({
+          organizationId: orgWide ? user.organizationId! : undefined,
+          inspectorId: orgWide ? undefined : userId,
+          page,
+          pageSize,
+          blockId: text(req.query.blockId, 80),
+          propertyId: text(req.query.propertyId, 80),
+          status: status && /^[a-z_]+$/.test(status) ? status : undefined,
+          tenantId: text(req.query.tenantId, 80),
+          overdue: req.query.overdue === "true",
+          dueSoon: req.query.dueSoon === "true",
+        });
+        return res.json(result);
       }
 
       // Owners/compliance see all org inspections; assignees (clerk/contractor/tenant) see theirs
@@ -14863,6 +14950,25 @@ Write how the condition changed. JSON only: {"notes_comparison": "comparison tex
         return res.json([]);
       }
 
+      if (req.query.page !== undefined) {
+        const { page, pageSize, text } = readListPage(req.query);
+        const status = text(req.query.status, 20);
+        const sortBy = text(req.query.sortBy, 20);
+        const sortOrder = req.query.sortOrder === "desc" ? "desc" : "asc";
+        const result = await storage.listComplianceDocumentsPage(user.organizationId, {
+          page,
+          pageSize,
+          search: text(req.query.search),
+          documentType: text(req.query.documentType, 80),
+          status: status === "expired" || status === "current" || status === "expiring" ? status : undefined,
+          propertyId: text(req.query.propertyId, 80),
+          blockId: text(req.query.blockId, 80),
+          sortBy: sortBy === "type" || sortBy === "date" || sortBy === "status" || sortBy === "expiry" ? sortBy : "expiry",
+          sortOrder,
+        });
+        return res.json(result);
+      }
+
       const docs = await storage.getComplianceDocuments(user.organizationId);
       res.json(docs);
     } catch (error) {
@@ -15663,9 +15769,7 @@ ${optionalNotes || "No details provided."}`;
         return res.status(403).json({ message: "Unauthorized" });
       }
 
-      // Fetch all requests for the organization and find the one with matching ID
-      const requests = await storage.getMaintenanceByOrganization(user.organizationId);
-      const request = requests.find(r => r.id === id);
+      const request = await storage.getMaintenanceRequestDetail(id, user.organizationId);
 
       if (!request) {
         console.log(`[GET /api/maintenance/:id] Request not found: ${id}`);
@@ -15692,6 +15796,20 @@ ${optionalNotes || "No details provided."}`;
       const user = await storage.getUser(req.user.id);
       if (!user?.organizationId) {
         return res.json([]);
+      }
+
+      if (req.query.page !== undefined) {
+        const { page, pageSize, text } = readListPage(req.query);
+        const status = text(req.query.status, 40);
+        const result = await storage.listMaintenancePage(user.organizationId, {
+          page,
+          pageSize,
+          status: status && status !== "all" && /^[a-z_]+$/.test(status) ? status : undefined,
+          propertyId: text(req.query.propertyId, 80),
+          blockId: text(req.query.blockId, 80),
+          reportedBy: user.role === "tenant" ? user.id : undefined,
+        });
+        return res.json(result);
       }
 
       const requests = await storage.getMaintenanceByOrganization(user.organizationId);
@@ -16035,6 +16153,25 @@ ${optionalNotes || "No details provided."}`;
       const user = await storage.getUser(userId);
       if (!user?.organizationId) {
         return res.status(403).json({ error: "No organization found" });
+      }
+
+      if (req.query.summary === "1") {
+        const blocks = await storage.getBlocksByOrganization(user.organizationId);
+        return res.json(blocks);
+      }
+
+      if (req.query.page !== undefined) {
+        const { page, pageSize, text } = readListPage(req.query);
+        const tagIds = typeof req.query.tagIds === "string"
+          ? req.query.tagIds.split(",").map((id) => id.trim()).filter(Boolean).slice(0, 20)
+          : [];
+        const result = await storage.listBlocksPage(user.organizationId, {
+          page,
+          pageSize,
+          search: text(req.query.search),
+          tagIds,
+        });
+        return res.json(result);
       }
 
       const blocks = await storage.getBlocksWithStats(user.organizationId);
@@ -17423,6 +17560,27 @@ ${optionalNotes || "No details provided."}`;
       }
 
       const { propertyId, blockId } = req.query;
+
+      if (req.query.page !== undefined) {
+        const pageSize = Math.min(48, Math.max(1, parseInt(String(req.query.pageSize || "24"), 10) || 24));
+        const page = Math.max(1, parseInt(String(req.query.page || "1"), 10) || 1);
+        const search = String(req.query.search || "").trim().slice(0, 100);
+        const category = String(req.query.category || "").trim();
+        const condition = String(req.query.condition || "").trim();
+        const allowedConditions = new Set(["excellent", "good", "fair", "poor", "needs_replacement"]);
+        const scopeId = String(req.query.scopeId || "").trim();
+        const location = String(req.query.location || "").trim();
+        const result = await storage.listAssetInventoryPage(user.organizationId, {
+          page,
+          pageSize,
+          search: search || undefined,
+          category: category && category !== "all" ? category : undefined,
+          condition: allowedConditions.has(condition) ? condition : undefined,
+          scopeId: scopeId && scopeId !== "all" ? scopeId : undefined,
+          location: location && location !== "all" ? location : undefined,
+        });
+        return res.json(result);
+      }
 
       // If propertyId is provided, filter by property
       if (propertyId) {

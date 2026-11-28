@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Users, Plus, Search, Mail, Phone, Building2, Briefcase, Globe, MapPin, Trash2, Edit, Tag, X, Home, Filter } from "lucide-react";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import type { Contact, Tag as TagType, Block, Property, TenantAssignment } from "@shared/schema";
+import type { Contact, Tag as TagType, Block, Property } from "@shared/schema";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { AddressInput } from "@/components/AddressInput";
 import { PhoneInput } from "@/components/PhoneInput";
@@ -24,7 +24,7 @@ import { useLocale } from "@/contexts/LocaleContext";
 import { cn } from "@/lib/utils";
 import { pagePad, dialogContentBase, formGrid2, dialogFooterSticky, cardGrid } from "@/lib/responsive";
 import { PageHeader } from "@/components/PageHeader";
-import { useCompanyModules } from "@/hooks/useCompanyModules";
+import { LIST_PAGE_SIZE, ListPagination, useDebouncedValue } from "@/components/ListPagination";
 
 type ContactWithTags = Omit<Contact, 'tags'> & { tags?: TagType[] };
 
@@ -54,7 +54,6 @@ const contactTypeBadgeVariants: Record<string, "default" | "secondary" | "outlin
 
 export default function Contacts() {
   const { toast } = useToast();
-  const { tenanciesEnabled } = useCompanyModules();
   const { countryCode: userCountryCode } = useLocale();
   const defaultPhoneCode = getPhoneCodeForCountry(userCountryCode);
   const [searchTerm, setSearchTerm] = useState("");
@@ -69,26 +68,56 @@ export default function Contacts() {
   const [newTagName, setNewTagName] = useState("");
   const [phoneValue, setPhoneValue] = useState<string>("");
 
-  const { data: contacts, isLoading } = useQuery<ContactWithTags[]>({
-    queryKey: ["/api/contacts"],
+  const [page, setPage] = useState(1);
+  const debouncedSearch = useDebouncedValue(searchTerm);
+
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch, filterType, filterTag, filterBlock, filterProperty]);
+
+  const { data: contactPage, isLoading, isFetching } = useQuery<{
+    items: ContactWithTags[];
+    total: number;
+    page: number;
+    pageSize: number;
+  }>({
+    queryKey: ["/api/contacts", "page", page, debouncedSearch, filterType, filterTag, filterBlock, filterProperty],
+    placeholderData: (previous) => previous,
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        page: String(page),
+        pageSize: String(LIST_PAGE_SIZE),
+      });
+      if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
+      if (filterType !== "all") params.set("type", filterType);
+      if (filterTag !== "all") params.set("tagId", filterTag);
+      if (filterBlock !== "all") params.set("blockId", filterBlock);
+      if (filterProperty !== "all") params.set("propertyId", filterProperty);
+      const res = await fetch(`/api/contacts?${params}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load contacts");
+      return res.json();
+    },
   });
+  const contacts = contactPage?.items ?? [];
+  const contactTotal = contactPage?.total ?? 0;
 
   const { data: allTags } = useQuery<TagType[]>({
     queryKey: ["/api/tags"],
   });
 
   const { data: blocks = [] } = useQuery<Block[]>({
-    queryKey: ["/api/blocks"],
+    queryKey: ["/api/blocks", "summary"],
+    queryFn: async () => {
+      const res = await fetch("/api/blocks?summary=1", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load blocks");
+      return res.json();
+    },
   });
 
   const { data: properties = [] } = useQuery<Property[]>({
     queryKey: ["/api/properties"],
   });
 
-  const { data: tenantAssignments = [] } = useQuery<TenantAssignment[]>({
-    queryKey: ["/api/tenant-assignments"],
-    enabled: tenanciesEnabled,
-  });
 
   const createMutation = useMutation({
     mutationFn: async (data: any) => {
@@ -304,67 +333,13 @@ export default function Contacts() {
     }
   };
 
-  // Build a map of linkedUserId to their tenant assignments (for block/property filtering)
-  const tenantAssignmentMap = useMemo(() => {
-    const map = new Map<string, TenantAssignment[]>();
-    tenantAssignments.forEach((assignment) => {
-      const existing = map.get(assignment.tenantId) || [];
-      existing.push(assignment);
-      map.set(assignment.tenantId, existing);
-    });
-    return map;
-  }, [tenantAssignments]);
-
   // Filter properties based on selected block
   const filteredProperties = useMemo(() => {
     if (filterBlock === "all") return properties;
     return properties.filter((p) => p.blockId === filterBlock);
   }, [properties, filterBlock]);
 
-  const filteredContacts = contacts?.filter((contact) => {
-    const matchesSearch =
-      searchTerm === "" ||
-      `${contact.firstName} ${contact.lastName}`.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      contact.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      contact.companyName?.toLowerCase().includes(searchTerm.toLowerCase());
-
-    const matchesType = filterType === "all" || contact.type === filterType;
-
-    const matchesTag = filterTag === "all" || contact.tags?.some(tag => tag.id === filterTag);
-
-    // Block/Property filtering only applies to tenant contacts with linkedUserId
-    let matchesBlock = true;
-    let matchesProperty = true;
-
-    if (filterBlock !== "all" || filterProperty !== "all") {
-      // Only filter tenant contacts by block/property
-      if (contact.type === "tenant" && contact.linkedUserId) {
-        const assignments = tenantAssignmentMap.get(contact.linkedUserId) || [];
-        const activeAssignments = assignments.filter(a => a.isActive);
-        
-        if (filterBlock !== "all") {
-          // Check if any active assignment is in a property belonging to this block
-          matchesBlock = activeAssignments.some(assignment => {
-            const property = properties.find(p => p.id === assignment.propertyId);
-            return property?.blockId === filterBlock;
-          });
-        }
-        
-        if (filterProperty !== "all") {
-          // Check if any active assignment is for this specific property
-          matchesProperty = activeAssignments.some(assignment => 
-            assignment.propertyId === filterProperty
-          );
-        }
-      } else if (filterBlock !== "all" || filterProperty !== "all") {
-        // Non-tenant contacts don't match block/property filters
-        matchesBlock = false;
-        matchesProperty = false;
-      }
-    }
-
-    return matchesSearch && matchesType && matchesTag && matchesBlock && matchesProperty;
-  });
+  const filteredContacts = contacts;
 
   const getInitials = (firstName: string, lastName: string) => {
     return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase();
@@ -1093,6 +1068,15 @@ export default function Contacts() {
             ))}
           </div>
         )}
+
+      <ListPagination
+        page={page}
+        pageSize={LIST_PAGE_SIZE}
+        total={contactTotal}
+        isFetching={isFetching}
+        onPageChange={setPage}
+        noun="contacts"
+      />
 
       <DeleteConfirmDialog
         open={!!contactToDelete}
